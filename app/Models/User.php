@@ -12,7 +12,7 @@ class User extends Authenticatable implements MustVerifyEmailContract
 {
     use Notifiable, MustVerifyEmailTrait;
 
-    protected $fillable=['role','first_name','last_name','birth_date','email','password','status','verified_at','deactivated_at','deactivation_reason'];
+    protected $fillable=['role','first_name','last_name','birth_date','email','password','status','deactivated_at','deactivation_reason'];
     protected $hidden=['password','remember_token'];
 
     protected function casts(): array
@@ -20,7 +20,6 @@ class User extends Authenticatable implements MustVerifyEmailContract
         return [
             'birth_date'=>'date',
             'email_verified_at'=>'datetime',
-            'verified_at'=>'datetime',
             'deactivated_at'=>'datetime',
             'password'=>'hashed',
         ];
