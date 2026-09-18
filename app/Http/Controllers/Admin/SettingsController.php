@@ -19,8 +19,6 @@ class SettingsController extends Controller
 
         $settings=[
             'site_name'=>Setting::valueOf('site_name','Wear&Earn'),
-            'proof_reminders_enabled'=>Setting::valueOf('proof_reminders_enabled',true),
-            'email_notifications_enabled'=>Setting::valueOf('email_notifications_enabled',true),
             'push_notifications_enabled'=>Setting::valueOf('push_notifications_enabled',true),
             'support_email'=>Setting::valueOf('support_email',''),
             'reliability_rules'=>Setting::valueOf('reliability_rules',$defaultRules),
@@ -63,8 +61,6 @@ class SettingsController extends Controller
 
         $pairs=[
             'site_name'=>[$data['site_name'],'string'],
-            'proof_reminders_enabled'=>[$request->boolean('proof_reminders_enabled')?'1':'0','bool'],
-            'email_notifications_enabled'=>[$request->boolean('email_notifications_enabled')?'1':'0','bool'],
             'push_notifications_enabled'=>[$request->boolean('push_notifications_enabled')?'1':'0','bool'],
             'support_email'=>[$data['support_email']??'','string'],
             'reliability_rules'=>[json_encode($normalized,JSON_UNESCAPED_UNICODE|JSON_PRETTY_PRINT),'json'],
