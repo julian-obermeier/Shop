@@ -160,7 +160,6 @@ Route::prefix('admin')->name('admin.')->middleware(['auth','active','admin'])->g
         Route::post('/ruecksendungen/{returnRequest}/abschliessen', [AdminReturnRequestController::class, 'complete'])->name('returns.complete');
         Route::get('/versandnachweise/{evidence}/datei', [AdminShipmentController::class, 'evidence'])->name('shipments.evidence');
         Route::post('/versand/{shipment}/pruefen', [AdminShipmentController::class, 'review'])->name('shipments.review');
-        Route::post('/auftraege/{order}/verguetung-freigeben', [AdminOrderController::class, 'release'])->name('orders.release');
         Route::get('/nicht-zuordenbare-sendungen', [AdminUnassignedShipmentController::class, 'index'])->name('unassigned-shipments.index');
         Route::post('/nicht-zuordenbare-sendungen', [AdminUnassignedShipmentController::class, 'store'])->name('unassigned-shipments.store');
 
