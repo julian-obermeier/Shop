@@ -79,10 +79,26 @@ class OrderService
                     'label'=>'Tagesnachweis',
                     'start'=>'00:00',
                     'end'=>'23:59',
-                    'required_images'=>(int)$calc['proofs_per_day'],
+                    'required_images'=>(int)$lockedOffer->proofs_per_day,
                     'text_required'=>false,
                     'face_required'=>false,
                 ]];
+            }
+
+            foreach($options as $option){
+                $extraProofs=(int)$option->extra_proofs_per_day;
+                if($extraProofs<=0) continue;
+
+                $proofRequirements[]=[
+                    'key'=>'extra_option_'.$option->id,
+                    'label'=>'Extra-Nachweis: '.$option->name,
+                    'start'=>'00:00',
+                    'end'=>'23:59',
+                    'required_images'=>$extraProofs,
+                    'text_required'=>false,
+                    'face_required'=>false,
+                    'offer_option_id'=>$option->id,
+                ];
             }
 
             $snapshot=[
