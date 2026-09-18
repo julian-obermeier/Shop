@@ -49,7 +49,12 @@
 
 <div class="panel"><h2>Aktive Einschränkungen</h2>
 @forelse($user->restrictions->where('active',true) as $item)
-<div class="notice"><strong>{{ strtoupper($item->type) }}</strong><br>{{ $item->reason }}<br><small>Bewährung: {{ (int)($item->successful_count ?? 0) }}/{{ (int)($item->required_successes ?? 5) }} · Aufhebung anschließend durch Admin</small></div>
+<div class="notice"><strong>{{ strtoupper($item->type) }}</strong><br>{{ $item->reason }}
+@if($item->type==='reliability')
+<br><small>Bewährung: {{ (int)$item->successful_count }}/{{ (int)$item->required_successes }} · nach 5/5 nur manuelle Aufhebung durch Admin</small>
+@if($item->max_active_orders!==null)<br><small>Persönliches Auftragslimit: {{ $item->max_active_orders }}</small>@endif
+@endif
+</div>
 @empty<p class="muted">Keine aktiven Einschränkungen.</p>@endforelse
 </div>
 
@@ -57,6 +62,14 @@
 @forelse($user->restrictions->sortByDesc('created_at') as $item)
 <div style="padding:10px 0;border-bottom:1px solid var(--line)"><strong>{{ strtoupper($item->type) }}</strong><p>{{ $item->reason }}</p><small class="muted">{{ $item->created_at->format('d.m.Y H:i') }} · {{ $item->active?'aktiv':'aufgehoben' }}</small></div>
 @empty<p class="muted">Keine Einschränkungen vorhanden.</p>@endforelse
+</div>
+<div class="panel"><h2>Bewährungs- & Zuverlässigkeitsverlauf</h2>
+@forelse($user->reliabilityEvents->take(100) as $event)
+<div style="padding:10px 0;border-bottom:1px solid var(--line)">
+<strong>{{ $event->description }}</strong>
+<br><small class="muted">{{ $event->occurred_at?->format('d.m.Y H:i') }}@if($event->order) · Auftrag #{{ $event->order->order_number }}@endif</small>
+</div>
+@empty<p class="muted">Noch keine Zuverlässigkeitsereignisse.</p>@endforelse
 </div>
 </aside>
 </div>
