@@ -14,6 +14,7 @@ class SettingsController extends Controller
             'site_name'=>Setting::valueOf('site_name','Wear&Earn'),
             'minimum_payout'=>Setting::valueOf('minimum_payout',10),
             'proof_reminders_enabled'=>Setting::valueOf('proof_reminders_enabled',true),
+            'email_notifications_enabled'=>Setting::valueOf('email_notifications_enabled',true),
             'support_email'=>Setting::valueOf('support_email',''),
         ];
         return view('admin.settings.index',compact('settings'));
@@ -31,6 +32,7 @@ class SettingsController extends Controller
             'site_name'=>[$data['site_name'],'string'],
             'minimum_payout'=>[(string)$data['minimum_payout'],'float'],
             'proof_reminders_enabled'=>[$request->boolean('proof_reminders_enabled')?'1':'0','bool'],
+            'email_notifications_enabled'=>[$request->boolean('email_notifications_enabled')?'1':'0','bool'],
             'support_email'=>[$data['support_email']??'','string'],
         ];
 
