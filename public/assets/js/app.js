@@ -80,7 +80,7 @@ document.addEventListener('DOMContentLoaded', () => {
       row.className='option-editor-row';
       row.innerHTML=`
         <label>Bezeichnung<input name="fields[${index}][label]"></label>
-        <label>Typ><select name="fields[${index}][type]">
+        <label>Typ<select name="fields[${index}][type]">
           <option value="text">Text</option><option value="textarea">Textbereich</option>
           <option value="number">Zahl</option><option value="select">Auswahl</option>
           <option value="radio">Radio</option><option value="checkbox">Ja/Nein</option>
