@@ -7,10 +7,15 @@ use Illuminate\Support\Facades\DB;
 
 class WalletService
 {
+    public function __construct(private ReliabilityService $reliability) {}
+
     public function release(Order $order): void
     {
-        DB::transaction(function() use($order){
-            $order=Order::with(['goodsInspection','days.proofs','shipment'])->whereKey($order->id)->lockForUpdate()->firstOrFail();
+        $completedOrder=DB::transaction(function() use($order){
+            $order=Order::with(['user','goodsInspection','days.proofs','shipment'])
+                ->whereKey($order->id)
+                ->lockForUpdate()
+                ->firstOrFail();
 
             abort_unless($order->status==='accepted',422,'Vergütung kann erst nach abgeschlossener und angenommener Warenprüfung freigegeben werden.');
             abort_unless($order->goodsInspection && $order->goodsInspection->result==='accepted',422,'Es fehlt eine erfolgreich abgeschlossene Warenprüfung.');
@@ -51,25 +56,9 @@ class WalletService
                 'reason'=>'Finale Vergütung '.$amount.' EUR freigegeben',
             ]);
 
-            if($this->isErrorFree($order)){
-                $order->user->restrictions()
-                    ->current()
-                    ->where('successful_count','<',DB::raw('required_successes'))
-                    ->increment('successful_count');
-            }
+            return $order->fresh(['user','goodsInspection','days.proofs','shipment']);
         });
-    }
 
-    private function isErrorFree(Order $order): bool
-    {
-        if((int)$order->reliability_issue_count>0) return false;
-
-        $proofs=$order->days->flatMap(fn($day)=>$day->proofs);
-        if($proofs->contains(fn($proof)=>(int)$proof->retry_number>0 || $proof->review_status==='rejected')) return false;
-
-        $extras=$order->goodsInspection?->extra_results;
-        if(is_array($extras) && collect($extras)->contains(fn($result)=>!((bool)($result['fulfilled']??false)))) return false;
-
-        return true;
+        $this->reliability->recordCleanCompletion($completedOrder);
     }
 }
