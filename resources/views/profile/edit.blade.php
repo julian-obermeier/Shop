@@ -1,9 +1,11 @@
 @extends('layouts.app')
 @section('title','Profil')
 @section('content')
-<div class="page-head"><span class="eyebrow">Konto</span><h1>Profil & Kontostatus</h1><p>Stammdaten, Verifizierungen, aktive Einschränkungen und Verwarnungen.</p></div>
+<div class="page-head"><span class="eyebrow">Konto</span><h1>Profil & Kontosicherheit</h1><p>Stammdaten, Verifizierungen, Zugangsdaten, Einschränkungen und Verwarnungen.</p></div>
+
 <div class="wallet-layout">
-<section class="panel"><h2>Stammdaten</h2>
+<section>
+<div class="panel"><h2>Stammdaten</h2>
 <form method="post" action="{{ route('profile.update') }}" class="form-grid">@csrf @method('PUT')
 <label>Vorname<input name="first_name" value="{{ old('first_name',$user->first_name) }}" required></label>
 <label>Nachname<input name="last_name" value="{{ old('last_name',$user->last_name) }}" required></label>
@@ -13,7 +15,28 @@
 <label>Ort<input name="city" value="{{ old('city',$user->profile?->city) }}"></label>
 <label>Ländercode<input name="country_code" value="{{ old('country_code',$user->profile?->country_code ?: 'DE') }}" maxlength="2" required></label>
 <div class="full"><button class="btn primary">Profil speichern</button></div>
-</form></section>
+</form>
+</div>
+
+<div class="panel" style="margin-top:18px"><h2>E-Mail-Adresse ändern</h2>
+<form method="post" action="{{ route('profile.email') }}" class="stack-form">@csrf @method('PUT')
+<label>Neue E-Mail-Adresse<input type="email" name="email" value="{{ $user->email }}" required autocomplete="email"></label>
+<label>Aktuelles Passwort<input type="password" name="current_password" required autocomplete="current-password"></label>
+<button class="btn secondary">E-Mail-Adresse ändern</button>
+</form>
+<p class="muted">Nach einer Änderung muss die neue Adresse erneut bestätigt werden.</p>
+</div>
+
+<div class="panel" style="margin-top:18px"><h2>Passwort ändern</h2>
+<form method="post" action="{{ route('profile.password') }}" class="stack-form">@csrf @method('PUT')
+<label>Aktuelles Passwort<input type="password" name="current_password" required autocomplete="current-password"></label>
+<label>Neues Passwort<input type="password" name="password" minlength="12" required autocomplete="new-password"></label>
+<label>Neues Passwort wiederholen<input type="password" name="password_confirmation" minlength="12" required autocomplete="new-password"></label>
+<button class="btn primary">Passwort ändern</button>
+</form>
+<p class="muted">Nach dem Passwortwechsel werden andere bestehende Sitzungen abgemeldet.</p>
+</div>
+</section>
 
 <aside>
 <div class="panel"><h2>Kontostatus</h2>
@@ -37,6 +60,8 @@
 <div style="padding:10px 0;border-bottom:1px solid var(--line)"><strong>{{ $warning->title }}</strong><p>{{ $warning->reason }}</p><small class="muted">{{ $warning->created_at->format('d.m.Y H:i') }}</small></div>
 @empty<p class="muted">Keine Verwarnungen.</p>@endforelse
 </div>
+
+<div class="panel"><h2>Datenschutz</h2><p>Datenauszug oder Lösch-/Anonymisierungsantrag verwalten.</p><a class="btn secondary wide" href="{{ route('privacy.index') }}">Datenschutzcenter öffnen</a></div>
 </aside>
 </div>
 @endsection
