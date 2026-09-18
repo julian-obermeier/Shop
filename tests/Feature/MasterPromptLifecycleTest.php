@@ -834,6 +834,154 @@ class MasterPromptLifecycleTest extends TestCase
     }
 
 
+    public function test_partial_goods_receipt_does_not_transfer_shipping_risk_until_complete_receipt(): void
+    {
+        Mail::fake();
+
+        $provider=$this->provider('partial-receipt@example.test');
+        $admin=$this->admin('admin-partial-receipt@example.test');
+        $category=$this->category();
+        $offer=$this->offer($category,'Partial Receipt');
+
+        $order=Order::create([
+            'order_number'=>'20260000314',
+            'user_id'=>$provider->id,
+            'offer_id'=>$offer->id,
+            'status'=>'shipped',
+            'compensation_total'=>40,
+            'offer_snapshot'=>['title'=>$offer->title,'duration_days'=>1],
+            'execution_completed_at'=>now()->subDay(),
+        ]);
+
+        $shipment=$order->shipment()->create([
+            'carrier'=>'DHL',
+            'status'=>'shipped',
+            'review_status'=>'accepted',
+            'shipped_at'=>now()->subDay(),
+            'ownership_transferred_at'=>now()->subDay(),
+        ]);
+
+        $this->actingAs($admin)->post(route('admin.orders.goods-receipt',$order),[
+            'complete'=>'0',
+            'note'=>'Sendung unvollständig',
+        ])->assertRedirect();
+
+        $this->assertNull($shipment->fresh()->risk_transferred_at);
+        $this->assertSame('received',$order->fresh()->status);
+
+        $this->actingAs($admin)->post(route('admin.orders.goods-receipt',$order->fresh()),[
+            'complete'=>'1',
+            'note'=>'Rest vollständig eingegangen',
+        ])->assertRedirect();
+
+        $this->assertNotNull($shipment->fresh()->risk_transferred_at);
+        $this->assertNotNull($shipment->fresh()->delivered_at);
+        $this->assertSame('inspection',$order->fresh()->status);
+    }
+
+    public function test_final_goods_calculation_preserves_promised_additional_compensation(): void
+    {
+        Mail::fake();
+
+        $provider=$this->provider('additional-comp@example.test');
+        $admin=$this->admin('admin-additional-comp@example.test');
+        $category=$this->category();
+        $offer=$this->offer($category,'Additional Compensation');
+
+        $order=Order::create([
+            'order_number'=>'20260000315',
+            'user_id'=>$provider->id,
+            'offer_id'=>$offer->id,
+            'status'=>'inspection',
+            'compensation_total'=>55,
+            'offer_snapshot'=>[
+                'title'=>$offer->title,
+                'base_compensation'=>40,
+                'duration_days'=>1,
+                'inspection_config'=>[
+                    'categories'=>[],
+                    'points_affect_compensation'=>false,
+                    'score_bands'=>[],
+                ],
+            ],
+            'current_requirements'=>[
+                'inspection_config'=>[
+                    'categories'=>[],
+                    'points_affect_compensation'=>false,
+                    'score_bands'=>[],
+                ],
+                'admin_addition'=>[
+                    'text'=>'Zusätzliche verbindliche Anforderung',
+                    'additional_compensation'=>15,
+                ],
+            ],
+            'series_number'=>1,
+            'execution_completed_at'=>now()->subDay(),
+            'received_at'=>now(),
+        ]);
+
+        OrderDay::create([
+            'order_id'=>$order->id,
+            'day_number'=>0,
+            'series_number'=>1,
+            'date'=>now('Europe/Berlin')->subDays(2)->toDateString(),
+            'required_proofs'=>1,
+            'status'=>'accepted',
+            'counts_toward_series'=>true,
+        ]);
+
+        OrderDay::create([
+            'order_id'=>$order->id,
+            'day_number'=>1,
+            'series_number'=>1,
+            'date'=>now('Europe/Berlin')->subDay()->toDateString(),
+            'required_proofs'=>1,
+            'status'=>'accepted',
+            'counts_toward_series'=>true,
+        ]);
+
+        $order->shipment()->create([
+            'carrier'=>'DHL',
+            'status'=>'delivered',
+            'review_status'=>'accepted',
+            'shipped_at'=>now()->subDay(),
+            'delivered_at'=>now(),
+            'ownership_transferred_at'=>now()->subDay(),
+            'risk_transferred_at'=>now(),
+        ]);
+
+        $order->goodsReceipt()->create([
+            'received_by'=>$admin->id,
+            'status'=>'received',
+            'complete'=>true,
+            'received_at'=>now(),
+        ]);
+
+        $categories=[];
+        foreach(['appearance','smell','taste','proofs','extras'] as $key){
+            $categories[$key]=[
+                'passed'=>'1',
+                'points'=>10,
+                'comment'=>null,
+            ];
+        }
+
+        $this->actingAs($admin)->post(route('admin.orders.goods-inspection',$order),[
+            'result'=>'accepted',
+            'categories'=>$categories,
+            'manual_base_percentage'=>50,
+        ])->assertRedirect();
+
+        $order->refresh();
+        $this->assertSame('completed',$order->status);
+        $this->assertEquals(35.0,(float)$order->final_compensation);
+        $this->assertEquals(35.0,$provider->walletAccount()->firstOrFail()->balance('available'));
+
+        $inspection=$order->goodsInspection()->firstOrFail();
+        $this->assertEquals(15.0,(float)($inspection->categories['_additional_compensation']??0));
+    }
+
+
     private function provider(string $email): User
     {
         $user=User::create([
