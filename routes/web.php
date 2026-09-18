@@ -40,6 +40,11 @@ Route::middleware('guest')->group(function () {
     Route::get('/registrieren', [AuthController::class, 'showRegister'])->name('register');
     Route::post('/registrieren', [AuthController::class, 'register'])->name('register.submit');
 
+    Route::get('/passwort-vergessen', [PasswordResetController::class, 'requestForm'])->name('password.request');
+    Route::post('/passwort-vergessen', [PasswordResetController::class, 'sendLink'])->middleware('throttle:3,1')->name('password.email');
+    Route::get('/passwort-zuruecksetzen/{token}', [PasswordResetController::class, 'resetForm'])->name('password.reset');
+    Route::post('/passwort-zuruecksetzen', [PasswordResetController::class, 'reset'])->middleware('throttle:5,1')->name('password.update');
+
     Route::get('/zwei-faktor', [TwoFactorController::class, 'show'])->name('two-factor.show');
     Route::post('/zwei-faktor', [TwoFactorController::class, 'verify'])->middleware('throttle:5,1')->name('two-factor.verify');
     Route::post('/zwei-faktor/neu', [TwoFactorController::class, 'resend'])->middleware('throttle:2,1')->name('two-factor.resend');
@@ -48,6 +53,10 @@ Route::middleware('guest')->group(function () {
 Route::middleware(['auth','active'])->group(function () {
     Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
     Route::get('/dashboard', DashboardController::class)->name('dashboard');
+
+    Route::get('/email-bestaetigen', [EmailVerificationController::class, 'notice'])->name('verification.notice');
+    Route::get('/email-bestaetigen/{id}/{hash}', [EmailVerificationController::class, 'verify'])->middleware('signed')->name('verification.verify');
+    Route::post('/email-bestaetigung-senden', [EmailVerificationController::class, 'send'])->middleware('throttle:3,1')->name('verification.send');
 
     Route::get('/profil', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::put('/profil', [ProfileController::class, 'update'])->name('profile.update');
