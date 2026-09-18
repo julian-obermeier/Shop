@@ -144,6 +144,8 @@ Route::prefix('admin')->name('admin.')->middleware(['auth','active','admin'])->g
         Route::get('/auftraege', [AdminOrderController::class, 'index'])->name('orders.index');
         Route::get('/auftraege/{order}', [AdminOrderController::class, 'show'])->name('orders.show');
         Route::post('/auftraege/{order}/bestaetigen', [AdminOrderController::class, 'approve'])->name('orders.approve');
+        Route::post('/auftraege/{order}/anfrage-ablehnen', [AdminOrderController::class, 'rejectRequest'])->name('orders.reject-request');
+        Route::post('/auftraege/{order}/anfrage-wieder-oeffnen', [AdminOrderController::class, 'reopenRequest'])->name('orders.reopen-request');
         Route::post('/auftraege/{order}/termin-vorschlagen', [AdminOrderController::class, 'proposeDate'])->name('orders.propose-date');
         Route::post('/auftraege/{order}/status', [AdminOrderController::class, 'status'])->name('orders.status');
         Route::post('/auftraege/{order}/fortsetzen', [AdminOrderController::class, 'resume'])->name('orders.resume');
