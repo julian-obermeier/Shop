@@ -144,10 +144,32 @@ class OfferController extends Controller
         $copy->active=false;
         $copy->save();
 
+        $optionIdMap=[];
         foreach($offer->options as $option){
             $new=$option->replicate();
             $new->offer_id=$copy->id;
             $new->save();
+            $optionIdMap[(int)$option->id]=(int)$new->id;
+        }
+
+        foreach($offer->options as $option){
+            $newId=$optionIdMap[(int)$option->id]??null;
+            if(!$newId) continue;
+
+            $newOption=$copy->options()->findOrFail($newId);
+            $rules=$newOption->rules ?: [];
+
+            foreach(['requires_ids','excludes_ids'] as $ruleKey){
+                $rules[$ruleKey]=collect($rules[$ruleKey]??[])
+                    ->map(fn($oldId)=>$optionIdMap[(int)$oldId]??null)
+                    ->filter()
+                    ->map(fn($id)=>(int)$id)
+                    ->unique()
+                    ->values()
+                    ->all();
+            }
+
+            $newOption->update(['rules'=>$rules]);
         }
 
         foreach($offer->fields as $field){
