@@ -6,8 +6,10 @@ use App\Models\ProofSubmission;
 use App\Services\AuditService;
 use App\Services\NotificationService;
 use App\Services\OrderService;
+use App\Services\ReliabilityService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ProofController extends Controller
@@ -27,7 +29,7 @@ class ProofController extends Controller
         return Storage::disk('proofs')->download($proof->storage_path,$proof->original_name);
     }
 
-    public function review(Request $request, ProofSubmission $proof, AuditService $audit, NotificationService $notifications, OrderService $orders)
+    public function review(Request $request, ProofSubmission $proof, AuditService $audit, NotificationService $notifications, OrderService $orders, ReliabilityService $reliability)
     {
         $data=$request->validate([
             'review_status'=>['required','in:accepted,rejected'],
@@ -58,7 +60,20 @@ class ProofController extends Controller
                 'reviewed_at'=>now(),
             ]);
 
-            if(!$technical){
+            if($technical){
+                $order=$proof->orderDay->order()->with('user')->firstOrFail();
+                $order->update([
+                    'reliability_issue_count'=>DB::raw('reliability_issue_count + 1'),
+                    'last_reliability_issue'=>'Technisch/formal abgelehnter Nachweis mit Nachreichung',
+                ]);
+                $reliability->recordViolation(
+                    $order->user,
+                    $order->fresh(),
+                    'proof_resubmission',
+                    'Technisch/formal abgelehnter Nachweis: '.$data['review_comment'],
+                    ['proof_submission_id'=>$proof->id]
+                );
+            } else {
                 $orders->invalidateDay($proof->orderDay,$data['review_comment']);
             }
         }
