@@ -9,21 +9,12 @@ use Illuminate\Support\Facades\DB;
 
 class OrderController extends Controller
 {
-    public function index()
-    {
-        $orders=request()->user()->orders()->with('offer','days.proofs','shipment','precheck')->latest()->paginate(20);
-        return view('orders.index',compact('orders'));
-    }
-
-    public function show(Order $order)
-    {
-        abort_unless($order->user_id===request()->user()->id || request()->user()->isAdmin(),403);
-        $order->load('options','days.proofs','statusHistory','precheck','shipment','goodsReceipt','conversation');
-        return view('orders.show',compact('order'));
-    }
+    public function index(){ $orders=request()->user()->orders()->with('offer','days.proofs','shipment','precheck')->latest()->paginate(20); return view('orders.index',compact('orders')); }
+    public function show(Order $order){ abort_unless($order->user_id===request()->user()->id || request()->user()->isAdmin(),403); $order->load('options','days.proofs','statusHistory','precheck','shipment','goodsReceipt','conversation'); return view('orders.show',compact('order')); }
 
     public function store(Request $request, Offer $offer, OrderService $service)
     {
+        abort_if($request->user()->hasRestriction('offers'),422,'Die Annahme neuer Angebote ist für dieses Konto derzeit gesperrt.');
         abort_unless($request->user()->verified_at, 422, 'Vor der Annahme eines Angebots ist eine abgeschlossene Verifizierung erforderlich.');
         abort_unless($offer->active, 404);
         $data=$request->validate(['options'=>['array'],'options.*'=>['integer']]);
@@ -34,6 +25,7 @@ class OrderController extends Controller
     public function start(Order $order, OrderService $service)
     {
         abort_unless($order->user_id===request()->user()->id,403);
+        abort_if(request()->user()->hasRestriction('offers'),422,'Auftragsstarts sind für dieses Konto derzeit gesperrt.');
         abort_unless(request()->user()->verified_at,422,'Die Verifizierung muss abgeschlossen sein.');
         $service->start($order);
         return back()->with('success','Die Erfüllungsphase wurde gestartet.');
@@ -43,23 +35,13 @@ class OrderController extends Controller
     {
         abort_unless($order->user_id===request()->user()->id,403);
         abort_unless($order->status==='active',422,'Der Auftrag ist nicht in der aktiven Erfüllungsphase.');
-
         $order->load('days.proofs');
-        $complete=$order->days->isNotEmpty() && $order->days->every(
-            fn($day) => $day->proofs->count() >= $day->required_proofs
-        );
+        $complete=$order->days->isNotEmpty() && $order->days->every(fn($day) => $day->proofs->whereIn('review_status',['pending','accepted'])->count() >= $day->required_proofs);
         abort_unless($complete,422,'Es fehlen noch erforderliche Nachweise.');
-
         DB::transaction(function() use($order) {
             $order->update(['status'=>'waiting_shipping']);
-            $order->statusHistory()->create([
-                'changed_by'=>auth()->id(),
-                'from_status'=>'active',
-                'to_status'=>'waiting_shipping',
-                'reason'=>'Erfüllungsphase durch Anbieterin abgeschlossen',
-            ]);
+            $order->statusHistory()->create(['changed_by'=>auth()->id(),'from_status'=>'active','to_status'=>'waiting_shipping','reason'=>'Erfüllungsphase durch Anbieterin abgeschlossen']);
         });
-
         return back()->with('success','Die Erfüllungsphase ist abgeschlossen. Der Auftrag ist jetzt versandbereit.');
     }
 }
