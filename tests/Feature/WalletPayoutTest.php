@@ -230,6 +230,50 @@ class WalletPayoutTest extends TestCase
     }
 
 
+    public function test_cancelled_payout_can_be_recreated_in_same_second_with_unique_number(): void
+    {
+        Mail::fake();
+
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-17 18:00:00','Europe/Berlin'));
+
+        try{
+            $user=$this->makeVerifiedUser('same-second@example.test');
+            $wallet=WalletAccount::create(['user_id'=>$user->id]);
+            $wallet->entries()->create([
+                'bucket'=>'available',
+                'entry_type'=>'test_credit',
+                'amount'=>30,
+                'description'=>'Testguthaben',
+            ]);
+
+            $this->actingAs($user)->post(route('wallet.payout'),[
+                'amount'=>10,
+                'method'=>'bank_transfer',
+            ])->assertRedirect();
+
+            $first=$user->payouts()->firstOrFail();
+
+            $this->actingAs($user)->post(route('wallet.payout.cancel',$first))
+                ->assertRedirect();
+
+            $this->actingAs($user)->post(route('wallet.payout'),[
+                'amount'=>10,
+                'method'=>'bank_transfer',
+            ])->assertRedirect();
+
+            $second=$user->payouts()->latest('id')->firstOrFail();
+
+            $this->assertNotSame($first->payout_number,$second->payout_number);
+            $this->assertSame('cancelled',$first->fresh()->status);
+            $this->assertSame('requested',$second->status);
+            $this->assertEquals(20.0,$wallet->fresh()->balance('available'));
+            $this->assertEquals(10.0,$wallet->fresh()->balance('payout_pending'));
+        } finally {
+            CarbonImmutable::setTestNow();
+        }
+    }
+
+
     private function makeVerifiedUser(string $email): User
     {
         $user=User::create([
