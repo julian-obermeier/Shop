@@ -1269,66 +1269,32 @@ sollen über die dafür festgelegten Kanäle ausgeliefert werden.
 
 ---
 
-## 30. Bekannte Abweichungen des aktuellen Codes, die zu entfernen sind
+## 30. Implementierungsabgleich und Anti-Regression
 
-Der bestehende Stand enthält Funktionen, die dieser Spezifikation widersprechen. Diese gelten nicht als gewünschtes Endverhalten.
+Die beim Übergang vom ursprünglichen Starter zum verbindlichen Masterprompt festgestellten Alt-Abweichungen wurden im aktuellen Entwicklungsstand bereinigt. Dieser Abschnitt ist daher keine offene Soll-Liste mehr, sondern eine **Anti-Regression-Liste**: Die folgenden alten Verhaltensweisen dürfen nicht erneut eingeführt werden.
 
-Mindestens zu korrigieren:
+Nicht zulässig sind insbesondere:
 
-1. **Admin-2FA**
-   - aktuell vorhanden/erzwungen
-   - muss fachlich entfernt werden
+1. verpflichtende Admin-2FA oder E-Mail-OTP-Challenges
+2. mehrere Adminrollen, Staff-/Accounting-Rollen oder eine fachliche Rollen-/Permission-Matrix
+3. Ausweis-/Identitätsverifikation als Voraussetzung für Aufträge oder Auszahlungen
+4. allgemeine Nachrichten oder Support-Chats ohne Auftragsbezug
+5. ein Mindest-Auszahlungsbetrag
+6. eine Beschränkung auf ausschließlich Banküberweisung; Bank und PayPal müssen unterstützt bleiben
+7. terminale, technisch nicht wiederöffnbare Auszahlungen
+8. automatische Löschung von Nachweisbildern oder anderen dauerhaft aufzubewahrenden auftragsbezogenen Bildern
+9. automatisches Re-Encoding von Nachweisbildern zum Zweck der Metadatenentfernung
+10. Selbständerung von Name, Geburtsdatum oder Anschrift durch Anbieterinnen
+11. verpflichtender Re-Consent nach späteren Dokumentänderungen
+12. eine vereinfachte Auftragslogik, die Serienreset, Ersatztage, Startfoto, Einmalcodes oder Socken-Terminverschiebungen umgeht
+13. eine Warteliste ohne FIFO-, 24-Stunden-Reservierungs-, Skip- oder Sockenkonfliktlogik
+14. eine Warenprüfung ohne die fünf Kategorien, KO-Regeln, 0–10-Punkte und getrennte Extra-Bewertung
+15. Rücksendekosten aus dem Wallet oder Rücksendungen ohne die festgelegte 3-Tage-/24-Stunden-Logik
+16. ein zweiter manueller Vergütungs-Freigabeschritt nach bereits erfolgreich abgeschlossener finaler Warenprüfung
+17. eine Galerie-/Dateiauswahl als reguläre Oberfläche für verpflichtende Live-Kamera-Nachweise
+18. automatische Aufhebung einer Zuverlässigkeitseinschränkung nach Zeit oder unmittelbar nach 5/5; die manuelle Adminaufhebung bleibt erforderlich
 
-2. **Mehrere Adminrollen und Permissions**
-   - aktuell `superadmin/admin/staff/accounting`
-   - Ziel: ein Admin-Konto ohne Rollenmatrix
-
-3. **Identitäts-/Ausweisdokumentprüfung**
-   - aktuell vorhanden und teilweise für Auszahlung verlangt
-   - Ziel: keine Ausweis-/Identitätsprüfung
-
-4. **Allgemeine Nachrichten**
-   - aktuell kann eine Conversation ohne `order_id` erzeugt werden
-   - Ziel: Kommunikation ausschließlich innerhalb konkreter Aufträge
-
-5. **Mindest-Auszahlungsbetrag**
-   - aktuell standardmäßig 10 €
-   - Ziel: kein Mindestbetrag
-
-6. **Nur Bankauszahlung**
-   - aktuell primär IBAN/Banküberweisung
-   - Ziel: Bank + PayPal
-
-7. **Terminale Auszahlung**
-   - aktuell können abgeschlossene Status nicht wieder geändert werden
-   - Ziel: Admin darf Auszahlungen jederzeit wieder öffnen
-
-8. **Automatische Dateilöschung**
-   - aktuell existiert eine Purge-Logik für Proofs/Prechecks/Anhänge
-   - Ziel: Nachweisfotos und auftragsbezogene Bilder dauerhaft speichern
-
-9. **Bild-Sanitizing/Re-Encoding**
-   - aktuell werden Bilder neu kodiert und Metadaten dabei entfernt
-   - Ziel: Nachweisbilder einschließlich vorhandener Metadaten aufbewahren
-
-10. **Profil-Selbständerung**
-    - aktuell können Name und Adresse teilweise selbst geändert werden
-    - Ziel: Anbieterin nur E-Mail + Telefonnummer selbst; andere Stammdaten nur Admin
-
-11. **Dokumentversionen/Re-Consent**
-    - vorhandene Versionsmodelle dürfen nicht zu einer erneuten Pflichtbestätigung späterer Fassungen führen
-
-12. **Auftrags-/Nachweis-/Sockenlogik**
-    - der bestehende Code bildet die hier definierte Serien-, Ersatz-, Neustart-, Terminverschiebungs- und Einmalcode-Logik noch nicht vollständig ab
-
-13. **Wartelisten**
-    - die vollständige FIFO-/24h-/Skip-/Socken-Konfliktlogik muss gemäß diesem Dokument umgesetzt werden
-
-14. **Qualitätsprüfung**
-    - die fünf Kategorien, KO-Regeln, 0–10-Punkte sowie getrennte Extra-Vergütung müssen konsistent umgesetzt werden
-
-15. **Rücksendungslogik**
-    - 3-Tage-Anforderung + 24-Stunden-Zahlung/Label + keine Wallet-Nutzung muss umgesetzt werden
+Der aktuelle Code wird durch automatisierte Feature- und Regressionstests gegen zentrale Invarianten dieses Dokuments abgesichert. Ein grüner CI-Lauf ersetzt jedoch nicht die fachliche Vorrangregel dieses Masterprompts: Wird später ein Widerspruch entdeckt, ist weiterhin der Masterprompt maßgeblich.
 
 ---
 
