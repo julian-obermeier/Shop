@@ -68,11 +68,14 @@ class OrderWorkflowTest extends TestCase
             'last_name'=>'Beispiel',
             'birth_date'=>'1995-01-01',
             'email'=>($emailVerified?'verified':'unverified').'@example.test',
-            'email_verified_at'=>$emailVerified?now():null,
             'password'=>Hash::make('VerySecurePassword123!'),
             'status'=>'active',
             'verified_at'=>now(),
         ]);
+        if($emailVerified){
+            $user->forceFill(['email_verified_at'=>now()])->save();
+        }
+
         WalletAccount::create(['user_id'=>$user->id]);
 
         $category=Category::create([
