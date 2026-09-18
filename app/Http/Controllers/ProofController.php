@@ -23,7 +23,8 @@ class ProofController extends Controller
         ]);
 
         $window=$this->resolveWindow($day,$data['window_key']);
-        $this->assertWindowOpen($day,$window);
+        $this->assertSubmissionAllowed($day,$window);
+        $this->assertWindowOpen($day,$window,true);
 
         return DB::transaction(function() use($request,$day,$window){
             ProofChallenge::where('order_id',$day->order_id)
@@ -55,12 +56,6 @@ class ProofController extends Controller
         abort_if($request->user()->hasRestriction('uploads'),422,'Nachweise sind für dieses Konto derzeit gesperrt.');
         abort_unless($order->user_id===$request->user()->id,403);
 
-        if($day->day_number===0){
-            abort_unless($order->status==='waiting_start',422,'Das Startfoto ist aktuell nicht vorgesehen.');
-        } else {
-            abort_unless($order->status==='active',422,'Nachweise sind nur während der aktiven Erfüllungsphase möglich.');
-        }
-
         $data=$request->validate([
             'proof'=>['required','image','mimes:jpg,jpeg,png,webp','max:10240'],
             'challenge_id'=>['required','integer','exists:proof_challenges,id'],
@@ -72,6 +67,7 @@ class ProofController extends Controller
         ]);
 
         $window=$this->resolveWindow($day,$data['window_key']);
+        $this->assertSubmissionAllowed($day,$window);
         $this->assertWindowOpen($day,$window,true);
 
         $challenge=ProofChallenge::whereKey($data['challenge_id'])
@@ -181,6 +177,40 @@ class ProofController extends Controller
         abort_unless($window,422,'Unbekanntes Nachweisfenster.');
 
         return $window;
+    }
+
+    private function assertSubmissionAllowed(OrderDay $day, array $window): void
+    {
+        $order=$day->order;
+
+        abort_unless(
+            (int)$day->series_number===(int)$order->series_number,
+            422,
+            'Dieser Nachweis gehört nicht zur aktuellen Auftragsserie.'
+        );
+        abort_unless($day->counts_toward_series,422,'Für archivierte Auftragstage können keine neuen Nachweise erstellt werden.');
+        abort_if(in_array($day->status,['invalid','accepted'],true),422,'Dieser Auftragstag nimmt keine weiteren Nachweise an.');
+
+        if($day->day_number===0){
+            if($order->status==='waiting_start') return;
+
+            $latestRejected=$day->proofs()
+                ->where('window_key',$window['key'])
+                ->where('review_status','rejected')
+                ->latest('id')
+                ->first();
+
+            $resubmissionOpen=$order->status==='active'
+                && $latestRejected
+                && $latestRejected->rejection_kind==='technical'
+                && $latestRejected->resubmit_due_at
+                && $latestRejected->resubmit_due_at->isFuture();
+
+            abort_unless($resubmissionOpen,422,'Das Startfoto ist aktuell nicht zur Nachreichung freigegeben.');
+            return;
+        }
+
+        abort_unless($order->status==='active',422,'Nachweise sind nur während der aktiven Erfüllungsphase möglich.');
     }
 
     private function assertWindowOpen(OrderDay $day, array $window, bool $allowResubmission=false): void
