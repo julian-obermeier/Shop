@@ -15,7 +15,7 @@ class WaitlistService
         if(!$offer->capacity) return PHP_INT_MAX;
 
         $activeOrders=Order::where('offer_id',$offer->id)
-            ->whereNotIn('status',['completed','cancelled','rejected','not_started'])
+            ->whereNotIn('status',['completed','cancelled','rejected','request_rejected','not_started'])
             ->count();
 
         $reservations=OfferWaitlistEntry::where('offer_id',$offer->id)
@@ -47,14 +47,14 @@ class WaitlistService
                 if($user->effectiveOrderLimit()===0 || $user->isOfferBlocked($lockedOffer->id)) continue;
 
                 $activeCount=Order::where('user_id',$user->id)
-                    ->whereIn('status',['precheck','precheck_resubmit','approved','waiting_start','awaiting_date_confirmation','active','paused'])
+                    ->whereIn('status',['precheck','precheck_resubmit','approved','waiting_start','active','paused'])
                     ->count();
 
                 if($activeCount >= $user->effectiveOrderLimit()) continue;
 
                 if(Order::where('user_id',$user->id)
                     ->where('offer_id',$lockedOffer->id)
-                    ->whereNotIn('status',['completed','cancelled','rejected','not_started'])
+                    ->whereNotIn('status',['completed','cancelled','rejected','request_rejected','not_started'])
                     ->exists()){
                     continue;
                 }
