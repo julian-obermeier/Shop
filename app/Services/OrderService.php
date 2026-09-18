@@ -309,15 +309,11 @@ class OrderService
             abort_unless($order->user_id===$user->id,403);
             abort_unless($order->status==='active',422,'Der Auftrag ist nicht in der aktiven Erfüllungsphase.');
 
-            $duration=(int)data_get($order->offer_snapshot,'duration_days',1);
-            $valid=$order->days()
-                ->where('series_number',$order->series_number)
-                ->where('day_number','>',0)
-                ->where('counts_toward_series',true)
-                ->where('status','accepted')
-                ->count();
-
-            abort_unless($valid >= $duration,422,'Die erforderliche Anzahl vollständig akzeptierter Tragetage ist noch nicht erreicht.');
+            abort_unless(
+                $order->executionProofsAccepted(),
+                422,
+                'Startfoto und alle erforderlichen gültigen Tragetage müssen vollständig akzeptiert sein, bevor die Erfüllungsphase abgeschlossen werden kann.'
+            );
 
             $order->update([
                 'status'=>'waiting_shipping',
