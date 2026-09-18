@@ -72,9 +72,11 @@ class ReturnRequestController extends Controller
         $before=$returnRequest->toArray();
         $returnRequest->update([
             'status'=>'returned',
+            'tracking_number'=>$data['tracking_number']??null,
+            'returned_at'=>now(),
         ]);
 
-        $audit->log('return.shipped',$returnRequest,$before,$returnRequest->fresh()->toArray()+['tracking_number'=>$data['tracking_number']??null]);
+        $audit->log('return.shipped',$returnRequest,$before,$returnRequest->fresh()->toArray());
         $notifications->send(
             $returnRequest->user,
             'return_shipped',
