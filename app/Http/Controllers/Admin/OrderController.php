@@ -128,7 +128,7 @@ class OrderController extends Controller
 
     public function status(Request $request, Order $order, AuditService $audit, NotificationService $notifications)
     {
-        abort_if($order->status==='completed',422,'Ein abgeschlossener Auftrag kann nicht wieder geöffnet oder verändert werden.');
+        abort_if($order->isTerminal(),422,'Ein endgültig beendeter Auftrag kann über diese Aktion nicht wieder geöffnet oder verändert werden.');
 
         $data=$request->validate([
             'status'=>['required','in:paused,cancelled,rejected'],
@@ -293,7 +293,14 @@ class OrderController extends Controller
 
     public function updateRequirements(Request $request, Order $order, AuditService $audit, NotificationService $notifications)
     {
-        abort_if($order->status==='completed',422,'Ein abgeschlossener Auftrag kann nicht verändert werden.');
+        abort_unless(
+            in_array($order->status,[
+                'precheck','precheck_resubmit','approved','waiting_start','active','paused',
+                'waiting_shipping','shipping_overdue','shipped','received','inspection','accepted'
+            ],true),
+            422,
+            'Nachträgliche verbindliche Anforderungen sind erst nach Annahme des Auftrags und nur bis zum endgültigen Abschluss möglich.'
+        );
 
         $data=$request->validate([
             'requirement_text'=>['required','string','max:5000'],
