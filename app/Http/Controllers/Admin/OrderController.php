@@ -78,7 +78,7 @@ class OrderController extends Controller
             if($data['status']==='paused'){
                 abort_unless($from==='active',422,'Nur ein aktiver Auftrag kann pausiert werden.');
                 $order->days()->where('series_number',$order->series_number)->update(['counts_toward_series'=>false]);
-                $order->update(['status'=>'paused','paused_at'=>now()]);
+                $order->update(['status'=>'paused','paused_at'=>now(),'paused_from_status'=>$from]);
             } else {
                 $amount=round((float)($data['compensation_amount']??0),2);
                 abort_if($amount>(float)$order->compensation_total,422,'Die Abbruchvergütung darf die vereinbarte Gesamtvergütung nicht überschreiten.');
@@ -125,45 +125,105 @@ class OrderController extends Controller
     public function resume(Request $request, Order $order, OrderService $orders, AuditService $audit, NotificationService $notifications)
     {
         abort_unless($order->status==='paused',422,'Dieser Auftrag ist nicht pausiert.');
+        abort_unless($order->user->status==='active',422,'Das Konto der Anbieterin muss vor der Auftragsfortsetzung wieder aktiviert werden.');
+
+        $data=$request->validate([
+            'activation_date'=>['nullable','date','after_or_equal:today'],
+        ]);
 
         $before=$order->toArray();
-        DB::transaction(function() use($order,$request,$orders){
-            $duration=(int)data_get($order->offer_snapshot,'duration_days',1);
-            $series=(int)$order->series_number+1;
-            $start=now('Europe/Berlin')->startOfDay()->addDay();
 
-            $order->update([
-                'status'=>'active',
-                'series_number'=>$series,
-                'series_interruptions'=>0,
-                'paused_at'=>null,
-                'start_date'=>$start->toDateString(),
-                'end_date'=>$start->copy()->addDays($duration-1)->toDateString(),
-            ]);
+        DB::transaction(function() use($order,$request,$orders,$data){
+            $order=Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
+            $origin=$order->paused_from_status ?: 'active';
 
-            for($i=1;$i<=$duration;$i++){
-                $order->days()->create([
+            if($origin==='active'){
+                $duration=(int)data_get($order->offer_snapshot,'duration_days',1);
+                $series=(int)$order->series_number+1;
+                $start=now('Europe/Berlin')->startOfDay()->addDay();
+
+                $order->update([
+                    'status'=>'active',
                     'series_number'=>$series,
-                    'day_number'=>$i,
-                    'date'=>$start->copy()->addDays($i-1)->toDateString(),
-                    'required_proofs'=>$orders->requiredProofCount($order),
-                    'status'=>'open',
-                    'counts_toward_series'=>true,
+                    'series_interruptions'=>0,
+                    'paused_at'=>null,
+                    'paused_from_status'=>null,
+                    'start_date'=>$start->toDateString(),
+                    'end_date'=>$start->copy()->addDays($duration-1)->toDateString(),
                 ]);
+
+                for($i=1;$i<=$duration;$i++){
+                    $order->days()->create([
+                        'series_number'=>$series,
+                        'day_number'=>$i,
+                        'date'=>$start->copy()->addDays($i-1)->toDateString(),
+                        'required_proofs'=>$orders->requiredProofCount($order),
+                        'status'=>'open',
+                        'counts_toward_series'=>true,
+                    ]);
+                }
+
+                $reason='Pause beendet; laufende Trageserie beginnt erneut bei Tag 1.';
+                $to='active';
+                $orders->shiftSockFollowers($order);
+            } elseif(in_array($origin,['waiting_shipping','shipping_overdue'],true)){
+                $order->update([
+                    'status'=>'waiting_shipping',
+                    'paused_at'=>null,
+                    'paused_from_status'=>null,
+                    'shipping_due_at'=>now()->addHours(24),
+                ]);
+                $reason='Pause beendet; Versandphase mit neuer 24-Stunden-Frist fortgesetzt.';
+                $to='waiting_shipping';
+            } elseif(in_array($origin,['approved','waiting_start'],true)){
+                $activation=\Carbon\CarbonImmutable::parse(
+                    $data['activation_date'] ?? now('Europe/Berlin')->toDateString(),
+                    'Europe/Berlin'
+                )->startOfDay();
+
+                $order->update([
+                    'status'=>'approved',
+                    'paused_at'=>null,
+                    'paused_from_status'=>null,
+                    'confirmed_start_date'=>$activation->toDateString(),
+                    'proposed_start_date'=>$activation->toDateString(),
+                    'activation_date'=>null,
+                    'start_date'=>null,
+                    'end_date'=>null,
+                ]);
+                $reason='Pause beendet; neuer verbindlicher Aktivierungstag '.$activation->format('d.m.Y').' gesetzt.';
+                $to='approved';
+            } elseif(in_array($origin,['precheck','precheck_resubmit'],true)){
+                $order->update([
+                    'status'=>$origin,
+                    'paused_at'=>null,
+                    'paused_from_status'=>null,
+                ]);
+                $reason='Pause beendet; Vorprüfungsphase fortgesetzt.';
+                $to=$origin;
+            } else {
+                abort(422,'Dieser pausierte Auftragszustand kann nicht automatisch fortgesetzt werden.');
             }
 
             $order->statusHistory()->create([
                 'changed_by'=>$request->user()->id,
                 'from_status'=>'paused',
-                'to_status'=>'active',
-                'reason'=>'Pause beendet; Trageserie startet erneut bei Tag 1',
+                'to_status'=>$to,
+                'reason'=>$reason,
             ]);
-            $orders->shiftSockFollowers($order);
         });
 
         $audit->log('order.resumed',$order,$before,$order->fresh()->toArray());
-        $notifications->send($order->user,'order_resumed','Auftrag fortgesetzt','Auftrag #'.$order->order_number.' wurde fortgesetzt. Die Trageserie beginnt erneut bei Tag 1.',route('orders.show',$order));
-        return back()->with('success','Auftrag wurde fortgesetzt und die Serie neu gestartet.');
+
+        $notifications->send(
+            $order->user,
+            'order_resumed',
+            'Auftrag fortgesetzt',
+            'Auftrag #'.$order->order_number.' wurde durch den Admin fortgesetzt.',
+            route('orders.show',$order)
+        );
+
+        return back()->with('success','Auftrag wurde passend zu seiner vorherigen Phase fortgesetzt.');
     }
 
     public function updateRequirements(Request $request, Order $order, AuditService $audit, NotificationService $notifications)
