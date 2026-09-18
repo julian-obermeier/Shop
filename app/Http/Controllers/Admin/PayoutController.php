@@ -6,6 +6,7 @@ use App\Models\PayoutRequest;
 use App\Models\WalletAccount;
 use App\Services\AuditService;
 use App\Services\NotificationService;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -38,9 +39,9 @@ class PayoutController extends Controller
                 && in_array($data['status'],$normalProcessingStatuses,true)
                 && $payout->processing_date
             ){
-                $processingDate=CarbonCarbonImmutable::parse($payout->processing_date,'Europe/Berlin')->startOfDay();
+                $processingDate=CarbonImmutable::parse($payout->processing_date,'Europe/Berlin')->startOfDay();
                 abort_if(
-                    CarbonCarbonImmutable::today('Europe/Berlin')->lt($processingDate),
+                    CarbonImmutable::today('Europe/Berlin')->lt($processingDate),
                     422,
                     'Dieser Auszahlungsantrag ist erst ab dem vorgesehenen Bearbeitungsfreitag '.$processingDate->format('d.m.Y').' zur finanziellen Bearbeitung freigegeben.'
                 );
