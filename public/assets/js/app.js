@@ -131,3 +131,60 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 });
+
+
+document.addEventListener('submit', async event => {
+  const form=event.target.closest?.('[data-proof-upload]');
+  if(!form || form.dataset.overlayProcessed==='1') return;
+
+  const toggle=form.querySelector('[data-overlay-code]');
+  const input=form.querySelector('[data-proof-file]');
+  if(!toggle?.checked || !input?.files?.[0]) return;
+
+  event.preventDefault();
+
+  const file=input.files[0];
+  const code=form.dataset.code || '';
+  if(!code){
+    form.submit();
+    return;
+  }
+
+  try{
+    const bitmap=await createImageBitmap(file);
+    const canvas=document.createElement('canvas');
+    canvas.width=bitmap.width;
+    canvas.height=bitmap.height;
+    const ctx=canvas.getContext('2d');
+    ctx.drawImage(bitmap,0,0);
+
+    const fontSize=Math.max(28,Math.round(canvas.width*0.055));
+    const padding=Math.max(18,Math.round(fontSize*0.5));
+    ctx.font=`700 ${fontSize}px sans-serif`;
+    const label=`Wear&Earn · Code ${code}`;
+    const textWidth=ctx.measureText(label).width;
+    const boxWidth=Math.min(canvas.width,textWidth+padding*2);
+    const boxHeight=fontSize+padding*2;
+    const x=Math.max(0,canvas.width-boxWidth);
+    const y=Math.max(0,canvas.height-boxHeight);
+
+    ctx.fillStyle='rgba(0,0,0,.72)';
+    ctx.fillRect(x,y,boxWidth,boxHeight);
+    ctx.fillStyle='#fff';
+    ctx.textBaseline='middle';
+    ctx.fillText(label,x+padding,y+boxHeight/2,boxWidth-padding*2);
+
+    const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',0.94));
+    if(!blob) throw new Error('overlay conversion failed');
+
+    const replacement=new File([blob],file.name.replace(/\.[^.]+$/, '')+'-code.jpg',{type:'image/jpeg',lastModified:Date.now()});
+    const transfer=new DataTransfer();
+    transfer.items.add(replacement);
+    input.files=transfer.files;
+    form.dataset.overlayProcessed='1';
+    form.requestSubmit();
+  }catch(error){
+    form.dataset.overlayProcessed='1';
+    form.requestSubmit();
+  }
+});
