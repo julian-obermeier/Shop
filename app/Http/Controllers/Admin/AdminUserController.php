@@ -39,6 +39,8 @@ class AdminUserController extends Controller
             'verified_at'=>now(),
         ]);
 
+        $user->forceFill(['email_verified_at'=>now()])->save();
+
         $audit->log('admin_user.created',$user,[],$user->toArray());
         return back()->with('success','Administrationskonto wurde angelegt. Beim Login ist 2FA verpflichtend.');
     }
