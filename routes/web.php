@@ -115,6 +115,9 @@ Route::prefix('admin')->name('admin.')->middleware(['auth','active','admin'])->g
         Route::get('/anbieterinnen/{user}', [AdminUserController::class, 'show'])->name('users.show');
         Route::put('/anbieterinnen/{user}/stammdaten', [AdminUserController::class, 'updateMasterData'])->name('users.master-data');
         Route::post('/anbieterinnen/{user}/auszahlungsempfaenger-freigeben', [AdminUserController::class, 'approvePayoutName'])->name('users.payout-name-approve');
+        Route::post('/anbieterinnen/{user}/wallet-override', [AdminUserController::class, 'walletOverride'])->name('users.wallet-override');
+        Route::post('/anbieterinnen/{user}/deaktivieren', [AdminUserController::class, 'deactivate'])->name('users.deactivate');
+        Route::post('/anbieterinnen/{user}/reaktivieren', [AdminUserController::class, 'reactivate'])->name('users.reactivate');
         Route::post('/anbieterinnen/{user}/verwarnung', [AdminUserController::class, 'warning'])->name('users.warning');
         Route::post('/anbieterinnen/{user}/sperre', [AdminUserController::class, 'restriction'])->name('users.restriction');
         Route::post('/anbieterinnen/{user}/sperre/{restriction}/aufheben', [AdminUserController::class, 'removeRestriction'])->name('users.restriction.remove');
