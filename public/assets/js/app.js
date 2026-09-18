@@ -267,3 +267,114 @@ document.addEventListener('DOMContentLoaded',async()=>{
     status.textContent=error?.message || 'Der Service Worker konnte nicht eingerichtet werden.';
   }
 });
+
+
+document.addEventListener('DOMContentLoaded',()=>{
+  document.querySelectorAll('input[data-live-camera]').forEach(input=>{
+    input.style.display='none';
+
+    const wrapper=document.createElement('div');
+    wrapper.className='live-camera';
+    wrapper.innerHTML=`
+      <div class="notice" data-camera-status>Für diesen Nachweis ist eine Live-Aufnahme erforderlich. Eine Galerie- oder Dateiauswahl wird nicht angeboten.</div>
+      <button type="button" class="btn secondary" data-camera-start>Kamera öffnen</button>
+      <div data-camera-stage hidden style="margin-top:10px">
+        <video data-camera-video autoplay playsinline muted style="width:100%;max-height:420px;object-fit:cover;border-radius:14px;background:#111"></video>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+          <button type="button" class="btn primary" data-camera-capture>Foto aufnehmen</button>
+          <button type="button" class="btn secondary" data-camera-cancel>Abbrechen</button>
+        </div>
+      </div>
+      <img data-camera-preview alt="Aufnahmevorschau" hidden style="width:100%;max-height:420px;object-fit:contain;border-radius:14px;margin-top:10px">
+      <button type="button" class="btn secondary" data-camera-retake hidden style="margin-top:8px">Neu aufnehmen</button>
+    `;
+
+    input.insertAdjacentElement('afterend',wrapper);
+
+    const status=wrapper.querySelector('[data-camera-status]');
+    const start=wrapper.querySelector('[data-camera-start]');
+    const stage=wrapper.querySelector('[data-camera-stage]');
+    const video=wrapper.querySelector('[data-camera-video]');
+    const capture=wrapper.querySelector('[data-camera-capture]');
+    const cancel=wrapper.querySelector('[data-camera-cancel]');
+    const preview=wrapper.querySelector('[data-camera-preview]');
+    const retake=wrapper.querySelector('[data-camera-retake]');
+    let stream=null;
+
+    const stop=()=>{
+      if(stream){
+        stream.getTracks().forEach(track=>track.stop());
+        stream=null;
+      }
+      video.srcObject=null;
+      stage.hidden=true;
+    };
+
+    const open=async()=>{
+      if(!navigator.mediaDevices?.getUserMedia){
+        status.textContent='Dieses Gerät stellt der Webanwendung keine Live-Kamera bereit. Für diesen Pflichtnachweis ist ein kompatibles Gerät mit Kamera und HTTPS erforderlich.';
+        start.disabled=true;
+        return;
+      }
+
+      try{
+        stream=await navigator.mediaDevices.getUserMedia({
+          video:{facingMode:{ideal:'environment'}},
+          audio:false,
+        });
+        video.srcObject=stream;
+        stage.hidden=false;
+        start.hidden=true;
+        preview.hidden=true;
+        retake.hidden=true;
+        status.textContent='Kamera aktiv. Achte darauf, dass der erforderliche Code sichtbar ist, sofern du ihn nicht per digitalem Overlay einblendest.';
+      }catch(error){
+        status.textContent='Kamerazugriff wurde nicht freigegeben oder ist technisch nicht verfügbar. Ohne Live-Kamera kann dieser Nachweis nicht eingereicht werden.';
+      }
+    };
+
+    start.addEventListener('click',open);
+    retake.addEventListener('click',open);
+
+    cancel.addEventListener('click',()=>{
+      stop();
+      start.hidden=false;
+      status.textContent='Live-Aufnahme abgebrochen.';
+    });
+
+    capture.addEventListener('click',async()=>{
+      if(!stream || !video.videoWidth || !video.videoHeight) return;
+
+      const canvas=document.createElement('canvas');
+      canvas.width=video.videoWidth;
+      canvas.height=video.videoHeight;
+      const ctx=canvas.getContext('2d');
+      ctx.drawImage(video,0,0,canvas.width,canvas.height);
+
+      const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',0.95));
+      if(!blob) return;
+
+      const file=new File([blob],`live-${Date.now()}.jpg`,{type:'image/jpeg',lastModified:Date.now()});
+      const transfer=new DataTransfer();
+      transfer.items.add(file);
+      input.files=transfer.files;
+
+      preview.src=URL.createObjectURL(blob);
+      preview.hidden=false;
+      retake.hidden=false;
+      start.hidden=true;
+      stop();
+      status.textContent='Live-Aufnahme gespeichert. Du kannst sie jetzt einreichen oder neu aufnehmen.';
+    });
+
+    input.form?.addEventListener('reset',()=>{
+      stop();
+      input.value='';
+      preview.hidden=true;
+      retake.hidden=true;
+      start.hidden=false;
+    });
+
+    window.addEventListener('pagehide',stop,{once:true});
+  });
+});
