@@ -8,7 +8,9 @@ class NotificationController extends Controller
     public function index()
     {
         $notifications=request()->user()->userNotifications()->latest()->paginate(30);
-        return view('notifications.index',compact('notifications'));
+        $pushConfigured=app(\\App\\Services\\PushService::class)->configured();
+        $vapidPublicKey=(string)config('webpush.public_key');
+        return view('notifications.index',compact('notifications','pushConfigured','vapidPublicKey'));
     }
 
     public function read(UserNotification $notification)
