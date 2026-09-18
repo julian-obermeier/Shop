@@ -8,6 +8,7 @@ return [
         'prechecks' => ['driver' => 'local', 'root' => storage_path('app/private/prechecks'), 'throw' => true],
         'messages' => ['driver' => 'local', 'root' => storage_path('app/private/messages'), 'throw' => true],
         'shipments' => ['driver' => 'local', 'root' => storage_path('app/private/shipments'), 'throw' => true],
+        'returns' => ['driver' => 'local', 'root' => storage_path('app/private/returns'), 'throw' => true],
         'public' => ['driver' => 'local', 'root' => storage_path('app/public'), 'url' => env('APP_URL').'/storage', 'visibility' => 'public', 'throw' => false],
     ],
 ];
