@@ -31,7 +31,7 @@
 <div class="panel"><div class="section-head"><div><span class="eyebrow">Prüfung</span><h2>Nachweise</h2></div></div>
 @forelse($order->days as $day)
 @php($validProofs=$day->proofs->whereIn('review_status',['pending','accepted'])->count())
-<div class="admin-day"><div><strong>Tag {{ $day->day_number }}</strong><small>{{ $day->date->format('d.m.Y') }} · {{ $validProofs }}/{{ $day->required_proofs }} gültig/offen</small></div><div class="proof-chips">@foreach($day->proofs as $proof)<a href="{{ route('admin.proofs.file',$proof) }}">{{ $proof->original_name }} · {{ $proof->review_status }}</a>@endforeach</div></div>
+<div class="admin-day"><div><strong>Tag {{ $day->day_number }}</strong><small>{{ $day->date->format('d.m.Y') }} · {{ $validProofs }}/{{ $day->required_proofs }} gültig/offen</small></div><div class="proof-chips">@foreach($day->proofs as $proof)@if($proof->purged_at)<span>{{ $proof->original_name }} · Datei nach Aufbewahrungsfrist gelöscht</span>@else<a href="{{ route('admin.proofs.file',$proof) }}">{{ $proof->original_name }} · {{ $proof->review_status }}</a>@endif @endforeach</div></div>
 @empty<p class="muted">Noch keine Auftragstage vorhanden.</p>@endforelse
 </div>
 
