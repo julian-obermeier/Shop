@@ -98,16 +98,7 @@ class MasterPromptSchedulingTest extends TestCase
         $second=$this->provider('fifo-second@example.test');
         $third=$this->provider('fifo-third@example.test');
 
-        $firstRestriction=$first->restrictions()->create([
-            'issued_by'=>null,
-            'type'=>'reliability',
-            'reason'=>'Temporär keine neuen Aufträge',
-            'starts_at'=>CarbonImmutable::parse('2026-09-18 09:00:00','Europe/Berlin'),
-            'active'=>true,
-            'required_successes'=>5,
-            'successful_count'=>0,
-            'max_active_orders'=>0,
-        ]);
+        $first->update(['status'=>'inactive']);
 
         CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-18 10:00:00','Europe/Berlin'));
         $entry1=OfferWaitlistEntry::create([
@@ -148,7 +139,7 @@ class MasterPromptSchedulingTest extends TestCase
                 'reserved_at'=>null,
                 'reservation_expires_at'=>null,
             ]);
-            $firstRestriction->update(['active'=>false,'ends_at'=>now()]);
+            $first->update(['status'=>'active']);
 
             $reservedNext=app(WaitlistService::class)->allocateNext($offer->fresh(),app(NotificationService::class));
 
