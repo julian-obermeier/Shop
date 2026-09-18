@@ -214,7 +214,7 @@ $pointsAffect=(bool)data_get($inspectionConfig,'points_affect_compensation',fals
 </div>
 @endif
 
-@if(!$order->isTerminal())
+@if(in_array($order->status,['precheck','precheck_resubmit','approved','waiting_start','active','paused','waiting_shipping','shipping_overdue','shipped','received','inspection','accepted'],true))
 <div class="panel"><h2>Anforderungen nachträglich ändern</h2>
 <form method="post" action="{{ route('admin.orders.requirements',$order) }}" class="stack-form">@csrf
 <label>Neue verbindliche Anforderung<textarea name="requirement_text" rows="4" required></textarea></label>
