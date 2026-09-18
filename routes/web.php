@@ -22,6 +22,7 @@ use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\Auth\EmailVerificationController;
 use App\Http\Controllers\Auth\PasswordResetController;
 use App\Http\Controllers\Auth\TwoFactorController;
+use App\Http\Controllers\AccountSecurityController;
 use App\Http\Controllers\ConversationController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DocumentController;
@@ -66,6 +67,8 @@ Route::middleware(['auth','active'])->group(function () {
 
     Route::get('/profil', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::put('/profil', [ProfileController::class, 'update'])->name('profile.update');
+    Route::put('/profil/email', [AccountSecurityController::class, 'updateEmail'])->middleware('throttle:5,10')->name('profile.email');
+    Route::put('/profil/passwort', [AccountSecurityController::class, 'updatePassword'])->middleware('throttle:5,10')->name('profile.password');
 
     Route::get('/benachrichtigungen', [NotificationController::class, 'index'])->name('notifications.index');
     Route::post('/benachrichtigungen/alle-gelesen', [NotificationController::class, 'readAll'])->name('notifications.read-all');
