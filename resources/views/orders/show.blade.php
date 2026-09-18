@@ -220,8 +220,13 @@ $canSubmit=$isCurrent && $day->counts_toward_series && in_array($order->status,[
 <div class="panel" style="margin:12px 0">
 <strong>{{ $window['label']??$key }}</strong>
 <small class="muted"> · {{ $window['start']??'00:00' }}–{{ $window['end']??'23:59' }} · akzeptiert {{ $accepted }}/{{ $required }}@if($window['face_required']??false) · Gesicht Pflicht@endif</small>
+@if(!empty($window['image_requirements']))<div class="notice"><strong>Bildanforderung:</strong> {{ $window['image_requirements'] }}</div>@endif
+@if(!empty($window['required_fields']))<div class="notice"><strong>Zusätzliche Pflichtangaben:</strong> {{ collect($window['required_fields'])->pluck('label')->filter()->implode(', ') }}</div>@endif
 @foreach($windowProofs as $proof)
-<div class="proof-list"><div><span>📎 Versuch {{ $proof->retry_number }} · Code {{ $proof->proof_code }}</span><span class="status {{ $proof->review_status }}">{{ strtoupper($proof->review_status) }}</span></div>@if($proof->review_comment)<small>{{ $proof->review_comment }}</small>@endif</div>
+<div class="proof-list"><div><span>📎 Versuch {{ $proof->retry_number }} · Code {{ $proof->proof_code }}</span><span class="status {{ $proof->review_status }}">{{ strtoupper($proof->review_status) }}</span></div>
+@if($proof->text_value)<small>Text: {{ $proof->text_value }}</small>@endif
+@if(is_array($proof->proof_data))@foreach($proof->proof_data as $entry)<small>{{ $entry['label']??'Pflichtangabe' }}: {{ $entry['value']??'–' }}</small>@endforeach @endif
+@if($proof->review_comment)<small>{{ $proof->review_comment }}</small>@endif</div>
 @endforeach
 
 @if($canSubmit && $day->day_number>0)
@@ -234,6 +239,9 @@ $canSubmit=$isCurrent && $day->counts_toward_series && in_array($order->status,[
 <input type="hidden" name="proof_code" value="{{ $challenge->code }}">
 <input type="hidden" name="window_key" value="{{ $key }}">
 @if($window['text_required']??false)<label>Pflichttext<textarea name="text_value" rows="3" required></textarea></label>@endif
+@foreach(($window['required_fields']??[]) as $requiredField)
+<label>{{ $requiredField['label']??'Pflichtangabe' }}<input name="proof_data[{{ $requiredField['key'] }}]" required maxlength="1000"></label>
+@endforeach
 <label>Live-Kamera<input type="file" name="proof" accept="image/jpeg" required data-proof-file data-live-camera></label>
 <label class="check"><input type="checkbox" data-overlay-code><span>Code automatisch sichtbar in das aufgenommene Bild einblenden</span></label>
 <button class="btn secondary">Nachweis einreichen</button>
