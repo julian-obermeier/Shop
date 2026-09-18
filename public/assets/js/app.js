@@ -30,7 +30,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       let amount = base;
       inputs.filter(input => input.checked).forEach(input => amount += Number(input.dataset.price || 0));
-      total.textContent = amount.toLocaleString('de-DE', {style:'currency', currency:'EUR'});
+      if (total) total.textContent = amount.toLocaleString('de-DE', {style:'currency', currency:'EUR'});
     };
 
     configurator.addEventListener('change', event => {
@@ -42,7 +42,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const editor = document.querySelector('[data-option-editor]');
   if (editor) {
     const holder = editor.querySelector('[data-options]');
-    let index = holder.children.length;
+    let index = holder?.children.length || 0;
+
     editor.querySelector('[data-add-option]')?.addEventListener('click', () => {
       const row = document.createElement('div');
       row.className='option-editor-row';
@@ -53,15 +54,49 @@ document.addEventListener('DOMContentLoaded', () => {
         <label>Extra-Nachweise/Tag<input type="number" min="0" name="options[${index}][extra_proofs_per_day]" value="0"></label>
         <label>Extra-Tage<input type="number" min="0" name="options[${index}][extra_duration_days]" value="0"></label>
         <label>Mindestlaufzeit<input type="number" min="0" name="options[${index}][min_duration_days]" value="0"></label>
-        <label>Benötigt Optionen<input name="options[${index}][requires_names]" placeholder="z. B. Sport"></label>
-        <label>Schließt Optionen aus<input name="options[${index}][excludes_names]" placeholder="z. B. Schlafen"></label>
+        <label>Benötigt Optionen<input name="options[${index}][requires_names]"></label>
+        <label>Schließt Optionen aus<input name="options[${index}][excludes_names]"></label>
         <label class="check"><input type="checkbox" name="options[${index}][required]" value="1"><span>Pflicht</span></label>
         <label class="wide" style="grid-column:1/-2">Beschreibung<input name="options[${index}][description]"></label>
         <button type="button" class="icon-btn" data-remove-option>×</button>`;
-      holder.appendChild(row); index++;
+      holder.appendChild(row);
+      index++;
     });
-    editor.addEventListener('click', e => {
-      if (e.target.matches('[data-remove-option]')) e.target.closest('.option-editor-row')?.remove();
+
+    editor.addEventListener('click', event => {
+      if (event.target.matches('[data-remove-option]')) {
+        event.target.closest('.option-editor-row')?.remove();
+      }
+    });
+  }
+
+  const fieldEditor = document.querySelector('[data-field-editor]');
+  if (fieldEditor) {
+    const holder = fieldEditor.querySelector('[data-fields]');
+    let index = holder?.children.length || 0;
+
+    fieldEditor.querySelector('[data-add-field]')?.addEventListener('click', () => {
+      const row=document.createElement('div');
+      row.className='option-editor-row';
+      row.innerHTML=`
+        <label>Bezeichnung<input name="fields[${index}][label]"></label>
+        <label>Typ><select name="fields[${index}][type]">
+          <option value="text">Text</option><option value="textarea">Textbereich</option>
+          <option value="number">Zahl</option><option value="select">Auswahl</option>
+          <option value="radio">Radio</option><option value="checkbox">Ja/Nein</option>
+        </select></label>
+        <label class="wide">Hilfetext<input name="fields[${index}][help_text]"></label>
+        <label class="wide">Auswahlwerte – eine pro Zeile<textarea name="fields[${index}][options_text]" rows="3"></textarea></label>
+        <label class="check"><input type="checkbox" name="fields[${index}][required]" value="1"><span>Pflichtfeld</span></label>
+        <button type="button" class="icon-btn" data-remove-field>×</button>`;
+      holder.appendChild(row);
+      index++;
+    });
+
+    fieldEditor.addEventListener('click', event => {
+      if(event.target.matches('[data-remove-field]')){
+        event.target.closest('.option-editor-row')?.remove();
+      }
     });
   }
 });
