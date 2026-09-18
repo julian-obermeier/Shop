@@ -116,6 +116,8 @@ class PrivacyService
         abort_if($blockers!==[],422,'Anonymisierung derzeit nicht möglich: '.implode('; ',$blockers));
 
         DB::transaction(function() use($user){
+            $originalEmail=$user->email;
+
             $user->load([
                 'verifications',
                 'orders.precheck',
@@ -196,6 +198,15 @@ class PrivacyService
             $user->warnings()->delete();
             $user->restrictions()->delete();
             $user->userNotifications()->delete();
+            $user->loginChallenges()->delete();
+
+            if(\Illuminate\Support\Facades\Schema::hasTable('sessions')){
+                DB::table('sessions')->where('user_id',$user->id)->delete();
+            }
+
+            if(\Illuminate\Support\Facades\Schema::hasTable('password_reset_tokens')){
+                DB::table('password_reset_tokens')->where('email',$originalEmail)->delete();
+            }
 
             $user->update([
                 'first_name'=>'Gelöscht',
