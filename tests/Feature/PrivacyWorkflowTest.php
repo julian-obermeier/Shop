@@ -87,7 +87,7 @@ class PrivacyWorkflowTest extends TestCase
         ]);
 
         $admin=User::create([
-            'role'=>'superadmin',
+            'role'=>'admin',
             'first_name'=>'Super',
             'last_name'=>'Admin',
             'birth_date'=>'1970-01-01',
