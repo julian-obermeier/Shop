@@ -164,6 +164,16 @@ class ProofController extends Controller
     private function assertWindowOpen(OrderDay $day, array $window, bool $allowResubmission=false): void
     {
         $now=CarbonImmutable::now('Europe/Berlin');
+
+        if($allowResubmission){
+            $latest=$day->proofs()
+                ->where('window_key',$window['key'])
+                ->where('review_status','rejected')
+                ->latest('id')
+                ->first();
+            if($latest?->resubmit_due_at && $latest->resubmit_due_at->isFuture()) return;
+        }
+
         abort_unless($day->date->isSameDay($now),422,'Nachweise können nur am vorgesehenen Kalendertag aufgenommen werden.');
 
         if($day->day_number===0) return;
@@ -174,15 +184,6 @@ class ProofController extends Controller
         if($end->lt($start)) $end=$end->addDay();
 
         if($now->betweenIncluded($start,$end)) return;
-
-        if($allowResubmission){
-            $latest=$day->proofs()
-                ->where('window_key',$window['key'])
-                ->where('review_status','rejected')
-                ->latest('id')
-                ->first();
-            if($latest?->resubmit_due_at && $latest->resubmit_due_at->isFuture()) return;
-        }
 
         abort(422,'Dieses Nachweisfenster ist aktuell nicht geöffnet.');
     }
