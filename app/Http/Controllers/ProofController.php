@@ -145,7 +145,9 @@ class ProofController extends Controller
                 'review_status'=>'pending',
             ]);
 
-            if($day->day_number===0) $orders->activateAfterStartProof($day);
+            if($day->day_number===0 && $day->order->status==='waiting_start'){
+                $orders->activateAfterStartProof($day);
+            }
         });
 
         return back()->with('success',$day->day_number===0
