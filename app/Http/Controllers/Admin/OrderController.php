@@ -200,6 +200,9 @@ class OrderController extends Controller
 
         DB::transaction(function() use($order,$request,$orders,$data){
             $order=Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
+            $lockedUser=AppModelsUser::whereKey($order->user_id)->lockForUpdate()->firstOrFail();
+            $order->setRelation('user',$lockedUser);
+
             $origin=$order->paused_from_status ?: 'active';
 
             if($origin==='active'){
@@ -240,6 +243,14 @@ class OrderController extends Controller
                 ]);
                 $reason='Pause beendet; Versandphase mit neuer 24-Stunden-Frist fortgesetzt.';
                 $to='waiting_shipping';
+            } elseif(in_array($origin,['shipped','received','inspection','accepted'],true)){
+                $order->update([
+                    'status'=>$origin,
+                    'paused_at'=>null,
+                    'paused_from_status'=>null,
+                ]);
+                $reason='Pause beendet; Auftrag in Phase '.strtoupper(str_replace('_',' ',$origin)).' fortgesetzt.';
+                $to=$origin;
             } elseif(in_array($origin,['approved','waiting_start'],true)){
                 $activation=\Carbon\CarbonImmutable::parse(
                     $data['activation_date'] ?? now('Europe/Berlin')->toDateString(),
