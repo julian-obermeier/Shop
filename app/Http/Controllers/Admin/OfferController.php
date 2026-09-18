@@ -83,7 +83,41 @@ class OfferController extends Controller
     public function update(Request $request, Offer $offer, AuditService $audit, ImageSanitizer $images)
     {
         $before=$offer->toArray();
-        $offer->update($this->validated($request));
+        $wasActive=(bool)$offer->active;
+        $validated=$this->validated($request);
+
+        \Illuminate\Support\Facades\DB::transaction(function() use($offer,$validated,$wasActive){
+            $offer->update($validated);
+
+            if($wasActive && !$offer->active){
+                $offer->waitlistEntries()
+                    ->where('status','reserved')
+                    ->whereNotNull('reservation_expires_at')
+                    ->get()
+                    ->each(function($entry){
+                        $remaining=max(1,now()->diffInSeconds($entry->reservation_expires_at,false));
+                        $entry->update([
+                            'reservation_remaining_seconds'=>$remaining,
+                            'reservation_expires_at'=>null,
+                        ]);
+                    });
+            }
+
+            if(!$wasActive && $offer->active){
+                $offer->waitlistEntries()
+                    ->where('status','reserved')
+                    ->get()
+                    ->each(function($entry){
+                        $seconds=max(1,(int)($entry->reservation_remaining_seconds ?: 86400));
+                        $entry->update([
+                            'reserved_at'=>now(),
+                            'reservation_expires_at'=>now()->addSeconds($seconds),
+                            'reservation_remaining_seconds'=>null,
+                        ]);
+                    });
+            }
+        });
+
         $this->handleImage($request,$offer,$images);
         $this->syncOptions($request,$offer);
         $this->syncFields($request,$offer);
