@@ -34,6 +34,7 @@ use App\Http\Controllers\OfferWaitlistController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\PrecheckController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\PushSubscriptionController;
 use App\Http\Controllers\ReturnRequestController;
 use App\Http\Controllers\PrivacyController;
 use App\Http\Controllers\ProofController;
@@ -68,6 +69,8 @@ Route::middleware(['auth','active'])->group(function () {
     Route::put('/profil/passwort', [AccountSecurityController::class, 'updatePassword'])->middleware('throttle:5,10')->name('profile.password');
 
     Route::get('/benachrichtigungen', [NotificationController::class, 'index'])->name('notifications.index');
+    Route::post('/benachrichtigungen/push', [PushSubscriptionController::class, 'store'])->middleware('throttle:10,1')->name('notifications.push.store');
+    Route::delete('/benachrichtigungen/push', [PushSubscriptionController::class, 'destroy'])->middleware('throttle:10,1')->name('notifications.push.destroy');
     Route::post('/benachrichtigungen/alle-gelesen', [NotificationController::class, 'readAll'])->name('notifications.read-all');
     Route::get('/benachrichtigungen/{notification}/oeffnen', [NotificationController::class, 'read'])->name('notifications.read');
     Route::get('/angebote', [OfferController::class, 'index'])->name('offers.index');
