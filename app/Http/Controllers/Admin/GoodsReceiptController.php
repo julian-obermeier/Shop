@@ -29,6 +29,12 @@ class GoodsReceiptController extends Controller
             $from=$order->status;
             $to=$data['complete']?'inspection':'received';
             $order->update(['status'=>$to,'received_at'=>now()]);
+            if($data['complete'] && $order->shipment){
+                $order->shipment->update([
+                    'delivered_at'=>$order->shipment->delivered_at ?: now(),
+                    'risk_transferred_at'=>$order->shipment->risk_transferred_at ?: now(),
+                ]);
+            }
             $order->statusHistory()->create([
                 'changed_by'=>$request->user()->id,
                 'from_status'=>$from,
