@@ -175,7 +175,7 @@ class OrderService
 
             $count=Order::where('user_id',$order->user_id)
                 ->where('id','!=',$order->id)
-                ->whereIn('status',['precheck','precheck_resubmit','approved','waiting_start','active','paused'])
+                ->countsAgainstPersonalLimit()
                 ->lockForUpdate()
                 ->count();
             abort_if($count >= $order->user->effectiveOrderLimit(),422,'Das persönliche Auftragslimit der Anbieterin ist erreicht.');
