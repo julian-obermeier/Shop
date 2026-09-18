@@ -155,19 +155,21 @@ $openOrders=$user->orders->whereNotIn('status',['completed','cancelled','rejecte
 
 @foreach($openOrders as $order)
 @php($canContinue=in_array($order->status,['shipped','received','inspection','accepted'],true))
+@php($canPause=!in_array($order->status,['requested','awaiting_date_confirmation'],true))
 <fieldset style="border:1px solid var(--line);border-radius:12px;padding:12px">
 <legend><strong>#{{ $order->order_number }} · {{ data_get($order->offer_snapshot,'title') }}</strong></legend>
 <p class="muted">Aktueller Status: {{ strtoupper(str_replace('_',' ',$order->status)) }}</p>
 <label>Entscheidung
 <select name="orders[{{ $order->id }}][action]" required>
 @if($canContinue)<option value="continue">Weiterlaufen lassen</option>@endif
-<option value="pause">Pausieren</option>
+@if($canPause)<option value="pause">Pausieren</option>@endif
 <option value="cancel">Abbrechen</option>
 </select>
 </label>
 <label>Auftragsspezifischer Grund optional<textarea name="orders[{{ $order->id }}][reason]" rows="2"></textarea></label>
 <label>Vergütung bei Abbruch (€)<input type="number" name="orders[{{ $order->id }}][compensation_amount]" min="0" max="{{ $order->compensation_total }}" step="0.01" value="0"></label>
 @if(!$canContinue)<small class="muted">Weiterlaufen ist nicht zulässig, weil in diesem Status noch eine Interaktion der Anbieterin erforderlich ist.</small>@endif
+@if(!$canPause)<small class="muted">Eine noch nicht bestätigte Anfrage kann bei Kontodeaktivierung nicht pausiert werden.</small>@endif
 </fieldset>
 @endforeach
 
