@@ -44,6 +44,7 @@ class WaitlistService
             foreach($entries as $entry){
                 $user=$entry->user;
                 if(!$user || $user->status!=='active') continue;
+                if($user->effectiveOrderLimit()===0 || $user->isOfferBlocked($lockedOffer->id)) continue;
 
                 $activeCount=Order::where('user_id',$user->id)
                     ->whereIn('status',['precheck','precheck_resubmit','approved','waiting_start','awaiting_date_confirmation','active','paused'])
