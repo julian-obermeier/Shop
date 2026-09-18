@@ -56,7 +56,7 @@ Versandfrist: <strong>{{ $order->shipping_due_at->format('d.m.Y H:i') }} Uhr</st
 @php($validProofs=$day->proofs->whereIn('review_status',['pending','accepted'])->count())
 <article class="day-card" id="nachweise">
 <div class="day-top"><div><span class="day-number">Tag {{ $day->day_number }}</span><strong>{{ $day->date->format('d.m.Y') }}</strong></div><span>{{ $validProofs }}/{{ $day->required_proofs }} gültige/offene Nachweise</span></div>
-<div class="proof-list">@foreach($day->proofs as $proof)<div><span>📎 {{ $proof->original_name }}</span><span class="status {{ $proof->review_status }}">{{ strtoupper($proof->review_status) }}</span></div>@endforeach</div>
+<div class="proof-list">@foreach($day->proofs as $proof)<div><span>📎 {{ $proof->original_name }}@if($proof->purged_at) · Datei nach Aufbewahrungsfrist gelöscht@endif</span><span class="status {{ $proof->review_status }}">{{ strtoupper($proof->review_status) }}</span></div>@endforeach</div>
 @if($validProofs < $day->required_proofs && $order->user_id===auth()->id())
 <form method="post" enctype="multipart/form-data" action="{{ route('proofs.store',$day) }}" class="upload-form">@csrf
 <input type="file" name="proof" accept="image/jpeg,image/png,image/webp" required>
