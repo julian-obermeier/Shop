@@ -16,6 +16,7 @@ class ProofSubmission extends Model
             'proof_code_expires_at'=>'datetime',
             'resubmit_due_at'=>'datetime',
             'extra_retry_granted'=>'boolean',
+            'proof_data'=>'array',
         ];
     }
 
