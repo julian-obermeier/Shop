@@ -4,7 +4,7 @@ namespace App\Services;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 class PrivacyService
@@ -14,7 +14,7 @@ class PrivacyService
         $reasons=[];
 
         $activeOrders=$user->orders()
-            ->whereNotIn('status',['completed','cancelled','rejected','compensation_released'])
+            ->whereNotIn('status',['completed','cancelled','rejected','request_rejected','not_started'])
             ->count();
 
         if($activeOrders>0) $reasons[]=$activeOrders.' laufende bzw. noch nicht abgeschlossene Aufträge';
@@ -23,12 +23,14 @@ class PrivacyService
         if($wallet){
             foreach(['pending','available','payout_pending'] as $bucket){
                 $balance=round($wallet->balance($bucket),2);
-                if(abs($balance)>0.009) $reasons[]='Wallet-Bereich '.$bucket.' hat noch '.number_format($balance,2,',','.').' €';
+                if(abs($balance)>0.009){
+                    $reasons[]='Wallet-Bereich '.$bucket.' hat noch '.number_format($balance,2,',','.').' €';
+                }
             }
         }
 
         $openPayouts=$user->payouts()
-            ->whereIn('status',['requested','review','approved'])
+            ->whereIn('status',['requested','review','approved','failed','payment_executed'])
             ->count();
 
         if($openPayouts>0) $reasons[]=$openPayouts.' offene Auszahlungsanträge';
@@ -43,15 +45,17 @@ class PrivacyService
             'orders.options',
             'orders.fieldValues',
             'orders.statusHistory',
-            'orders.shipment',
+            'orders.shipment.evidences',
             'orders.goodsReceipt',
+            'orders.goodsInspection',
+            'orders.returnRequest',
             'walletAccount.entries',
             'payouts',
             'documentConsents.version.document',
             'conversations.messages',
             'warnings',
             'restrictions',
-            'verifications',
+            'reliabilityEvents',
         ]);
 
         return [
@@ -63,7 +67,6 @@ class PrivacyService
                 'birth_date'=>$user->birth_date?->toDateString(),
                 'email'=>$user->email,
                 'email_verified_at'=>$user->email_verified_at?->toIso8601String(),
-                'identity_verified_at'=>$user->verified_at?->toIso8601String(),
                 'status'=>$user->status,
                 'created_at'=>$user->created_at?->toIso8601String(),
             ],
@@ -72,7 +75,10 @@ class PrivacyService
                 'order_number'=>$order->order_number,
                 'status'=>$order->status,
                 'compensation_total'=>$order->compensation_total,
+                'final_compensation'=>$order->final_compensation,
                 'offer_snapshot'=>$order->offer_snapshot,
+                'proposed_start_date'=>$order->proposed_start_date?->toDateString(),
+                'confirmed_start_date'=>$order->confirmed_start_date?->toDateString(),
                 'start_date'=>$order->start_date?->toDateString(),
                 'end_date'=>$order->end_date?->toDateString(),
                 'shipping_due_at'=>$order->shipping_due_at?->toIso8601String(),
@@ -80,7 +86,10 @@ class PrivacyService
                 'fields'=>$order->fieldValues->toArray(),
                 'status_history'=>$order->statusHistory->toArray(),
                 'shipment'=>$order->shipment?->toArray(),
+                'shipment_evidences'=>$order->shipment?->evidences?->toArray() ?? [],
                 'goods_receipt'=>$order->goodsReceipt?->toArray(),
+                'goods_inspection'=>$order->goodsInspection?->toArray(),
+                'return_request'=>$order->returnRequest?->toArray(),
             ])->values()->all(),
             'wallet_entries'=>$user->walletAccount?->entries?->toArray() ?? [],
             'payouts'=>$user->payouts->toArray(),
@@ -102,11 +111,7 @@ class PrivacyService
             ])->values()->all(),
             'warnings'=>$user->warnings->toArray(),
             'restrictions'=>$user->restrictions->toArray(),
-            'identity_verifications'=>$user->verifications->map(fn($verification)=>[
-                'status'=>$verification->status,
-                'method'=>$verification->method,
-                'reviewed_at'=>$verification->reviewed_at?->toIso8601String(),
-            ])->values()->all(),
+            'reliability_events'=>$user->reliabilityEvents->toArray(),
         ];
     }
 
@@ -119,7 +124,6 @@ class PrivacyService
             $originalEmail=$user->email;
 
             $user->load([
-                'verifications',
                 'orders.precheck',
                 'orders.days.proofs',
                 'orders.fieldValues',
@@ -128,40 +132,13 @@ class PrivacyService
                 'warnings',
                 'restrictions',
                 'userNotifications',
+                'pushSubscriptions',
             ]);
 
-            foreach($user->verifications as $verification){
-                foreach([$verification->document_front_path,$verification->document_back_path] as $path){
-                    if($path) Storage::disk('identity')->delete($path);
-                }
-                $verification->update([
-                    'document_front_path'=>null,
-                    'document_back_path'=>null,
-                    'admin_comment'=>null,
-                ]);
-            }
-
+            // Nachweisdateien, Vorprüfungsbilder und andere auftragsbezogene Dateien
+            // bleiben gemäß MASTERPROMPT dauerhaft erhalten. Die persönliche Kontozuordnung
+            // wird stattdessen durch Anonymisierung der Stammdaten entpersonalisiert.
             foreach($user->orders as $order){
-                if($order->precheck?->photo_path){
-                    Storage::disk('prechecks')->delete($order->precheck->photo_path);
-                    $order->precheck->update([
-                        'photo_path'=>null,
-                        'item_description'=>'[nach Kontolöschung entfernt]',
-                        'item_size'=>null,
-                        'item_type'=>null,
-                    ]);
-                }
-
-                foreach($order->days as $day){
-                    foreach($day->proofs as $proof){
-                        if(!$proof->purged_at) Storage::disk('proofs')->delete($proof->storage_path);
-                        $proof->update([
-                            'original_name'=>'[nach Kontolöschung entfernt]',
-                            'purged_at'=>$proof->purged_at ?: now(),
-                        ]);
-                    }
-                }
-
                 foreach($order->fieldValues as $field){
                     $field->update(['value'=>null]);
                 }
@@ -169,21 +146,9 @@ class PrivacyService
 
             foreach($user->conversations as $conversation){
                 foreach($conversation->messages as $message){
-                    if($message->attachment_path) Storage::disk('messages')->delete($message->attachment_path);
-
-                    $updates=[
-                        'attachment_path'=>null,
-                        'attachment_original_name'=>null,
-                        'attachment_mime'=>null,
-                        'attachment_size'=>null,
-                        'attachment_sha256'=>null,
-                    ];
-
                     if($message->user_id===$user->id){
-                        $updates['body']='[nach Kontolöschung entfernt]';
+                        $message->update(['body'=>'[nach Kontolöschung anonymisiert]']);
                     }
-
-                    $message->update($updates);
                 }
             }
 
@@ -193,18 +158,24 @@ class PrivacyService
                 'postal_code'=>null,
                 'city'=>null,
                 'country_code'=>'DE',
+                'bank_iban'=>null,
+                'bank_account_holder'=>null,
+                'paypal_email'=>null,
+                'paypal_name'=>null,
+                'payout_details_changed_at'=>null,
+                'payout_name_approved_at'=>null,
             ]);
 
             $user->warnings()->delete();
             $user->restrictions()->delete();
             $user->userNotifications()->delete();
-            $user->loginChallenges()->delete();
+            $user->pushSubscriptions()->delete();
 
-            if(\Illuminate\Support\Facades\Schema::hasTable('sessions')){
+            if(Schema::hasTable('sessions')){
                 DB::table('sessions')->where('user_id',$user->id)->delete();
             }
 
-            if(\Illuminate\Support\Facades\Schema::hasTable('password_reset_tokens')){
+            if(Schema::hasTable('password_reset_tokens')){
                 DB::table('password_reset_tokens')->where('email',$originalEmail)->delete();
             }
 
@@ -216,6 +187,8 @@ class PrivacyService
                 'password'=>Hash::make(Str::random(64)),
                 'status'=>'deleted',
                 'verified_at'=>null,
+                'deactivated_at'=>now(),
+                'deactivation_reason'=>'Konto durch Admin anonymisiert',
             ]);
 
             $user->forceFill([
