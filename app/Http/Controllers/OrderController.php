@@ -21,7 +21,7 @@ class OrderController extends Controller
         abort_unless($order->user_id===request()->user()->id || request()->user()->isAdmin(),403);
         $order->load(
             'options','fieldValues','days.proofs','statusHistory','precheck','shipment',
-            'goodsReceipt','goodsInspection','returnRequest','conversation','proofChallenges'
+            'goodsReceipt','goodsInspection','returnRequest','conversation','proofChallenges','shipment.evidences'
         );
         return view('orders.show',compact('order'));
     }
