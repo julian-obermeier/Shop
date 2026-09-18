@@ -3,11 +3,13 @@ namespace App\Http\Controllers;
 
 use App\Models\Category;
 use App\Models\Offer;
+use App\Models\OfferWaitlistEntry;
+use App\Services\WaitlistService;
 use Illuminate\Http\Request;
 
 class OfferController extends Controller
 {
-    public function index(Request $request)
+    public function index(Request $request, WaitlistService $waitlists)
     {
         $query=Offer::published()->with('category');
 
@@ -24,14 +26,30 @@ class OfferController extends Controller
         $offers=$query->orderByDesc('created_at')->paginate(12)->withQueryString();
         $categories=Category::where('active',true)->orderBy('name')->get();
 
-        return view('offers.index',compact('offers','categories'));
+        $capacity=collect($offers->items())->mapWithKeys(fn($offer)=>[$offer->id=>$waitlists->availableSlots($offer)]);
+
+        return view('offers.index',compact('offers','categories','capacity'));
     }
 
-    public function show(Offer $offer)
+    public function show(Offer $offer, WaitlistService $waitlists)
     {
         abort_unless(Offer::published()->whereKey($offer->id)->exists(),404);
         $offer->load('category','options','fields');
 
-        return view('offers.show',compact('offer'));
+        $availableSlots=$waitlists->availableSlots($offer);
+        $waitlistEntry=OfferWaitlistEntry::where('offer_id',$offer->id)
+            ->where('user_id',request()->user()->id)
+            ->whereIn('status',['waiting','reserved'])
+            ->first();
+
+        $waitlistPosition=null;
+        if($waitlistEntry?->status==='waiting'){
+            $waitlistPosition=OfferWaitlistEntry::where('offer_id',$offer->id)
+                ->where('status','waiting')
+                ->where('created_at','<=',$waitlistEntry->created_at)
+                ->count();
+        }
+
+        return view('offers.show',compact('offer','availableSlots','waitlistEntry','waitlistPosition'));
     }
 }
