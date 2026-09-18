@@ -133,6 +133,7 @@ class PrivacyService
                 'restrictions',
                 'userNotifications',
                 'pushSubscriptions',
+                'waitlistEntries',
             ]);
 
             // Nachweisdateien, Vorprüfungsbilder und andere auftragsbezogene Dateien
@@ -170,6 +171,13 @@ class PrivacyService
             $user->restrictions()->delete();
             $user->userNotifications()->delete();
             $user->pushSubscriptions()->delete();
+            $user->waitlistEntries()
+                ->whereIn('status',['waiting','reserved'])
+                ->update([
+                    'status'=>'removed',
+                    'reservation_expires_at'=>null,
+                    'reservation_remaining_seconds'=>null,
+                ]);
 
             if(Schema::hasTable('sessions')){
                 DB::table('sessions')->where('user_id',$user->id)->delete();
