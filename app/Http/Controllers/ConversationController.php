@@ -62,13 +62,14 @@ class ConversationController extends Controller
             ->whereNull('read_at')
             ->update(['read_at'=>now()]);
 
-        return view('messages.show',compact('conversation'));
+        $writeLocked=$this->isWriteLocked($conversation);
+
+        return view('messages.show',compact('conversation','writeLocked'));
     }
 
     public function reply(Request $request, Conversation $conversation, MessageService $messages)
     {
         abort_unless($conversation->user_id===$request->user()->id && $conversation->order_id,403);
-        abort_unless($conversation->status!=='closed',422,'Diese Unterhaltung ist geschlossen.');
         abort_if($this->isWriteLocked($conversation),422,'Der Nachrichtenbereich dieses Auftrags ist bereits schreibgeschützt.');
 
         $data=$request->validate([
