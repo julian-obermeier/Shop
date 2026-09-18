@@ -782,6 +782,58 @@ class MasterPromptLifecycleTest extends TestCase
     }
 
 
+    public function test_deactivation_paused_shipped_order_can_resume_to_original_phase(): void
+    {
+        Mail::fake();
+
+        $provider=$this->provider('deactivation-shipped@example.test');
+        $admin=$this->admin('admin-deactivation-shipped@example.test');
+        $category=$this->category();
+        $offer=$this->offer($category,'Paused Shipped');
+
+        $order=Order::create([
+            'order_number'=>'20260000313',
+            'user_id'=>$provider->id,
+            'offer_id'=>$offer->id,
+            'status'=>'shipped',
+            'compensation_total'=>40,
+            'offer_snapshot'=>[
+                'title'=>$offer->title,
+                'duration_days'=>1,
+                'tracking_mode'=>'optional',
+            ],
+            'execution_completed_at'=>now()->subDay(),
+            'shipping_due_at'=>now()->subHours(12),
+        ]);
+
+        $this->actingAs($admin)->post(route('admin.users.deactivate',$provider),[
+            'reason'=>'Temporäre Kontodeaktivierung',
+            'orders'=>[
+                $order->id=>[
+                    'action'=>'pause',
+                    'reason'=>'Versandprüfung vorübergehend anhalten',
+                    'compensation_amount'=>0,
+                ],
+            ],
+        ])->assertRedirect();
+
+        $this->assertSame('inactive',$provider->fresh()->status);
+        $this->assertSame('paused',$order->fresh()->status);
+        $this->assertSame('shipped',$order->fresh()->paused_from_status);
+
+        $this->actingAs($admin)->post(route('admin.users.reactivate',$provider->fresh()))
+            ->assertRedirect();
+
+        $this->actingAs($admin)->post(route('admin.orders.resume',$order->fresh()))
+            ->assertRedirect();
+
+        $order->refresh();
+        $this->assertSame('shipped',$order->status);
+        $this->assertNull($order->paused_from_status);
+        $this->assertNull($order->paused_at);
+    }
+
+
     private function provider(string $email): User
     {
         $user=User::create([
