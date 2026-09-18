@@ -2,13 +2,13 @@
 namespace App\Http\Controllers;
 
 use App\Models\Order;
-use App\Services\ImageSanitizer;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class PrecheckController extends Controller
 {
-    public function store(Request $request, Order $order, ImageSanitizer $images)
+    public function store(Request $request, Order $order)
     {
         abort_unless($order->user_id===$request->user()->id,403);
         abort_if($request->user()->hasRestriction('uploads'),422,'Uploads sind für dieses Konto derzeit gesperrt.');
@@ -22,12 +22,21 @@ class PrecheckController extends Controller
         ]);
 
         $precheck=$order->precheck()->firstOrNew(['user_id'=>$request->user()->id]);
+        $answers=is_array($precheck->answers)?$precheck->answers:[];
 
         if($request->hasFile('photo')){
-            $old=$precheck->photo_path;
-            $stored=$images->store($request->file('photo'),'prechecks',$order->order_number,2200,2200);
-            $precheck->photo_path=$stored['path'];
-            if($old && $old!==$stored['path']) Storage::disk('prechecks')->delete($old);
+            if($precheck->photo_path){
+                $answers['photo_history'][]=[
+                    'path'=>$precheck->photo_path,
+                    'replaced_at'=>now()->toIso8601String(),
+                ];
+            }
+
+            $file=$request->file('photo');
+            $extension=strtolower($file->getClientOriginalExtension() ?: 'jpg');
+            $path=$file->storeAs($order->order_number,Str::uuid().'.'.$extension,'prechecks');
+            $precheck->photo_path=$path;
+            $answers['current_photo_sha256']=hash_file('sha256',Storage::disk('prechecks')->path($path));
         }
 
         $precheck->fill([
@@ -36,6 +45,7 @@ class PrecheckController extends Controller
             'item_description'=>$data['item_description'],
             'item_size'=>$data['item_size']??null,
             'item_type'=>$data['item_type']??null,
+            'answers'=>$answers,
             'submitted_at'=>now(),
             'admin_comment'=>null,
             'reviewed_by'=>null,
