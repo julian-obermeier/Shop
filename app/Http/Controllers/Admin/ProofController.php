@@ -51,11 +51,12 @@ class ProofController extends Controller
             $this->refreshDayStatus($proof);
         } else {
             $technical=$data['rejection_kind']==='technical';
+            $regularRetryAvailable=$technical && (int)$proof->retry_number < 2;
             $proof->update([
                 'review_status'=>'rejected',
                 'review_comment'=>$data['review_comment'],
                 'rejection_kind'=>$data['rejection_kind'],
-                'resubmit_due_at'=>$technical?now()->addHours(2):null,
+                'resubmit_due_at'=>$regularRetryAvailable?now()->addHours(2):null,
                 'reviewed_by'=>$request->user()->id,
                 'reviewed_at'=>now(),
             ]);
@@ -87,7 +88,9 @@ class ProofController extends Controller
                 'proof_rejected',
                 'Nachweis abgelehnt',
                 $data['rejection_kind']==='technical'
-                    ? $data['review_comment'].' Du hast ab der Ablehnung 2 Stunden Zeit für die Nachreichung.'
+                    ? ((int)$proof->retry_number < 2
+                        ? $data['review_comment'].' Du hast ab der Ablehnung 2 Stunden Zeit für die reguläre Nachreichung.'
+                        : $data['review_comment'].' Die zwei regulären Nachreichversuche sind ausgeschöpft. Ein weiterer Versuch ist nur nach ausdrücklicher Adminfreigabe möglich.')
                     : $data['review_comment'].' Der Nachweis ist nicht reproduzierbar; der Tag wird nach den Auftragsregeln behandelt.',
                 route('orders.show',$order)
             );
@@ -99,6 +102,9 @@ class ProofController extends Controller
     public function grantExtraRetry(Request $request, ProofSubmission $proof, AuditService $audit, NotificationService $notifications)
     {
         abort_unless($proof->review_status==='rejected',422,'Zusatzversuche können nur nach einer Ablehnung freigegeben werden.');
+        abort_unless($proof->rejection_kind==='technical',422,'Ein Zusatzversuch ist nur bei einem technisch/formal nachreichbaren Fehler möglich.');
+        abort_unless((int)$proof->retry_number>=2,422,'Zunächst müssen die zwei regulären Nachreichversuche ausgeschöpft sein.');
+        abort_if($proof->extra_retry_granted && $proof->resubmit_due_at?->isFuture(),422,'Für diesen Nachweis ist bereits ein zusätzlicher Versuch freigegeben.');
 
         $before=$proof->toArray();
         $proof->update([
