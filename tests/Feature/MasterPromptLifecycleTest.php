@@ -309,6 +309,43 @@ class MasterPromptLifecycleTest extends TestCase
         $this->assertTrue($order->fresh()->readyForFinalInspection());
     }
 
+    public function test_completed_return_persists_tracking_and_returned_timestamp(): void
+    {
+        $provider=$this->provider('return-track@example.test');
+        $admin=$this->admin('admin-return-track@example.test');
+        $category=$this->category();
+        $offer=$this->offer($category,'Return Tracking');
+
+        $order=Order::create([
+            'order_number'=>'20260000305',
+            'user_id'=>$provider->id,
+            'offer_id'=>$offer->id,
+            'status'=>'rejected',
+            'compensation_total'=>40,
+            'final_compensation'=>0,
+            'offer_snapshot'=>['title'=>$offer->title,'duration_days'=>1],
+            'completed_at'=>now(),
+        ]);
+
+        $return=$order->returnRequest()->create([
+            'user_id'=>$provider->id,
+            'status'=>'ready',
+            'requested_at'=>now()->subHour(),
+            'fulfillment_due_at'=>now()->addHours(23),
+            'method'=>'own_label',
+        ]);
+
+        $this->actingAs($admin)->post(route('admin.returns.complete',$return),[
+            'tracking_number'=>'RET-123456',
+        ])->assertRedirect();
+
+        $return->refresh();
+        $this->assertSame('returned',$return->status);
+        $this->assertSame('RET-123456',$return->tracking_number);
+        $this->assertNotNull($return->returned_at);
+    }
+
+
     private function provider(string $email): User
     {
         $user=User::create([
