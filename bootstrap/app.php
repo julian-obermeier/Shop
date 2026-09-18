@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\EnsureActiveAccount;
 use App\Http\Middleware\EnsureAdmin;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -12,8 +13,11 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        $middleware->alias(['admin' => EnsureAdmin::class]);
+        $middleware->alias([
+            'admin' => EnsureAdmin::class,
+            'active' => EnsureActiveAccount::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        // Default Laravel exception handling.
+        //
     })->create();
