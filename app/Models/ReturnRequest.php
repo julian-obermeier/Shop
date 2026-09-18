@@ -15,6 +15,7 @@ class ReturnRequest extends Model
             'fulfillment_due_at'=>'datetime',
             'requested_shipping_cost'=>'decimal:2',
             'shipping_cost_paid_at'=>'datetime',
+            'returned_at'=>'datetime',
         ];
     }
 
