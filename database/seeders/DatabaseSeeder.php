@@ -57,6 +57,10 @@ class DatabaseSeeder extends Seeder
             'proof_reminders_enabled'=>['1','bool'],
             'email_notifications_enabled'=>['1','bool'],
             'support_email'=>['','string'],
+            'identity_retention_days'=>['30','int'],
+            'precheck_retention_days'=>['180','int'],
+            'proof_retention_days'=>['365','int'],
+            'message_attachment_retention_days'=>['365','int'],
         ];
 
         foreach($settings as $key=>[$value,$type]){
