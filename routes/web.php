@@ -42,9 +42,9 @@ Route::get('/', fn () => auth()->check() ? redirect()->route('dashboard') : redi
 
 Route::middleware('guest')->group(function () {
     Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
-    Route::post('/login', [AuthController::class, 'login'])->name('login.submit');
+    Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:10,1')->name('login.submit');
     Route::get('/registrieren', [AuthController::class, 'showRegister'])->name('register');
-    Route::post('/registrieren', [AuthController::class, 'register'])->name('register.submit');
+    Route::post('/registrieren', [AuthController::class, 'register'])->middleware('throttle:5,10')->name('register.submit');
 
     Route::get('/passwort-vergessen', [PasswordResetController::class, 'requestForm'])->name('password.request');
     Route::post('/passwort-vergessen', [PasswordResetController::class, 'sendLink'])->middleware('throttle:3,1')->name('password.email');
@@ -72,33 +72,33 @@ Route::middleware(['auth','active'])->group(function () {
     Route::get('/benachrichtigungen/{notification}/oeffnen', [NotificationController::class, 'read'])->name('notifications.read');
 
     Route::get('/verifizierung', [VerificationController::class, 'index'])->name('verification.index');
-    Route::post('/verifizierung', [VerificationController::class, 'store'])->name('verification.store');
+    Route::post('/verifizierung', [VerificationController::class, 'store'])->middleware('throttle:5,10')->name('verification.store');
 
     Route::get('/angebote', [OfferController::class, 'index'])->name('offers.index');
     Route::get('/angebote/{offer:slug}', [OfferController::class, 'show'])->name('offers.show');
-    Route::post('/angebote/{offer}/annehmen', [OrderController::class, 'store'])->name('offers.accept');
+    Route::post('/angebote/{offer}/annehmen', [OrderController::class, 'store'])->middleware('throttle:10,1')->name('offers.accept');
 
     Route::get('/auftraege', [OrderController::class, 'index'])->name('orders.index');
     Route::get('/auftraege/{order}', [OrderController::class, 'show'])->name('orders.show');
-    Route::post('/auftraege/{order}/vorpruefung', [PrecheckController::class, 'store'])->name('orders.precheck');
+    Route::post('/auftraege/{order}/vorpruefung', [PrecheckController::class, 'store'])->middleware('throttle:10,10')->name('orders.precheck');
     Route::post('/auftraege/{order}/start', [OrderController::class, 'start'])->name('orders.start');
     Route::post('/auftraege/{order}/abschliessen', [OrderController::class, 'complete'])->name('orders.complete');
     Route::post('/auftraege/{order}/versand', [ShipmentController::class, 'store'])->name('orders.shipment');
 
-    Route::post('/auftragstage/{day}/nachweise', [ProofController::class, 'store'])->name('proofs.store');
+    Route::post('/auftragstage/{day}/nachweise', [ProofController::class, 'store'])->middleware('throttle:30,10')->name('proofs.store');
 
     Route::get('/wallet', [WalletController::class, 'index'])->name('wallet.index');
-    Route::post('/wallet/auszahlung', [WalletController::class, 'payout'])->name('wallet.payout');
+    Route::post('/wallet/auszahlung', [WalletController::class, 'payout'])->middleware('throttle:5,10')->name('wallet.payout');
 
     Route::get('/nachrichten', [ConversationController::class, 'index'])->name('messages.index');
     Route::get('/nachrichten/anlage/{message}', MessageFileController::class)->name('messages.attachment');
-    Route::post('/nachrichten', [ConversationController::class, 'store'])->name('messages.store');
+    Route::post('/nachrichten', [ConversationController::class, 'store'])->middleware('throttle:20,1')->name('messages.store');
     Route::get('/nachrichten/{conversation}', [ConversationController::class, 'show'])->name('messages.show');
-    Route::post('/nachrichten/{conversation}/antwort', [ConversationController::class, 'reply'])->name('messages.reply');
+    Route::post('/nachrichten/{conversation}/antwort', [ConversationController::class, 'reply'])->middleware('throttle:30,1')->name('messages.reply');
 
     Route::get('/datenschutz', [PrivacyController::class, 'index'])->name('privacy.index');
     Route::get('/datenschutz/export', [PrivacyController::class, 'export'])->middleware('throttle:3,1')->name('privacy.export');
-    Route::post('/datenschutz/loeschantrag', [PrivacyController::class, 'requestDeletion'])->name('privacy.delete-request');
+    Route::post('/datenschutz/loeschantrag', [PrivacyController::class, 'requestDeletion'])->middleware('throttle:3,60')->name('privacy.delete-request');
     Route::post('/datenschutz/antrag/{privacyRequest}/stornieren', [PrivacyController::class, 'cancel'])->name('privacy.cancel');
 
     Route::get('/dokumente', [DocumentController::class, 'index'])->name('documents.index');
