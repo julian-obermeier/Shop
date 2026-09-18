@@ -188,3 +188,82 @@ document.addEventListener('submit', async event => {
     form.requestSubmit();
   }
 });
+
+
+document.addEventListener('DOMContentLoaded',async()=>{
+  const manager=document.querySelector('[data-push-manager]');
+  if(!manager) return;
+
+  const button=manager.querySelector('[data-push-toggle]');
+  const status=manager.querySelector('[data-push-status]');
+  const publicKey=manager.dataset.publicKey;
+  const csrf=document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+  const toUint8=value=>{
+    const padding='='.repeat((4-value.length%4)%4);
+    const base64=(value+padding).replace(/-/g,'+').replace(/_/g,'/');
+    const raw=atob(base64);
+    return Uint8Array.from([...raw].map(ch=>ch.charCodeAt(0)));
+  };
+
+  if(!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)){
+    button.disabled=true;
+    button.textContent='Push nicht unterstützt';
+    status.textContent='Dieser Browser bzw. diese Installationsart unterstützt Browser-Push nicht.';
+    return;
+  }
+
+  try{
+    const registration=await navigator.serviceWorker.register('/service-worker.js');
+    let subscription=await registration.pushManager.getSubscription();
+
+    const render=()=>{
+      button.textContent=subscription?'Push auf diesem Gerät deaktivieren':'Push auf diesem Gerät aktivieren';
+      status.textContent=subscription?'Push ist auf diesem Gerät aktiviert.':'Push ist auf diesem Gerät nicht aktiviert.';
+    };
+    render();
+
+    button.addEventListener('click',async()=>{
+      button.disabled=true;
+      try{
+        if(subscription){
+          const endpoint=subscription.endpoint;
+          await fetch(manager.dataset.destroyUrl,{
+            method:'DELETE',
+            headers:{'Content-Type':'application/json','X-CSRF-TOKEN':csrf,'Accept':'application/json'},
+            body:JSON.stringify({endpoint}),
+          });
+          await subscription.unsubscribe();
+          subscription=null;
+        }else{
+          const permission=await Notification.requestPermission();
+          if(permission!=='granted') throw new Error('Die Benachrichtigungsberechtigung wurde nicht erteilt.');
+
+          subscription=await registration.pushManager.subscribe({
+            userVisibleOnly:true,
+            applicationServerKey:toUint8(publicKey),
+          });
+
+          const payload=subscription.toJSON();
+          payload.contentEncoding=(PushManager.supportedContentEncodings||[])[0]||'aes128gcm';
+
+          const response=await fetch(manager.dataset.storeUrl,{
+            method:'POST',
+            headers:{'Content-Type':'application/json','X-CSRF-TOKEN':csrf,'Accept':'application/json'},
+            body:JSON.stringify(payload),
+          });
+          if(!response.ok) throw new Error('Die Push-Registrierung konnte nicht gespeichert werden.');
+        }
+        render();
+      }catch(error){
+        status.textContent=error?.message || 'Push konnte nicht geändert werden.';
+      }finally{
+        button.disabled=false;
+      }
+    });
+  }catch(error){
+    button.disabled=true;
+    button.textContent='Push nicht verfügbar';
+    status.textContent=error?.message || 'Der Service Worker konnte nicht eingerichtet werden.';
+  }
+});
