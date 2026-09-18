@@ -66,16 +66,17 @@ class WalletPayoutTest extends TestCase
 
     private function makeVerifiedUser(string $email): User
     {
-        return User::create([
+        $user=User::create([
             'role'=>'provider',
             'first_name'=>'Anna',
             'last_name'=>'Beispiel',
             'birth_date'=>'1995-01-01',
             'email'=>$email,
-            'email_verified_at'=>now(),
             'password'=>Hash::make('VerySecurePassword123!'),
             'status'=>'active',
             'verified_at'=>now(),
         ]);
+        $user->forceFill(['email_verified_at'=>now()])->save();
+        return $user;
     }
 }
