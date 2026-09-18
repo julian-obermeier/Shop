@@ -76,6 +76,7 @@ Route::middleware(['auth','active'])->group(function () {
     Route::post('/wallet/auszahlung', [WalletController::class, 'payout'])->name('wallet.payout');
 
     Route::get('/nachrichten', [ConversationController::class, 'index'])->name('messages.index');
+    Route::get('/nachrichten/anlage/{message}', MessageFileController::class)->name('messages.attachment');
     Route::post('/nachrichten', [ConversationController::class, 'store'])->name('messages.store');
     Route::get('/nachrichten/{conversation}', [ConversationController::class, 'show'])->name('messages.show');
     Route::post('/nachrichten/{conversation}/antwort', [ConversationController::class, 'reply'])->name('messages.reply');
