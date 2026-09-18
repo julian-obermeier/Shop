@@ -29,6 +29,72 @@ class OrderController extends Controller
         return view('admin.orders.show',compact('order'));
     }
 
+    public function rejectRequest(Request $request, Order $order, AuditService $audit, NotificationService $notifications)
+    {
+        abort_unless(in_array($order->status,['requested','awaiting_date_confirmation'],true),422,'Nur eine noch nicht bestätigte Auftragsanfrage kann auf diese Weise abgelehnt werden.');
+
+        $data=$request->validate([
+            'reason'=>['nullable','string','max:1000'],
+        ]);
+
+        $before=$order->toArray();
+        $from=$order->status;
+
+        $order->update([
+            'status'=>'request_rejected',
+        ]);
+
+        $order->statusHistory()->create([
+            'changed_by'=>$request->user()->id,
+            'from_status'=>$from,
+            'to_status'=>'request_rejected',
+            'reason'=>$data['reason']??'Auftragsanfrage durch Admin abgelehnt',
+        ]);
+
+        $audit->log('order.request.rejected',$order,$before,$order->fresh()->toArray());
+
+        $notifications->send(
+            $order->user,
+            'order_request_rejected',
+            'Auftragsanfrage abgelehnt',
+            'Deine Anfrage für Auftrag #'.$order->order_number.' wurde abgelehnt.'.(!empty($data['reason'])?' Grund: '.$data['reason']:''),
+            route('orders.show',$order)
+        );
+
+        return back()->with('success','Auftragsanfrage wurde abgelehnt.');
+    }
+
+    public function reopenRequest(Request $request, Order $order, AuditService $audit, NotificationService $notifications)
+    {
+        abort_unless($order->status==='request_rejected',422,'Nur eine abgelehnte Auftragsanfrage kann wieder geöffnet werden.');
+
+        $before=$order->toArray();
+
+        $order->update([
+            'status'=>'requested',
+            'completed_at'=>null,
+        ]);
+
+        $order->statusHistory()->create([
+            'changed_by'=>$request->user()->id,
+            'from_status'=>'request_rejected',
+            'to_status'=>'requested',
+            'reason'=>'Abgelehnte Auftragsanfrage durch Admin wieder geöffnet',
+        ]);
+
+        $audit->log('order.request.reopened',$order,$before,$order->fresh()->toArray());
+
+        $notifications->send(
+            $order->user,
+            'order_request_reopened',
+            'Auftragsanfrage wieder geöffnet',
+            'Deine Anfrage für Auftrag #'.$order->order_number.' wurde vom Admin wieder auf offen gesetzt.',
+            route('orders.show',$order)
+        );
+
+        return back()->with('success','Auftragsanfrage wurde wieder geöffnet.');
+    }
+
     public function approve(Request $request, Order $order, OrderService $orders, AuditService $audit, NotificationService $notifications)
     {
         $data=$request->validate(['start_date'=>['nullable','date']]);
