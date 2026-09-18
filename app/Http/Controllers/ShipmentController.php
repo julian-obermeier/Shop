@@ -47,6 +47,7 @@ class ShipmentController extends Controller
                     'status'=>'shipped',
                     'review_status'=>'pending',
                     'shipped_at'=>now(),
+                    'ownership_transferred_at'=>now(),
                 ]);
             } else {
                 $shipment->update([
