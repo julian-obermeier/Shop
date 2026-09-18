@@ -18,7 +18,7 @@ class SystemHealthService
             $checks[]=['name'=>'Datenbank','status'=>'error','detail'=>$e->getMessage()];
         }
 
-        foreach(['proofs','identity','prechecks','messages','public'] as $disk){
+        foreach(['proofs','prechecks','messages','shipments','returns','public'] as $disk){
             try{
                 $path='health/'.Str::uuid().'.txt';
                 Storage::disk($disk)->put($path,'ok');
