@@ -18,13 +18,16 @@ class AuthController extends Controller
 
     public function login(Request $request)
     {
-        $credentials=$request->validate([
-            'email'=>['required','email'],
+        $data=$request->validate([
+            'login'=>['required','string','max:255'],
             'password'=>['required','string'],
         ]);
 
-        if(!Auth::attempt($credentials,$request->boolean('remember'))){
-            return back()->withErrors(['email'=>'E-Mail-Adresse oder Passwort ist falsch.'])->onlyInput('email');
+        $login=trim($data['login']);
+        $field=filter_var($login,FILTER_VALIDATE_EMAIL)?'email':'username';
+
+        if(!Auth::attempt([$field=>$login,'password'=>$data['password']],$request->boolean('remember'))){
+            return back()->withErrors(['login'=>'E-Mail-Adresse/Benutzername oder Passwort ist falsch.'])->onlyInput('login');
         }
 
         $request->session()->regenerate();
@@ -32,7 +35,7 @@ class AuthController extends Controller
 
         if($user->status!=='active'){
             Auth::logout();
-            return back()->withErrors(['email'=>'Dieses Konto ist derzeit nicht aktiv.']);
+            return back()->withErrors(['login'=>'Dieses Konto ist derzeit nicht aktiv.']);
         }
 
         return redirect()->intended($user->isAdmin()?route('admin.dashboard'):route('dashboard'));
