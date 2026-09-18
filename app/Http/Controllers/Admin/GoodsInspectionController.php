@@ -6,6 +6,7 @@ use App\Models\Order;
 use App\Services\AuditService;
 use App\Services\NotificationService;
 use App\Services\WalletService;
+use App\Services\ReliabilityService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -16,7 +17,8 @@ class GoodsInspectionController extends Controller
         Order $order,
         AuditService $audit,
         NotificationService $notifications,
-        WalletService $wallet
+        WalletService $wallet,
+        ReliabilityService $reliability
     ){
         abort_unless($order->status==='inspection',422,'Die Warenprüfung ist in diesem Status nicht möglich.');
 
@@ -147,6 +149,22 @@ class GoodsInspectionController extends Controller
         $audit->log('goods.inspection.completed',$order,$before,$order->fresh()->toArray());
 
         if($data['result']==='accepted'){
+            $failedExtras=collect($extraResults)->filter(fn($row)=>!((bool)($row['fulfilled']??false)));
+            if($failedExtras->isNotEmpty()){
+                $freshOrder=$order->fresh(['user']);
+                $freshOrder->update([
+                    'reliability_issue_count'=>DB::raw('reliability_issue_count + 1'),
+                    'last_reliability_issue'=>'Mindestens ein vereinbartes Extra wurde bei der Warenprüfung abgelehnt',
+                ]);
+                $reliability->recordViolation(
+                    $freshOrder->user,
+                    $freshOrder->fresh(),
+                    'extra_rejected',
+                    'Nicht vollständig erfüllte Zusatzoption(en): '.$failedExtras->pluck('name')->implode(', '),
+                    ['extra_ids'=>$failedExtras->keys()->values()->all()]
+                );
+            }
+
             $wallet->release($order->fresh());
             $notifications->send(
                 $order->user,
