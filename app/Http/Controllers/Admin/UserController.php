@@ -2,6 +2,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\Offer;
 use App\Models\Order;
 use App\Models\User;
 use App\Models\UserRestriction;
@@ -46,7 +47,9 @@ class UserController extends Controller
             'walletAccount.entries',
         ]);
 
-        return view('admin.users.show',compact('user'));
+        $offers=Offer::orderBy('title')->get(['id','title']);
+
+        return view('admin.users.show',compact('user','offers'));
     }
 
     public function approvePayoutName(Request $request, User $user, AuditService $audit)
