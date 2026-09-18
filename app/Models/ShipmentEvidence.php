@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ShipmentEvidence extends Model
 {
+    protected $table='shipment_evidences';
     protected $guarded=[];
 
     public function shipment(): BelongsTo { return $this->belongsTo(Shipment::class); }
