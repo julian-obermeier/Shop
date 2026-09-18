@@ -19,14 +19,16 @@ class OrderController extends Controller
     public function show(Order $order)
     {
         abort_unless($order->user_id===request()->user()->id || request()->user()->isAdmin(),403);
-        $order->load('options','fieldValues','days.proofs','statusHistory','precheck','shipment','goodsReceipt','conversation');
+        $order->load(
+            'options','fieldValues','days.proofs','statusHistory','precheck','shipment',
+            'goodsReceipt','goodsInspection','returnRequest','conversation','proofChallenges'
+        );
         return view('orders.show',compact('order'));
     }
 
     public function store(Request $request, Offer $offer, OrderService $service, ConsentService $consents)
     {
         abort_if($request->user()->hasRestriction('offers'),422,'Die Annahme neuer Angebote ist für dieses Konto derzeit gesperrt.');
-        abort_unless($request->user()->verified_at,422,'Vor der Annahme eines Angebots ist eine abgeschlossene Identitätsprüfung erforderlich.');
         abort_unless($request->user()->hasVerifiedEmail(),422,'Bitte bestätige zuerst deine E-Mail-Adresse.');
         $consents->assertRequiredConsents($request->user());
 
@@ -34,55 +36,68 @@ class OrderController extends Controller
             'options'=>['nullable','array'],
             'options.*'=>['integer'],
             'fields'=>['nullable','array'],
+            'proposed_start_date'=>['required','date'],
+            'confirm_summary'=>['accepted'],
         ]);
 
         $order=$service->create(
             $request->user(),
             $offer,
             $data['options']??[],
-            $data['fields']??[]
+            $data['fields']??[],
+            $data['proposed_start_date']
         );
 
-        return redirect()->route('orders.show',$order)->with('success','Auftrag wurde angelegt.');
+        return redirect()->route('orders.show',$order)->with('success','Auftragsanfrage wurde eingereicht. Der Starttermin ist erst nach Adminbestätigung verbindlich.');
+    }
+
+    public function acceptDate(Order $order, OrderService $service)
+    {
+        abort_unless($order->user_id===request()->user()->id,403);
+        $service->acceptAlternateDate($order,request()->user());
+        return back()->with('success','Der vorgeschlagene Starttermin wurde verbindlich bestätigt.');
+    }
+
+    public function withdraw(Order $order)
+    {
+        abort_unless($order->user_id===request()->user()->id,403);
+        abort_unless(in_array($order->status,['requested','awaiting_date_confirmation'],true),422,'Nur noch nicht bestätigte Anfragen können folgenlos zurückgezogen werden.');
+
+        DB::transaction(function() use($order){
+            $from=$order->status;
+            $order->update(['status'=>'cancelled','completed_at'=>now()]);
+            $order->statusHistory()->create([
+                'changed_by'=>auth()->id(),
+                'from_status'=>$from,
+                'to_status'=>'cancelled',
+                'reason'=>'Auftragsanfrage vor Adminbestätigung zurückgezogen',
+            ]);
+        });
+
+        return redirect()->route('orders.index')->with('success','Auftragsanfrage wurde zurückgezogen.');
     }
 
     public function start(Order $order, OrderService $service)
     {
         abort_unless($order->user_id===request()->user()->id,403);
         abort_if(request()->user()->hasRestriction('offers'),422,'Auftragsstarts sind für dieses Konto derzeit gesperrt.');
-        abort_unless(request()->user()->verified_at,422,'Die Identitätsprüfung muss abgeschlossen sein.');
         abort_unless(request()->user()->hasVerifiedEmail(),422,'Bitte bestätige zuerst deine E-Mail-Adresse.');
-        $service->start($order);
 
-        return back()->with('success','Die Erfüllungsphase wurde gestartet.');
+        $service->prepareStart($order,request()->user());
+
+        return back()->with('success','Aktivierung bestätigt. Erzeuge jetzt den 10-Minuten-Code und nimm das verpflichtende Startfoto auf.');
     }
 
-    public function complete(Order $order)
+    public function complete(Order $order, OrderService $service)
     {
-        abort_unless($order->user_id===request()->user()->id,403);
-        abort_unless($order->status==='active',422,'Der Auftrag ist nicht in der aktiven Erfüllungsphase.');
+        $service->completeExecution($order,request()->user());
+        return back()->with('success','Die Erfüllungsphase ist abgeschlossen. Der Versand muss innerhalb von 24 Stunden erfolgen.');
+    }
 
-        $order->load('days.proofs');
-        $complete=$order->days->isNotEmpty() && $order->days->every(
-            fn($day)=>$day->proofs->whereIn('review_status',['pending','accepted'])->count() >= $day->required_proofs
-        );
-        abort_unless($complete,422,'Es fehlen noch erforderliche Nachweise.');
-
-        DB::transaction(function() use($order){
-            $deadlineHours=(int)data_get($order->offer_snapshot,'shipping_deadline_hours',24);
-            $order->update([
-                'status'=>'waiting_shipping',
-                'completed_at'=>now(),
-                'shipping_due_at'=>now()->addHours($deadlineHours),
-            ]);
-            $order->statusHistory()->create([
-                'changed_by'=>auth()->id(),
-                'from_status'=>'active',
-                'to_status'=>'waiting_shipping',
-                'reason'=>'Erfüllungsphase durch Anbieterin abgeschlossen',
-            ]);
-        });
-
-        return back()->with('success','Die Erfüllungsphase ist abgeschlossen. Der Auftrag ist jetzt versandbereit.');
+    public function abort(Request $request, Order $order, OrderService $service)
+    {
+        $data=$request->validate(['reason'=>['required','string','max:2000']]);
+        $service->voluntaryAbort($order,request()->user(),$data['reason']);
+        return redirect()->route('orders.show',$order)->with('success','Der Auftrag wurde freiwillig abgebrochen. Für diesen Auftrag wird keine Vergütung gezahlt.');
     }
 }
