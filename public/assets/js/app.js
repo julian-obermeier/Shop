@@ -100,3 +100,34 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 });
+
+
+document.addEventListener('DOMContentLoaded', () => {
+  const proofEditor=document.querySelector('[data-proof-window-editor]');
+  if(!proofEditor) return;
+  const holder=proofEditor.querySelector('[data-proof-windows]');
+  let index=holder?.children.length || 0;
+
+  proofEditor.querySelector('[data-add-proof-window]')?.addEventListener('click',()=>{
+    const row=document.createElement('div');
+    row.className='option-editor-row';
+    row.innerHTML=`
+      <label>Interner Schlüssel<input name="proof_windows[${index}][key]" placeholder="z. B. morgens"></label>
+      <label>Bezeichnung<input name="proof_windows[${index}][label]" required></label>
+      <label>Von<input type="time" name="proof_windows[${index}][start]" value="08:00" required></label>
+      <label>Bis<input type="time" name="proof_windows[${index}][end]" value="10:00" required></label>
+      <label>Bilder<input type="number" min="1" max="20" name="proof_windows[${index}][required_images]" value="1" required></label>
+      <label class="check"><input type="checkbox" name="proof_windows[${index}][text_required]" value="1"><span>Text Pflicht</span></label>
+      <label class="check"><input type="checkbox" name="proof_windows[${index}][face_required]" value="1"><span>Gesicht Pflicht</span></label>
+      <button type="button" class="icon-btn" data-remove-proof-window>×</button>`;
+    holder.appendChild(row);
+    index++;
+  });
+
+  proofEditor.addEventListener('click',event=>{
+    if(event.target.matches('[data-remove-proof-window]')){
+      const rows=holder.querySelectorAll('.option-editor-row');
+      if(rows.length>1) event.target.closest('.option-editor-row')?.remove();
+    }
+  });
+});
