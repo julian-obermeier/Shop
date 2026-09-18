@@ -102,7 +102,7 @@ Route::middleware(['auth','active'])->group(function () {
     Route::post('/nachrichten/{conversation}/antwort', [ConversationController::class, 'reply'])->middleware('throttle:30,1')->name('messages.reply');
 
     Route::get('/datenschutz', [PrivacyController::class, 'index'])->name('privacy.index');
-    Route::get('/datenschutz/export', [PrivacyController::class, 'export'])->middleware('throttle:3,1')->name('privacy.export');    Route::post('/datenschutz/antrag/{privacyRequest}/stornieren', [PrivacyController::class, 'cancel'])->name('privacy.cancel');
+    Route::get('/datenschutz/export', [PrivacyController::class, 'export'])->middleware('throttle:3,1')->name('privacy.export');
 
     Route::get('/dokumente', [DocumentController::class, 'index'])->name('documents.index');
     Route::post('/dokumente/version/{version}/zustimmen', [DocumentController::class, 'consent'])->name('documents.consent');
