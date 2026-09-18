@@ -53,9 +53,19 @@ class Order extends Model
 
     public function countsAgainstPersonalLimit(): bool
     {
-        return in_array($this->status,[
-            'approved','waiting_start','active','paused'
-        ],true);
+        if(in_array($this->status,['precheck','precheck_resubmit','approved','waiting_start','active'],true)) return true;
+        if($this->status==='paused') return $this->execution_completed_at===null;
+        return false;
+    }
+
+    public function scopeCountsAgainstPersonalLimit($query)
+    {
+        return $query->where(function($q){
+            $q->whereIn('status',['precheck','precheck_resubmit','approved','waiting_start','active'])
+                ->orWhere(function($paused){
+                    $paused->where('status','paused')->whereNull('execution_completed_at');
+                });
+        });
     }
 
     public function isTerminal(): bool
