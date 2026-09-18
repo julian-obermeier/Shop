@@ -67,6 +67,8 @@ class ProofController extends Controller
             'proof_code'=>['required','string','max:16'],
             'window_key'=>['required','string','max:80'],
             'text_value'=>['nullable','string','max:2000'],
+            'proof_data'=>['nullable','array'],
+            'proof_data.*'=>['nullable','string','max:1000'],
         ]);
 
         $window=$this->resolveWindow($day,$data['window_key']);
@@ -84,6 +86,21 @@ class ProofController extends Controller
 
         if(!empty($window['text_required'])){
             abort_if(trim((string)($data['text_value']??''))==='',422,'Für dieses Nachweisfenster ist zusätzlich ein Text erforderlich.');
+        }
+
+        $proofData=[];
+        foreach(($window['required_fields']??[]) as $field){
+            $key=(string)($field['key']??'');
+            $label=(string)($field['label']??$key);
+            if($key==='') continue;
+
+            $value=trim((string)data_get($data,'proof_data.'.$key,''));
+            abort_if($value==='',422,'Die Pflichtangabe „'.$label.'“ fehlt.');
+
+            $proofData[$key]=[
+                'label'=>$label,
+                'value'=>$value,
+            ];
         }
 
         $rejected=$day->proofs()
@@ -109,7 +126,7 @@ class ProofController extends Controller
         $path=$file->storeAs($day->order_id.'/series-'.$day->series_number.'/day-'.$day->day_number,Str::uuid().'.'.$extension,'proofs');
         $absolute=Storage::disk('proofs')->path($path);
 
-        DB::transaction(function() use($day,$request,$file,$path,$absolute,$challenge,$window,$data,$retryNumber,$orders){
+        DB::transaction(function() use($day,$request,$file,$path,$absolute,$challenge,$window,$data,$proofData,$retryNumber,$orders){
             $challenge=ProofChallenge::whereKey($challenge->id)->lockForUpdate()->firstOrFail();
             abort_unless($challenge->isUsable(),422,'Der Nachweiscode wurde zwischenzeitlich verwendet oder ist abgelaufen.');
             $challenge->update(['used_at'=>now()]);
@@ -119,6 +136,7 @@ class ProofController extends Controller
                 'type'=>$day->day_number===0?'start_photo':'photo',
                 'window_key'=>$window['key'],
                 'text_value'=>$data['text_value']??null,
+                'proof_data'=>$proofData ?: null,
                 'proof_code'=>$challenge->code,
                 'proof_code_expires_at'=>$challenge->expires_at,
                 'proof_challenge_id'=>$challenge->id,
@@ -150,7 +168,11 @@ class ProofController extends Controller
                 'end'=>'23:59',
                 'required_images'=>1,
                 'text_required'=>false,
-                'face_required'=>(bool)data_get($day->order->current_requirements,'start_face_required',false),
+                'face_required'=>(bool)data_get(
+                    $day->order->current_requirements ?: $day->order->offer_snapshot,
+                    'inspection_config.start_face_required',
+                    false
+                ),
             ];
         }
 
