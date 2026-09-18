@@ -12,6 +12,7 @@ use App\Http\Controllers\Admin\OfferController as AdminOfferController;
 use App\Http\Controllers\Admin\OrderController as AdminOrderController;
 use App\Http\Controllers\Admin\PayoutController as AdminPayoutController;
 use App\Http\Controllers\Admin\PrecheckController as AdminPrecheckController;
+use App\Http\Controllers\Admin\PrivacyController as AdminPrivacyController;
 use App\Http\Controllers\Admin\ProofController as AdminProofController;
 use App\Http\Controllers\Admin\ReportController as AdminReportController;
 use App\Http\Controllers\Admin\SettingsController as AdminSettingsController;
@@ -30,6 +31,7 @@ use App\Http\Controllers\OfferController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\PrecheckController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\PrivacyController;
 use App\Http\Controllers\ProofController;
 use App\Http\Controllers\ShipmentController;
 use App\Http\Controllers\VerificationController;
@@ -94,6 +96,11 @@ Route::middleware(['auth','active'])->group(function () {
     Route::get('/nachrichten/{conversation}', [ConversationController::class, 'show'])->name('messages.show');
     Route::post('/nachrichten/{conversation}/antwort', [ConversationController::class, 'reply'])->name('messages.reply');
 
+    Route::get('/datenschutz', [PrivacyController::class, 'index'])->name('privacy.index');
+    Route::get('/datenschutz/export', [PrivacyController::class, 'export'])->middleware('throttle:3,1')->name('privacy.export');
+    Route::post('/datenschutz/loeschantrag', [PrivacyController::class, 'requestDeletion'])->name('privacy.delete-request');
+    Route::post('/datenschutz/antrag/{privacyRequest}/stornieren', [PrivacyController::class, 'cancel'])->name('privacy.cancel');
+
     Route::get('/dokumente', [DocumentController::class, 'index'])->name('documents.index');
     Route::post('/dokumente/version/{version}/zustimmen', [DocumentController::class, 'consent'])->name('documents.consent');
 });
@@ -157,6 +164,13 @@ Route::prefix('admin')->name('admin.')->middleware(['auth','active','admin'])->g
         Route::get('/nachrichten/{conversation}', [AdminConversationController::class, 'show'])->name('messages.show');
         Route::post('/nachrichten/{conversation}/antwort', [AdminConversationController::class, 'reply'])->name('messages.reply');
         Route::post('/nachrichten/{conversation}/schliessen', [AdminConversationController::class, 'close'])->name('messages.close');
+    });
+
+    Route::middleware('permission:privacy.manage')->group(function () {
+        Route::get('/datenschutz', [AdminPrivacyController::class, 'index'])->name('privacy.index');
+        Route::get('/datenschutz/{privacyRequest}', [AdminPrivacyController::class, 'show'])->name('privacy.show');
+        Route::post('/datenschutz/{privacyRequest}/pruefen', [AdminPrivacyController::class, 'review'])->name('privacy.review');
+        Route::post('/datenschutz/{privacyRequest}/anonymisieren', [AdminPrivacyController::class, 'anonymize'])->name('privacy.anonymize');
     });
 
     Route::middleware('permission:documents.manage')->group(function () {
