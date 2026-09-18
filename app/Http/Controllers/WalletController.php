@@ -145,15 +145,26 @@ class WalletController extends Controller
             abort_unless(in_array($payout->status,['requested','review'],true),422,'Diese Auszahlung kann nicht mehr selbst storniert werden.');
 
             $wallet=WalletAccount::where('user_id',$payout->user_id)->lockForUpdate()->firstOrFail();
-            if(!$wallet->entries()->where('reference',$payout->payout_number)->where('entry_type','payout_restored')->exists()){
+            $pendingForPayout=(float)$wallet->entries()
+                ->where('reference',$payout->payout_number)
+                ->where('bucket','payout_pending')
+                ->sum('amount');
+
+            if($pendingForPayout>0){
                 $wallet->entries()->create([
-                    'bucket'=>'payout_pending','entry_type'=>'payout_pending_reversal','amount'=>-(float)$payout->amount,
-                    'reference'=>$payout->payout_number,'description'=>'Auszahlungsreservierung storniert',
+                    'bucket'=>'payout_pending',
+                    'entry_type'=>'payout_pending_reversal',
+                    'amount'=>-$pendingForPayout,
+                    'reference'=>$payout->payout_number,
+                    'description'=>'Auszahlungsreservierung storniert',
                     'metadata'=>['payout_request_id'=>$payout->id],
                 ]);
                 $wallet->entries()->create([
-                    'bucket'=>'available','entry_type'=>'payout_restored','amount'=>(float)$payout->amount,
-                    'reference'=>$payout->payout_number,'description'=>'Guthaben nach Storno wieder verfügbar',
+                    'bucket'=>'available',
+                    'entry_type'=>'payout_restored',
+                    'amount'=>$pendingForPayout,
+                    'reference'=>$payout->payout_number,
+                    'description'=>'Guthaben nach Storno wieder verfügbar',
                     'metadata'=>['payout_request_id'=>$payout->id],
                 ]);
             }
