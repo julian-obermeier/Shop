@@ -133,6 +133,48 @@ $startChallenge=$startDay ? $order->proofChallenges->first(fn($c)=>$c->order_day
 </div>
 @endif
 
+@if($order->status==='rejected' && $order->goodsInspection?->result==='rejected')
+@php
+$returnDecisionDeadline=$order->goodsInspection->reviewed_at?->copy()->timezone('Europe/Berlin')->startOfDay()->addDays(3)->endOfDay();
+@endphp
+<div class="panel" style="margin-bottom:18px">
+<h2>Rücksendung abgelehnter Ware</h2>
+@if(!$order->returnRequest)
+@if($returnDecisionDeadline && now('Europe/Berlin')->lte($returnDecisionDeadline))
+<p>Du kannst bis <strong>{{ $returnDecisionDeadline->format('d.m.Y H:i') }} Uhr</strong> eine Rücksendung auf eigene Kosten verlangen.</p>
+<form method="post" enctype="multipart/form-data" action="{{ route('orders.return-request',$order) }}" class="stack-form">@csrf
+<label>Variante<select name="method" data-return-method>
+<option value="own_label">Eigenes gültiges Rücksendeetikett bereitstellen</option>
+<option value="operator_quote">Betreiber teilt tatsächliche Versandkosten mit; separate Überweisung</option>
+</select></label>
+<label>Eigenes Rücksendeetikett<input type="file" name="return_label" accept="application/pdf,image/jpeg,image/png,image/webp"><small>Bei Wahl „eigenes Etikett“ erforderlich.</small></label>
+<div class="notice">Nach rechtzeitiger Anforderung bleiben 24 Stunden, um das Etikett bereitzustellen bzw. die mitgeteilten Versandkosten separat zu begleichen. Das Wallet wird dafür nicht verwendet.</div>
+<button class="btn primary">Rücksendung verbindlich anfordern</button>
+</form>
+@else
+<div class="notice">Die Frist zur Anforderung einer Rücksendung ist abgelaufen. Die Ware verbleibt beim Betreiber.</div>
+@endif
+@else
+<dl class="meta-list">
+<div><dt>Status</dt><dd>{{ strtoupper(str_replace('_',' ',$order->returnRequest->status)) }}</dd></div>
+<div><dt>Angefordert</dt><dd>{{ $order->returnRequest->requested_at?->format('d.m.Y H:i') }}</dd></div>
+<div><dt>24-Stunden-Frist</dt><dd>{{ $order->returnRequest->fulfillment_due_at?->format('d.m.Y H:i') }}</dd></div>
+<div><dt>Variante</dt><dd>{{ $order->returnRequest->method==='own_label'?'Eigenes Rücksendeetikett':'Separate Übernahme der tatsächlichen Versandkosten' }}</dd></div>
+@if($order->returnRequest->requested_shipping_cost)<div><dt>Mitgeteilte Versandkosten</dt><dd>{{ number_format($order->returnRequest->requested_shipping_cost,2,',','.') }} €</dd></div>@endif
+</dl>
+@if($order->returnRequest->status==='awaiting_quote_payment' && $order->returnRequest->requested_shipping_cost)
+<div class="notice">Bitte überweise die mitgeteilten Rücksendekosten separat. Der Admin bestätigt den Zahlungseingang im System. Eine Belastung des Wallets erfolgt nicht.</div>
+@endif
+@if($order->returnRequest->status==='expired')
+<div class="flash error">Die 24-Stunden-Frist ist abgelaufen. Die Rücksendeoption ist endgültig verfallen.</div>
+@endif
+@if($order->returnRequest->status==='returned')
+<div class="notice">Die Rücksendung wurde durch den Betreiber als ausgeführt markiert.</div>
+@endif
+@endif
+</div>
+@endif
+
 <div class="order-layout">
 <section>
 <div class="section-head"><div><span class="eyebrow">Nachweise</span><h2>Serien & Kalendertage</h2></div></div>
