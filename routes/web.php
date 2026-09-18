@@ -14,6 +14,7 @@ use App\Http\Controllers\Admin\PrecheckController as AdminPrecheckController;
 use App\Http\Controllers\Admin\PrivacyController as AdminPrivacyController;
 use App\Http\Controllers\Admin\ProofController as AdminProofController;
 use App\Http\Controllers\Admin\ReportController as AdminReportController;
+use App\Http\Controllers\Admin\ReturnRequestController as AdminReturnRequestController;
 use App\Http\Controllers\Admin\SettingsController as AdminSettingsController;
 use App\Http\Controllers\Admin\ShipmentController as AdminShipmentController;
 use App\Http\Controllers\Admin\UserController as AdminUserController;
@@ -31,6 +32,7 @@ use App\Http\Controllers\OfferWaitlistController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\PrecheckController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\ReturnRequestController;
 use App\Http\Controllers\PrivacyController;
 use App\Http\Controllers\ProofController;
 use App\Http\Controllers\ShipmentController;
@@ -81,6 +83,7 @@ Route::middleware(['auth','active'])->group(function () {
     Route::post('/auftraege/{order}/abschliessen', [OrderController::class, 'complete'])->name('orders.complete');
     Route::post('/auftraege/{order}/abbrechen', [OrderController::class, 'abort'])->name('orders.abort');
     Route::post('/auftraege/{order}/versand', [ShipmentController::class, 'store'])->name('orders.shipment');
+    Route::post('/auftraege/{order}/ruecksendung', [ReturnRequestController::class, 'store'])->name('orders.return-request');
 
     Route::post('/auftragstage/{day}/nachweiscode', [ProofController::class, 'challenge'])->middleware('throttle:20,10')->name('proofs.challenge');
     Route::post('/auftragstage/{day}/nachweise', [ProofController::class, 'store'])->middleware('throttle:30,10')->name('proofs.store');
@@ -141,6 +144,10 @@ Route::prefix('admin')->name('admin.')->middleware(['auth','active','admin'])->g
         Route::post('/auftraege/{order}/fortsetzen', [AdminOrderController::class, 'resume'])->name('orders.resume');
         Route::post('/auftraege/{order}/anforderungen', [AdminOrderController::class, 'updateRequirements'])->name('orders.requirements');
         Route::post('/auftraege/{order}/wareneingang', [AdminGoodsReceiptController::class, 'store'])->name('orders.goods-receipt');
+        Route::get('/ruecksendungen/{returnRequest}/label', [AdminReturnRequestController::class, 'label'])->name('returns.label');
+        Route::post('/ruecksendungen/{returnRequest}/kosten', [AdminReturnRequestController::class, 'quote'])->name('returns.quote');
+        Route::post('/ruecksendungen/{returnRequest}/zahlung-bestaetigen', [AdminReturnRequestController::class, 'confirmPayment'])->name('returns.confirm-payment');
+        Route::post('/ruecksendungen/{returnRequest}/abschliessen', [AdminReturnRequestController::class, 'complete'])->name('returns.complete');
         Route::get('/versandnachweise/{evidence}/datei', [AdminShipmentController::class, 'evidence'])->name('shipments.evidence');
         Route::post('/versand/{shipment}/pruefen', [AdminShipmentController::class, 'review'])->name('shipments.review');
         Route::post('/auftraege/{order}/verguetung-freigeben', [AdminOrderController::class, 'release'])->name('orders.release');
