@@ -6,8 +6,10 @@ use App\Models\Shipment;
 use App\Models\ShipmentEvidence;
 use App\Services\AuditService;
 use App\Services\NotificationService;
+use App\Services\ReliabilityService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ShipmentController extends Controller
@@ -18,7 +20,7 @@ class ShipmentController extends Controller
         return Storage::disk('shipments')->download($evidence->storage_path,$evidence->original_name);
     }
 
-    public function review(Request $request, Shipment $shipment, AuditService $audit, NotificationService $notifications)
+    public function review(Request $request, Shipment $shipment, AuditService $audit, NotificationService $notifications, ReliabilityService $reliability)
     {
         $data=$request->validate([
             'review_status'=>['required','in:accepted,rejected'],
@@ -32,6 +34,21 @@ class ShipmentController extends Controller
             'review_comment'=>$data['review_comment']??null,
             'resubmit_due_at'=>$data['review_status']==='rejected'?now()->addHours(2):null,
         ]);
+
+        if($data['review_status']==='rejected'){
+            $order=$shipment->order()->with('user')->firstOrFail();
+            $order->update([
+                'reliability_issue_count'=>DB::raw('reliability_issue_count + 1'),
+                'last_reliability_issue'=>'Versandnachweis abgelehnt und Nachreichung erforderlich',
+            ]);
+            $reliability->recordViolation(
+                $order->user,
+                $order->fresh(),
+                'shipment_evidence_rejected',
+                'Versandnachweis abgelehnt: '.$data['review_comment'],
+                ['shipment_id'=>$shipment->id]
+            );
+        }
 
         $audit->log('shipment.evidence.reviewed',$shipment,$before,$shipment->fresh()->toArray());
 
