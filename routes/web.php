@@ -7,6 +7,7 @@ use App\Http\Controllers\Admin\ConversationController as AdminConversationContro
 use App\Http\Controllers\Admin\DashboardController as AdminDashboardController;
 use App\Http\Controllers\Admin\DocumentController as AdminDocumentController;
 use App\Http\Controllers\Admin\GoodsReceiptController as AdminGoodsReceiptController;
+use App\Http\Controllers\Admin\HealthController as AdminHealthController;
 use App\Http\Controllers\Admin\OfferController as AdminOfferController;
 use App\Http\Controllers\Admin\OrderController as AdminOrderController;
 use App\Http\Controllers\Admin\PayoutController as AdminPayoutController;
@@ -174,6 +175,8 @@ Route::prefix('admin')->name('admin.')->middleware(['auth','active','admin'])->g
         Route::get('/team', [AdminTeamController::class, 'index'])->name('admin-users.index');
         Route::post('/team', [AdminTeamController::class, 'store'])->name('admin-users.store');
         Route::put('/team/{adminUser}', [AdminTeamController::class, 'update'])->name('admin-users.update');
+
+        Route::get('/systemzustand', AdminHealthController::class)->name('health.index');
 
         Route::get('/einstellungen', [AdminSettingsController::class, 'index'])->name('settings.index');
         Route::put('/einstellungen', [AdminSettingsController::class, 'update'])->name('settings.update');
