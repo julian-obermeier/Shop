@@ -8,6 +8,7 @@ use App\Services\AuditService;
 use App\Services\ImageSanitizer;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\DB;
 
 class OfferController extends Controller
 {
