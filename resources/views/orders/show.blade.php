@@ -92,7 +92,7 @@ $startChallenge=$startDay ? $order->proofChallenges->first(fn($c)=>$c->order_day
 <input type="hidden" name="challenge_id" value="{{ $startChallenge->id }}">
 <input type="hidden" name="proof_code" value="{{ $startChallenge->code }}">
 <input type="hidden" name="window_key" value="start">
-<label>Live-Kamera<input type="file" name="proof" accept="image/*" capture="environment" required data-proof-file></label>
+<label>Live-Kamera<input type="file" name="proof" accept="image/jpeg" required data-proof-file data-live-camera></label>
 <label class="check"><input type="checkbox" data-overlay-code><span>Code automatisch sichtbar in das aufgenommene Bild einblenden</span></label>
 <button class="btn primary">Startfoto einreichen</button>
 </form>
@@ -122,8 +122,8 @@ $startChallenge=$startDay ? $order->proofChallenges->first(fn($c)=>$c->order_day
 @if($trackingMode!=='none')
 <label>Trackingnummer<input name="tracking_number" value="{{ old('tracking_number',$order->shipment?->tracking_number) }}" @required($trackingMode==='required')><small>{{ $trackingMode==='required'?'Pflicht':'optional' }}</small></label>
 @endif
-<label class="full">Paketfoto über Live-Kamera<input type="file" name="package_photo" accept="image/*" capture="environment" required></label>
-<label class="full">Versand-/Annahmebeleg über Live-Kamera<input type="file" name="receipt_photo" accept="image/*" capture="environment" required><small>Versanddatum und Versanddienstleister müssen eindeutig lesbar sein.</small></label>
+<label class="full">Paketfoto über Live-Kamera<input type="file" name="package_photo" accept="image/jpeg" required data-live-camera></label>
+<label class="full">Versand-/Annahmebeleg über Live-Kamera<input type="file" name="receipt_photo" accept="image/jpeg" required data-live-camera><small>Versanddatum und Versanddienstleister müssen eindeutig lesbar sein.</small></label>
 <div class="notice full">Lege die Auftragsnummer <strong>#{{ $order->order_number }}</strong> in das Paket. Die Versandkosten trägst du selbst.</div>
 <div class="full"><button class="btn primary">Versandnachweise einreichen</button></div>
 </form>
@@ -230,7 +230,7 @@ $canSubmit=$isCurrent && $day->counts_toward_series && in_array($order->status,[
 <input type="hidden" name="proof_code" value="{{ $challenge->code }}">
 <input type="hidden" name="window_key" value="{{ $key }}">
 @if($window['text_required']??false)<label>Pflichttext<textarea name="text_value" rows="3" required></textarea></label>@endif
-<label>Live-Kamera<input type="file" name="proof" accept="image/*" capture="environment" required data-proof-file></label>
+<label>Live-Kamera<input type="file" name="proof" accept="image/jpeg" required data-proof-file data-live-camera></label>
 <label class="check"><input type="checkbox" data-overlay-code><span>Code automatisch sichtbar in das aufgenommene Bild einblenden</span></label>
 <button class="btn secondary">Nachweis einreichen</button>
 </form>
