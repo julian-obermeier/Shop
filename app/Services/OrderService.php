@@ -12,7 +12,7 @@ use Illuminate\Support\Str;
 
 class OrderService
 {
-    public function __construct(private OfferPricingService $pricing) {}
+    public function __construct(private OfferPricingService $pricing, private ReliabilityService $reliability) {}
 
     public function create(User $user, Offer $offer, array $optionIds, array $fieldValues, string $proposedStartDate): Order
     {
@@ -338,14 +338,14 @@ class OrderService
                 'to_status'=>'cancelled',
                 'reason'=>'Freiwilliger Abbruch durch Anbieterin: '.$reason,
             ]);
-            $this->resetReliabilityProgress($order->user_id);
+            $this->reliability->recordViolation($user,$order->fresh(),'voluntary_abort','Freiwilliger Abbruch: '.$reason);
         });
     }
 
     public function invalidateDay(OrderDay $day, string $reason): void
     {
         DB::transaction(function() use($day,$reason){
-            $day=OrderDay::with('order')->whereKey($day->id)->lockForUpdate()->firstOrFail();
+            $day=OrderDay::with('order.user')->whereKey($day->id)->lockForUpdate()->firstOrFail();
             $order=Order::whereKey($day->order_id)->lockForUpdate()->firstOrFail();
             if(!$day->counts_toward_series || $day->status==='invalid') return;
 
@@ -359,7 +359,7 @@ class OrderService
                 'reliability_issue_count'=>DB::raw('reliability_issue_count + 1'),
                 'last_reliability_issue'=>$reason,
             ]);
-            $this->resetReliabilityProgress($order->user_id);
+            $this->reliability->recordViolation($order->user,$order,'invalid_day',$reason,['order_day_id'=>$day->id]);
 
             if($day->day_number===0){
                 $this->restartAfterInvalidStart($order);
@@ -537,14 +537,6 @@ class OrderService
         if(!is_array($requirements)) return (int)data_get($order->offer_snapshot,'proofs_per_day',0);
 
         return collect($requirements)->sum(fn($window)=>(int)($window['required_images']??0));
-    }
-
-    private function resetReliabilityProgress(int $userId): void
-    {
-        DB::table('user_restrictions')
-            ->where('user_id',$userId)
-            ->where('active',true)
-            ->update(['successful_count'=>0,'progress_reset_at'=>now()]);
     }
 
     private function normalizeFieldValues($fields, array $values): array
