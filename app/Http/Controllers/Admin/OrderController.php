@@ -6,7 +6,6 @@ use App\Models\Order;
 use App\Services\AuditService;
 use App\Services\NotificationService;
 use App\Services\OrderService;
-use App\Services\WalletService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -362,18 +361,4 @@ class OrderController extends Controller
         return $now;
     }
 
-    public function release(Order $order, WalletService $wallet, AuditService $audit, NotificationService $notifications)
-    {
-        $before=$order->toArray();
-        $wallet->release($order);
-        $audit->log('order.compensation.released',$order,$before,$order->fresh()->toArray());
-        $notifications->send(
-            $order->user,
-            'compensation_released',
-            'Vergütung freigegeben',
-            'Die Vergütung für Auftrag #'.$order->order_number.' ist jetzt in deinem Wallet verfügbar.',
-            route('wallet.index')
-        );
-        return back()->with('success','Vergütung wurde freigegeben und der Auftrag abgeschlossen.');
-    }
 }
