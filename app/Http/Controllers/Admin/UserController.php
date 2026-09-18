@@ -249,7 +249,7 @@ class UserController extends Controller
             $locked=User::whereKey($user->id)->lockForUpdate()->firstOrFail();
 
             $orders=Order::where('user_id',$locked->id)
-                ->whereNotIn('status',['completed','cancelled','rejected','not_started'])
+                ->whereNotIn('status',['completed','cancelled','rejected','request_rejected','not_started'])
                 ->lockForUpdate()
                 ->get();
 
