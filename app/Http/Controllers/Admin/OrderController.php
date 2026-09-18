@@ -304,10 +304,10 @@ class OrderController extends Controller
         ]);
 
         $effectiveAt=match($data['effective_mode']){
-            'immediately'=>now(),
-            'next_window'=>now(),
+            'immediately'=>now('Europe/Berlin'),
+            'next_window'=>$this->nextProofWindowAt($order),
             'next_day'=>now('Europe/Berlin')->startOfDay()->addDay(),
-            'custom'=>\Carbon\Carbon::parse($data['effective_at'],'Europe/Berlin'),
+            'custom'=>\Carbon\CarbonImmutable::parse($data['effective_at'],'Europe/Berlin'),
         };
 
         $before=$order->toArray();
@@ -335,6 +335,31 @@ class OrderController extends Controller
         );
 
         return back()->with('success','Die neuen Anforderungen wurden gespeichert und mitgeteilt.');
+    }
+
+    private function nextProofWindowAt(Order $order): \Carbon\CarbonImmutable
+    {
+        $now=\Carbon\CarbonImmutable::now('Europe/Berlin');
+        $requirements=data_get($order->current_requirements ?: $order->offer_snapshot,'proof_requirements',[]);
+        $days=$order->days()
+            ->where('series_number',$order->series_number)
+            ->where('day_number','>',0)
+            ->where('counts_toward_series',true)
+            ->whereDate('date','>=',$now->toDateString())
+            ->orderBy('date')
+            ->get();
+
+        foreach($days as $day){
+            foreach(is_array($requirements)?$requirements:[] as $window){
+                $at=\Carbon\CarbonImmutable::parse(
+                    $day->date->format('Y-m-d').' '.($window['start']??'00:00'),
+                    'Europe/Berlin'
+                );
+                if($at->greaterThan($now)) return $at;
+            }
+        }
+
+        return $now;
     }
 
     public function release(Order $order, WalletService $wallet, AuditService $audit, NotificationService $notifications)
