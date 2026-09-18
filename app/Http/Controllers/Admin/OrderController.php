@@ -20,19 +20,45 @@ class OrderController extends Controller
 
     public function show(Order $order)
     {
-        $order->load('user','offer','options','days.proofs','statusHistory','precheck','shipment','goodsReceipt','conversation');
+        $order->load(
+            'user','offer','options','fieldValues','days.proofs','statusHistory',
+            'precheck','shipment','goodsReceipt','conversation'
+        );
         return view('admin.orders.show',compact('order'));
     }
 
     public function status(Request $request, Order $order, AuditService $audit, NotificationService $notifications)
     {
-        $data=$request->validate(['status'=>['required','string','max:40'],'reason'=>['nullable','string','max:1000']]);
+        $allowed=[
+            'precheck','precheck_resubmit','approved','active','waiting_shipping',
+            'shipping_overdue','shipped','received','inspection','accepted',
+            'compensation_released','completed','cancelled','rejected','dispute',
+        ];
+
+        $data=$request->validate([
+            'status'=>['required','in:'.implode(',',$allowed)],
+            'reason'=>['nullable','string','max:1000'],
+        ]);
+
         $before=$order->toArray();
         $from=$order->status;
         $order->update(['status'=>$data['status']]);
-        $order->statusHistory()->create(['changed_by'=>$request->user()->id,'from_status'=>$from,'to_status'=>$data['status'],'reason'=>$data['reason']??null]);
+        $order->statusHistory()->create([
+            'changed_by'=>$request->user()->id,
+            'from_status'=>$from,
+            'to_status'=>$data['status'],
+            'reason'=>$data['reason']??null,
+        ]);
+
         $audit->log('order.status.changed',$order,$before,$order->fresh()->toArray());
-        $notifications->send($order->user,'order_status','Auftragsstatus aktualisiert','Auftrag #'.$order->order_number.' steht jetzt auf '.strtoupper(str_replace('_',' ',$data['status'])).'.',route('orders.show',$order));
+        $notifications->send(
+            $order->user,
+            'order_status',
+            'Auftragsstatus aktualisiert',
+            'Auftrag #'.$order->order_number.' steht jetzt auf '.strtoupper(str_replace('_',' ',$data['status'])).'.',
+            route('orders.show',$order)
+        );
+
         return back()->with('success','Status wurde geändert.');
     }
 
@@ -41,7 +67,13 @@ class OrderController extends Controller
         $before=$order->toArray();
         $wallet->release($order);
         $audit->log('order.compensation.released',$order,$before,$order->fresh()->toArray());
-        $notifications->send($order->user,'compensation_released','Vergütung freigegeben','Die Vergütung für Auftrag #'.$order->order_number.' ist jetzt in deinem Wallet verfügbar.',route('wallet.index'));
+        $notifications->send(
+            $order->user,
+            'compensation_released',
+            'Vergütung freigegeben',
+            'Die Vergütung für Auftrag #'.$order->order_number.' ist jetzt in deinem Wallet verfügbar.',
+            route('wallet.index')
+        );
         return back()->with('success','Vergütung wurde freigegeben.');
     }
 }
