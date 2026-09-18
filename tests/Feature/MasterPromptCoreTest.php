@@ -192,6 +192,68 @@ class MasterPromptCoreTest extends TestCase
         $this->assertSame(0.0,$wallet->fresh()->balance('payout_pending'));
     }
 
+    public function test_offer_duplicate_remaps_internal_option_dependencies(): void
+    {
+        [$provider,$category]=$this->providerAndCategory('duplicate-provider@example.test');
+
+        $admin=User::create([
+            'role'=>'admin',
+            'username'=>'duplicate.admin',
+            'first_name'=>'Admin',
+            'last_name'=>'Duplicate',
+            'birth_date'=>'1970-01-01',
+            'email'=>'duplicate-admin@example.test',
+            'password'=>Hash::make('VerySecurePassword123!'),
+            'status'=>'active',
+        ]);
+        $admin->forceFill(['email_verified_at'=>now()])->save();
+
+        $offer=$this->offer($category,'Dependency Source');
+
+        $base=$offer->options()->create([
+            'name'=>'Basis-Extra',
+            'price_delta'=>5,
+            'extra_proofs_per_day'=>0,
+            'extra_duration_days'=>0,
+            'required'=>false,
+            'active'=>true,
+            'sort_order'=>0,
+            'rules'=>[],
+        ]);
+
+        $dependent=$offer->options()->create([
+            'name'=>'Abhängiges Extra',
+            'price_delta'=>10,
+            'extra_proofs_per_day'=>0,
+            'extra_duration_days'=>0,
+            'required'=>false,
+            'active'=>true,
+            'sort_order'=>1,
+            'rules'=>[
+                'requires_ids'=>[$base->id],
+                'excludes_ids'=>[],
+                'min_duration_days'=>0,
+            ],
+        ]);
+
+        $this->actingAs($admin)
+            ->post(route('admin.offers.duplicate',$offer))
+            ->assertRedirect();
+
+        $copy=Offer::where('id','!=',$offer->id)
+            ->where('title','Dependency Source – Kopie')
+            ->firstOrFail();
+
+        $copiedBase=$copy->options()->where('name','Basis-Extra')->firstOrFail();
+        $copiedDependent=$copy->options()->where('name','Abhängiges Extra')->firstOrFail();
+
+        $this->assertNotSame($base->id,$copiedBase->id);
+        $this->assertNotSame($dependent->id,$copiedDependent->id);
+        $this->assertSame([$copiedBase->id],array_map('intval',$copiedDependent->rules['requires_ids']??[]));
+        $this->assertNotContains($base->id,array_map('intval',$copiedDependent->rules['requires_ids']??[]));
+    }
+
+
     private function providerAndCategory(string $email): array
     {
         $provider=User::create([
