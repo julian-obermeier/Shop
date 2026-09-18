@@ -1,67 +1,90 @@
-# Wear&Earn – Laravel 13 Starter
+# Wear&Earn – Reverse-Shop-Ankaufsplattform
 
-Produktionsorientierter Entwicklungsstand der Reverse-Shop-/Ankaufsplattform.
+Produktionsorientierte Laravel-13-Webanwendung für den im Projekt definierten Reverse-Shop-/Ankaufsprozess.
 
-> **Verbindliche Projektspezifikation:** Die fachliche Zieldefinition steht in [MASTERPROMPT.md](MASTERPROMPT.md). Bei Widersprüchen zwischen bestehendem Code, diesem README und dem Masterprompt gilt der Masterprompt. Der aktuelle Code enthält noch ältere Funktionen, die schrittweise an die neue Spezifikation angepasst werden müssen.
+> **Verbindliche Projektspezifikation:** [MASTERPROMPT.md](MASTERPROMPT.md) ist die maßgebliche fachliche Quelle. Bei Widersprüchen zwischen Code, README und Masterprompt gilt der Masterprompt.
 
-## Aktuell im Code enthalten
+## Umgesetzter Kernumfang
 
-- Registrierung / Login mit 18+-Prüfung
-- geschützter Adminbereich
-- Kategorien, Angebote und dynamische Zusatzoptionen
-- Live-Vergütungsrechner im Frontend
-- serverseitige Preisberechnung
-- Angebotssnapshot je Auftrag
-- Auftragstage und tägliche Nachweispflichten
-- private Foto-Speicherung außerhalb von `/public`
-- SHA-256-Hash pro Nachweisdatei
-- Admin-Prüfung von Nachweisen
-- Wallet-/Ledger-Grundlage
-- Auszahlungsanträge
-- Admin-Angebotseditor
-- Auftragsstatushistorie
-- Versand-/Audit-Datenmodell
-- responsive UI
+Der aktuelle Stand enthält insbesondere:
 
-Einige bestehende Module entsprechen noch nicht der verbindlichen Zieldefinition, insbesondere Admin-2FA, mehrere Adminrollen, Identitätsprüfung, allgemeine Nachrichten, Mindest-Auszahlungsbetrag, Dateiaufbewahrungs-/Purge-Logik und einzelne Profil-/Auszahlungsabläufe. Die vollständige Soll-Liste steht im Abschnitt „Bekannte Abweichungen des aktuellen Codes“ in `MASTERPROMPT.md`.
+- Registrierung mit Geburtsdatum, 18+-Prüfung und E-Mail-Verifikation
+- genau einen fachlichen Adminzugang ohne verpflichtende 2FA
+- Anbieterinnenprofile mit getrennten Selbst-/Adminänderungsrechten
+- Admin-Deaktivierung, Reaktivierung und Löschung/Anonymisierung von Konten
+- Kategorien und vollständig konfigurierbare Ankaufangebote
+- Zusatzoptionen mit Aufpreis, Abhängigkeiten, Ausschlüssen, Extra-Tagen und Extra-Nachweisen
+- angebotsspezifische Felder, Nachweisfenster, Trackingmodus, KO-Kriterien und Punktebänder
+- manuelle Angebotsaktivierung/-deaktivierung mit eingefrorener Wartelistenreservierung
+- Angebotsduplizierung und Löschen bei erhaltenen Auftragssnapshots
+- FIFO-Wartelisten mit exklusivem 24-Stunden-Vorrecht und Sockenkonfliktlogik
+- Auftragsanfrage, Adminfreigabe, Termingegenvorschlag und verbindlicher Aktivierungstag
+- persönliches Auftragslimit und separate Socken-Trage-Slot-Logik
+- Startfoto sowie Tagesnachweise mit 10-Minuten-Codes
+- echte Browser-Live-Kamera via `getUserMedia` für Pflichtnachweise
+- optionales digitales Code-Overlay
+- mehrere Nachweisfenster pro Tag
+- Nachweisprüfung, reguläre Nachreichversuche und zusätzliche Adminfreigaben
+- Ersatztage, Unterbrechungszählung und vollständiger Serienreset
+- dauerhafte private Originalspeicherung von Nachweisen mit SHA-256
+- Webapp-, E-Mail- und optionale Web-Push-Benachrichtigungen
+- mehrstufige Erinnerungen für Nachweisfenster
+- auftragsbezogene Nachrichten mit Anhängen und 7-Tage-Schreibfrist nach Abschluss
+- Versandfrist, Paketfoto, Versandbeleg und angebotsspezifisches Tracking
+- dokumentierter Eigentums- und Risikoübergang
+- manueller Wareneingang und Verwaltung nicht zuordenbarer Sendungen
+- finale Warenprüfung mit Aussehen, Geruch, Geschmack, Nachweisen und Extras
+- 0–10 Punkte je Prüfkategorie, KO-Kriterien und konfigurierbare Vergütungsbänder
+- getrennte binäre Bewertung gebuchter Extras
+- sofortige Wallet-Freigabe der finalen Vergütung nach erfolgreicher Warenprüfung
+- direkter Admin-Wallet-Override mit Audit-Log
+- Bank- und PayPal-Auszahlungen, Teilbeträge, Freitag/Cutoff, Ziel-Snapshot und 24-Stunden-Sicherheitssperre
+- wiederöffnbare Auszahlungen mit saldenkonsistenter Reservierungslogik
+- Rücksendung vollständig abgelehnter Ware nach der festgelegten 3-Tage-/24-Stunden-Logik
+- regelbasierte Zuverlässigkeitseinschränkungen mit 5 fehlerfreien Bewährungsaufträgen + manueller Adminaufhebung
+- vollständige Status-/Audit-Historien für zentrale Vorgänge
+- einmalige Dokumentzustimmung bei Registrierung ohne späteren Re-Consent-Zwang
 
 ## Technische Basis
 
 - PHP 8.3+
 - Laravel 13
 - MySQL / MariaDB
-- Blade + Vanilla CSS/JS, daher kein Node/Vite-Zwang für die aktuelle Oberfläche
+- Blade + Vanilla CSS/JavaScript
+- private Dateispeicherung für sensible Auftragsdateien
 - Datenbank-Queue und Datenbank-Cache möglich
-- privater Storage für Nachweise
+- kein Docker-Zwang
+- kein Node-/Vite-Zwang für die produktive Oberfläche
+- optionale Browser-Push-Zustellung über VAPID / Web Push
 
-## Teststrategie
+## Automatisierte Qualitätssicherung
 
-Zwischenstände werden nicht vom Nutzer getestet. Erst nach Umsetzung des vollständig vereinbarten Funktionsumfangs erfolgt der gemeinsame Endtest. Während der Entwicklung werden automatisierte Tests verwendet und erweitert.
+GitHub Actions führt bei Änderungen aus:
 
-## Projektumfang
+1. Composer-Manifestprüfung
+2. PHP-Syntaxprüfung
+3. Dependency-Installation
+4. Laravel-Feature-/Regressionstests
 
-Die Plattform ist ein Reverse-Shop / eine Ankaufsplattform. Registrierte volljährige Anbieterinnen können vom Betreiber erstellte Ankaufangebote auswählen, Zusatzoptionen konfigurieren, mehrtägige Aufträge mit Nachweisen erfüllen, Ware versenden und nach Wareneingang sowie Prüfung eine Vergütung erhalten.
+Die Tests decken neben Authentifizierung, Datenschutz, Deadlines und Wallet insbesondere zentrale Masterprompt-Invarianten ab, z. B. Auftragssnapshots nach Angebotslöschung, gezählte Auftragsphasen, Zuverlässigkeitsbewährung und wiederöffnete Auszahlungen.
 
-Zum Zielumfang gehören insbesondere:
+Die vereinbarte Arbeitsweise bleibt: **keine manuellen Zwischen-Endtests durch den Auftraggeber**. Der gemeinsame manuelle Endtest erfolgt erst, wenn der vereinbarte Funktionsumfang als Ganzes bereit ist.
 
-- Anbieterinnenbereich
-- ein Adminbereich
-- Angebotseditor
-- Aufträge und Terminlogik
-- Nachweise und Nachweisprüfung
-- Socken-Trageauftragslogik
-- Wartelisten
-- Versand und Wareneingang
-- Waren-/Qualitätsprüfung
-- Wallet und Auszahlungen
-- auftragsbezogene Nachrichten
-- Einwilligungen/Dokumente
-- Zuverlässigkeitsregeln
-- Audit-Log
-- Benachrichtigungen
+## Betrieb
 
-Alle Detailregeln ergeben sich ausschließlich aus `MASTERPROMPT.md`.
+Für zeitabhängige Funktionen muss der Laravel Scheduler regelmäßig ausgeführt werden. Er verarbeitet unter anderem:
 
-## Hinweis
+- Nachweisfenster-Erinnerungen
+- Start-/Nachweis-/Nachreichfristen
+- Versandfristen
+- Wartelistenreservierungen
+- Rücksendefristen
+- automatischen Auszahlungsschluss 24 Stunden nach bestätigter externer Zahlung
 
-`vendor/` wird nicht versioniert. Die Installation erfolgt über Composer.
+Für Browser-Push müssen gültige VAPID-Schlüssel in der Umgebung hinterlegt sein. Ohne Push bleiben Webapp- und E-Mail-Benachrichtigungen funktionsfähig.
+
+## Installation / Update
+
+`vendor/` wird nicht versioniert. Abhängigkeiten werden über Composer installiert. Nach neuen Commits sind insbesondere Migrationen und Laravel-Caches zu aktualisieren.
+
+Alle Detailregeln ergeben sich ausschließlich aus [MASTERPROMPT.md](MASTERPROMPT.md).
