@@ -12,7 +12,7 @@ use Illuminate\Support\Str;
 
 class OrderService
 {
-    public function __construct(private OfferPricingService $pricing, private ReliabilityService $reliability) {}
+    public function __construct(private OfferPricingService $pricing, private ReliabilityService $reliability, private NotificationService $notifications) {}
 
     public function create(User $user, Offer $offer, array $optionIds, array $fieldValues, string $proposedStartDate): Order
     {
@@ -479,7 +479,7 @@ class OrderService
         if(!$order->isSockWearing() || !$order->end_date) return;
 
         $cursorEnd=CarbonImmutable::parse($order->end_date,'Europe/Berlin');
-        $followers=Order::where('user_id',$order->user_id)
+        $followers=Order::with('user')->where('user_id',$order->user_id)
             ->where('id','!=',$order->id)
             ->whereIn('status',['precheck','precheck_resubmit','approved','waiting_start'])
             ->whereNotNull('confirmed_start_date')
@@ -496,12 +496,35 @@ class OrderService
                     'confirmed_start_date'=>$activation->toDateString(),
                     'proposed_start_date'=>$activation->toDateString(),
                 ]);
+                $reason='Automatisch von '.$old->format('d.m.Y').' auf '.$activation->format('d.m.Y').' verschoben, da ein vorheriger Socken-Trageauftrag verlängert wurde';
+
                 $follower->statusHistory()->create([
                     'changed_by'=>null,
                     'from_status'=>$follower->status,
                     'to_status'=>$follower->status,
-                    'reason'=>'Automatisch von '.$old->format('d.m.Y').' auf '.$activation->format('d.m.Y').' verschoben, da ein vorheriger Socken-Trageauftrag verlängert wurde',
+                    'reason'=>$reason,
                 ]);
+
+                $this->notifications->send(
+                    $follower->user,
+                    'sock_schedule_shifted',
+                    'Sockenauftrag automatisch verschoben',
+                    'Auftrag #'.$follower->order_number.' wurde wegen der Verlängerung eines vorherigen Sockenauftrags automatisch auf den '.$activation->format('d.m.Y').' verschoben. Eine erneute Bestätigung ist nicht erforderlich.',
+                    route('orders.show',$follower),
+                    ['order_id'=>$follower->id,'old_date'=>$old->toDateString(),'new_date'=>$activation->toDateString()]
+                );
+
+                $admin=User::where('role','admin')->where('status','active')->first();
+                if($admin){
+                    $this->notifications->send(
+                        $admin,
+                        'sock_schedule_shifted_admin',
+                        'Socken-Terminverschiebung',
+                        'Auftrag #'.$follower->order_number.' von '.$follower->user->first_name.' '.$follower->user->last_name.' wurde automatisch auf den '.$activation->format('d.m.Y').' verschoben.',
+                        route('admin.orders.show',$follower),
+                        ['order_id'=>$follower->id,'old_date'=>$old->toDateString(),'new_date'=>$activation->toDateString()]
+                    );
+                }
             }
 
             $duration=(int)data_get($follower->offer_snapshot,'duration_days',1);
