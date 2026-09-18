@@ -53,6 +53,11 @@
 @if($item->type==='reliability')
 <br><small>Bewährung: {{ (int)$item->successful_count }}/{{ (int)$item->required_successes }} · nach 5/5 nur manuelle Aufhebung durch Admin</small>
 @if($item->max_active_orders!==null)<br><small>Persönliches Auftragslimit: {{ $item->max_active_orders }}</small>@endif
+@if(is_array($item->blocked_offer_ids) && count($item->blocked_offer_ids))
+<br><small>Ausgeschlossene Angebote:
+{{ collect($item->blocked_offer_ids)->map(fn($id)=>$blockedOffers[(int)$id]??('#'.$id))->implode(', ') }}
+</small>
+@endif
 @endif
 </div>
 @empty<p class="muted">Keine aktiven Einschränkungen.</p>@endforelse
