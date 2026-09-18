@@ -47,7 +47,7 @@ class WaitlistService
                 if($user->effectiveOrderLimit()===0 || $user->isOfferBlocked($lockedOffer->id)) continue;
 
                 $activeCount=Order::where('user_id',$user->id)
-                    ->whereIn('status',['precheck','precheck_resubmit','approved','waiting_start','active','paused'])
+                    ->countsAgainstPersonalLimit()
                     ->count();
 
                 if($activeCount >= $user->effectiveOrderLimit()) continue;
