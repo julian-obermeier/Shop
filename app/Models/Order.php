@@ -68,6 +68,35 @@ class Order extends Model
         });
     }
 
+    public function executionProofsAccepted(): bool
+    {
+        $hasAcceptedStart=$this->days()
+            ->where('day_number',0)
+            ->where('status','accepted')
+            ->exists();
+
+        if(!$hasAcceptedStart) return false;
+
+        $requiredDays=(int)data_get($this->offer_snapshot,'duration_days',1);
+        $acceptedDays=$this->days()
+            ->where('series_number',$this->series_number)
+            ->where('day_number','>',0)
+            ->where('counts_toward_series',true)
+            ->where('status','accepted')
+            ->count();
+
+        return $acceptedDays >= $requiredDays;
+    }
+
+    public function readyForFinalInspection(): bool
+    {
+        if(!$this->execution_completed_at || !$this->executionProofsAccepted()) return false;
+        if(!$this->shipment || $this->shipment->review_status!=='accepted') return false;
+        if(!$this->received_at || !$this->goodsReceipt || !$this->goodsReceipt->complete) return false;
+
+        return true;
+    }
+
     public function isTerminal(): bool
     {
         return in_array($this->status,['completed','cancelled','rejected','request_rejected','not_started'],true);
