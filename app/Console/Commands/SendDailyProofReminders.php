@@ -2,7 +2,6 @@
 namespace App\Console\Commands;
 
 use App\Models\OrderDay;
-use App\Models\Setting;
 use App\Models\UserNotification;
 use App\Services\NotificationService;
 use Carbon\CarbonImmutable;
@@ -15,8 +14,6 @@ class SendDailyProofReminders extends Command
 
     public function handle(NotificationService $notifications): int
     {
-        if(!Setting::valueOf('proof_reminders_enabled',true)) return self::SUCCESS;
-
         $now=CarbonImmutable::now('Europe/Berlin');
         $candidateDates=[
             $now->toDateString(),
