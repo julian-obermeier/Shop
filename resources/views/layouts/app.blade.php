@@ -15,11 +15,17 @@
         <a class="{{ request()->routeIs('dashboard')?'active':'' }}" href="{{ route('dashboard') }}">⌂ <span>Dashboard</span></a>
         <a class="{{ request()->routeIs('offers.*')?'active':'' }}" href="{{ route('offers.index') }}">▣ <span>Angebote</span></a>
         <a class="{{ request()->routeIs('orders.*')?'active':'' }}" href="{{ route('orders.index') }}">☷ <span>Meine Aufträge</span></a>
-        <a href="{{ route('orders.index') }}#nachweise">▤ <span>Nachweise</span></a>
         <a class="{{ request()->routeIs('wallet.*')?'active':'' }}" href="{{ route('wallet.index') }}">◫ <span>Wallet</span></a>
+        <a class="{{ request()->routeIs('messages.*')?'active':'' }}" href="{{ route('messages.index') }}">✉ <span>Nachrichten</span></a>
+        <a class="{{ request()->routeIs('verification.*')?'active':'' }}" href="{{ route('verification.index') }}">✓ <span>Verifizierung</span></a>
+        <a class="{{ request()->routeIs('documents.*')?'active':'' }}" href="{{ route('documents.index') }}">▤ <span>Dokumente</span></a>
         @if(auth()->user()->isAdmin())
         <div class="nav-caption">Administration</div>
-        <a class="{{ request()->routeIs('admin.*')?'active':'' }}" href="{{ route('admin.dashboard') }}">⚙ <span>Adminbereich</span></a>
+        <a class="{{ request()->routeIs('admin.dashboard')?'active':'' }}" href="{{ route('admin.dashboard') }}">⚙ <span>Admin-Dashboard</span></a>
+        <a class="{{ request()->routeIs('admin.verifications.*')?'active':'' }}" href="{{ route('admin.verifications.index') }}">✓ <span>Verifizierungen</span></a>
+        <a class="{{ request()->routeIs('admin.prechecks.*')?'active':'' }}" href="{{ route('admin.prechecks.index') }}">⌕ <span>Vorprüfungen</span></a>
+        <a class="{{ request()->routeIs('admin.messages.*')?'active':'' }}" href="{{ route('admin.messages.index') }}">✉ <span>Nachrichten</span></a>
+        <a class="{{ request()->routeIs('admin.documents.*')?'active':'' }}" href="{{ route('admin.documents.index') }}">▤ <span>Dokumente</span></a>
         @endif
     </nav>
     <form action="{{ route('logout') }}" method="post" class="logout">@csrf<button>↪ Abmelden</button></form>
@@ -27,7 +33,7 @@
 <main class="main">
 <header class="topbar">
     <form action="{{ route('offers.index') }}" class="top-search"><span>⌕</span><input name="q" value="{{ request('q') }}" placeholder="Angebote durchsuchen …"></form>
-    <div class="top-user"><div class="avatar">{{ strtoupper(substr(auth()->user()->first_name,0,1)) }}{{ strtoupper(substr(auth()->user()->last_name,0,1)) }}</div><div><strong>Hallo, {{ auth()->user()->first_name }}</strong><small>{{ auth()->user()->role === 'provider' ? 'Anbieterin' : ucfirst(auth()->user()->role) }}</small></div></div>
+    <div class="top-user"><div class="avatar">{{ strtoupper(substr(auth()->user()->first_name,0,1)) }}{{ strtoupper(substr(auth()->user()->last_name,0,1)) }}</div><div><strong>Hallo, {{ auth()->user()->first_name }}</strong><small>{{ auth()->user()->role === 'provider' ? 'Anbieterin' : ucfirst(auth()->user()->role) }} · {{ auth()->user()->verified_at ? 'verifiziert' : 'nicht verifiziert' }}</small></div></div>
 </header>
 <div class="content">
 @if(session('success'))<div class="flash success">{{ session('success') }}</div>@endif
