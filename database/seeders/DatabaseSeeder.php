@@ -86,6 +86,7 @@ class DatabaseSeeder extends Seeder
         Setting::updateOrCreate(['key'=>'site_name'],['value'=>'Wear&Earn','type'=>'string']);
         Setting::updateOrCreate(['key'=>'minimum_payout'],['value'=>'10','type'=>'float']);
         Setting::updateOrCreate(['key'=>'proof_reminders_enabled'],['value'=>'1','type'=>'bool']);
+        Setting::updateOrCreate(['key'=>'email_notifications_enabled'],['value'=>'1','type'=>'bool']);
         Setting::updateOrCreate(['key'=>'support_email'],['value'=>'','type'=>'string']);
 
         $categories = [
