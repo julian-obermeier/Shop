@@ -5,19 +5,23 @@ use App\Models\WalletAccount;
 use App\Services\NotificationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-class WalletController {
+
+class WalletController extends Controller
+{
     public function index(){
         $wallet=request()->user()->walletAccount()->with('entries')->firstOrCreate([]);
         $payouts=PayoutRequest::where('user_id',request()->user()->id)->latest()->get();
         return view('wallet.index',compact('wallet','payouts'));
     }
+
     public function payout(Request $request, NotificationService $notifications){
         abort_if($request->user()->hasRestriction('payouts'),422,'Auszahlungen sind für dieses Konto derzeit gesperrt.');
         abort_unless($request->user()->verified_at,422,'Für Auszahlungen ist eine abgeschlossene Verifizierung erforderlich.');
         $data=$request->validate(['amount'=>['required','numeric','min:10'],'iban'=>['required','string','max:34']]);
         $payout=DB::transaction(function() use($request,$data){
             $wallet=WalletAccount::where('user_id',$request->user()->id)->lockForUpdate()->firstOrFail();
-            $available=(float)$wallet->entries()->where('bucket','available')->sum('amount'); $amount=(float)$data['amount'];
+            $available=(float)$wallet->entries()->where('bucket','available')->sum('amount');
+            $amount=(float)$data['amount'];
             abort_if($amount>$available,422,'Nicht genügend verfügbares Guthaben.');
             $number='P'.now()->format('YmdHis').$request->user()->id;
             $payout=PayoutRequest::create(['payout_number'=>$number,'user_id'=>$request->user()->id,'amount'=>$amount,'status'=>'requested','method'=>'bank_transfer','destination'=>['iban'=>$data['iban']]]);
