@@ -21,6 +21,11 @@ class GoodsInspectionController extends Controller
         ReliabilityService $reliability
     ){
         abort_unless($order->status==='inspection',422,'Die Warenprüfung ist in diesem Status nicht möglich.');
+        abort_unless(
+            $order->readyForFinalInspection(),
+            422,
+            'Finale Warenprüfung ist erst möglich, wenn Ausführung und alle erforderlichen Nachweise akzeptiert, die Versandnachweise angenommen und der vollständige Wareneingang bestätigt wurden.'
+        );
 
         $data=$request->validate([
             'result'=>['required','in:accepted,rework,rejected'],
