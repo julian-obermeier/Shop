@@ -78,7 +78,9 @@ Route::middleware(['auth','active'])->group(function () {
     Route::post('/auftragstage/{day}/nachweise', [ProofController::class, 'store'])->middleware('throttle:30,10')->name('proofs.store');
 
     Route::get('/wallet', [WalletController::class, 'index'])->name('wallet.index');
+    Route::put('/wallet/auszahlungsdaten', [WalletController::class, 'updatePayoutDetails'])->middleware('throttle:5,10')->name('wallet.payout-details');
     Route::post('/wallet/auszahlung', [WalletController::class, 'payout'])->middleware('throttle:5,10')->name('wallet.payout');
+    Route::post('/wallet/auszahlung/{payout}/stornieren', [WalletController::class, 'cancelPayout'])->name('wallet.payout.cancel');
 
     Route::get('/nachrichten', [ConversationController::class, 'index'])->name('messages.index');
     Route::get('/nachrichten/anlage/{message}', MessageFileController::class)->name('messages.attachment');
@@ -99,6 +101,8 @@ Route::prefix('admin')->name('admin.')->middleware(['auth','active','admin'])->g
     Route::middleware('permission:users.manage')->group(function () {
         Route::get('/anbieterinnen', [AdminUserController::class, 'index'])->name('users.index');
         Route::get('/anbieterinnen/{user}', [AdminUserController::class, 'show'])->name('users.show');
+        Route::put('/anbieterinnen/{user}/stammdaten', [AdminUserController::class, 'updateMasterData'])->name('users.master-data');
+        Route::post('/anbieterinnen/{user}/auszahlungsempfaenger-freigeben', [AdminUserController::class, 'approvePayoutName'])->name('users.payout-name-approve');
         Route::post('/anbieterinnen/{user}/verwarnung', [AdminUserController::class, 'warning'])->name('users.warning');
         Route::post('/anbieterinnen/{user}/sperre', [AdminUserController::class, 'restriction'])->name('users.restriction');
         Route::post('/anbieterinnen/{user}/sperre/{restriction}/aufheben', [AdminUserController::class, 'removeRestriction'])->name('users.restriction.remove');
