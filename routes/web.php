@@ -84,6 +84,10 @@ Route::prefix('admin')->name('admin.')->middleware(['auth','active','admin'])->g
     Route::post('/anbieterinnen/{user}/sperre', [AdminUserController::class, 'restriction'])->name('users.restriction');
     Route::post('/anbieterinnen/{user}/sperre/{restriction}/aufheben', [AdminUserController::class, 'removeRestriction'])->name('users.restriction.remove');
 
+    Route::get('/kategorien', [AdminCategoryController::class, 'index'])->name('categories.index');
+    Route::post('/kategorien', [AdminCategoryController::class, 'store'])->name('categories.store');
+    Route::put('/kategorien/{category}', [AdminCategoryController::class, 'update'])->name('categories.update');
+
     Route::get('/angebote', [AdminOfferController::class, 'index'])->name('offers.index');
     Route::get('/angebote/neu', [AdminOfferController::class, 'create'])->name('offers.create');
     Route::post('/angebote', [AdminOfferController::class, 'store'])->name('offers.store');
@@ -118,6 +122,9 @@ Route::prefix('admin')->name('admin.')->middleware(['auth','active','admin'])->g
 
     Route::get('/dokumente', [AdminDocumentController::class, 'index'])->name('documents.index');
     Route::post('/dokumente', [AdminDocumentController::class, 'store'])->name('documents.store');
+
+    Route::get('/berichte', [AdminReportController::class, 'index'])->name('reports.index');
+    Route::get('/berichte/export/{type}', [AdminReportController::class, 'export'])->name('reports.export');
 
     Route::get('/audit', [AdminAuditController::class, 'index'])->name('audit.index');
 });
