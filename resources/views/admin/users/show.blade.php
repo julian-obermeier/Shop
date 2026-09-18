@@ -5,7 +5,7 @@
 $wallet=$user->walletAccount;
 $available=$wallet?->balance('available') ?? 0;
 $reserved=$wallet?->balance('payout_pending') ?? 0;
-$openOrders=$user->orders->whereNotIn('status',['completed','cancelled','rejected','not_started']);
+$openOrders=$user->orders->whereNotIn('status',['completed','cancelled','rejected','request_rejected','not_started']);
 @endphp
 
 <div class="page-head split">
