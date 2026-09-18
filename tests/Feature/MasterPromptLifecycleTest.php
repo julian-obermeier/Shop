@@ -181,6 +181,134 @@ class MasterPromptLifecycleTest extends TestCase
         }
     }
 
+
+    public function test_execution_cannot_finish_until_start_photo_and_required_days_are_accepted(): void
+    {
+        $provider=$this->provider('execution-proof@example.test');
+        $category=$this->category();
+        $offer=$this->offer($category,'Execution Proof Gate');
+
+        $order=Order::create([
+            'order_number'=>'20260000303',
+            'user_id'=>$provider->id,
+            'offer_id'=>$offer->id,
+            'status'=>'active',
+            'compensation_total'=>40,
+            'offer_snapshot'=>[
+                'title'=>$offer->title,
+                'duration_days'=>1,
+                'proof_requirements'=>[[
+                    'key'=>'daily',
+                    'label'=>'Tagesnachweis',
+                    'start'=>'00:00',
+                    'end'=>'23:59',
+                    'required_images'=>1,
+                ]],
+            ],
+            'series_number'=>1,
+            'start_date'=>now('Europe/Berlin')->toDateString(),
+            'end_date'=>now('Europe/Berlin')->toDateString(),
+        ]);
+
+        $startDay=OrderDay::create([
+            'order_id'=>$order->id,
+            'day_number'=>0,
+            'series_number'=>1,
+            'date'=>now('Europe/Berlin')->subDay()->toDateString(),
+            'required_proofs'=>1,
+            'status'=>'activation',
+            'counts_toward_series'=>true,
+        ]);
+
+        OrderDay::create([
+            'order_id'=>$order->id,
+            'day_number'=>1,
+            'series_number'=>1,
+            'date'=>now('Europe/Berlin')->toDateString(),
+            'required_proofs'=>1,
+            'status'=>'accepted',
+            'counts_toward_series'=>true,
+        ]);
+
+        $this->actingAs($provider)
+            ->post(route('orders.complete',$order))
+            ->assertStatus(422);
+
+        $this->assertSame('active',$order->fresh()->status);
+
+        $startDay->update(['status'=>'accepted']);
+
+        $this->actingAs($provider)
+            ->post(route('orders.complete',$order))
+            ->assertRedirect();
+
+        $this->assertSame('waiting_shipping',$order->fresh()->status);
+        $this->assertNotNull($order->fresh()->execution_completed_at);
+        $this->assertNotNull($order->fresh()->shipping_due_at);
+    }
+
+    public function test_final_inspection_readiness_requires_accepted_shipping_evidence_and_complete_receipt(): void
+    {
+        $provider=$this->provider('inspection-gate@example.test');
+        $category=$this->category();
+        $offer=$this->offer($category,'Inspection Gate');
+
+        $order=Order::create([
+            'order_number'=>'20260000304',
+            'user_id'=>$provider->id,
+            'offer_id'=>$offer->id,
+            'status'=>'inspection',
+            'compensation_total'=>40,
+            'offer_snapshot'=>[
+                'title'=>$offer->title,
+                'duration_days'=>1,
+            ],
+            'series_number'=>1,
+            'execution_completed_at'=>now()->subDay(),
+            'received_at'=>now(),
+        ]);
+
+        OrderDay::create([
+            'order_id'=>$order->id,
+            'day_number'=>0,
+            'series_number'=>1,
+            'date'=>now('Europe/Berlin')->subDays(2)->toDateString(),
+            'required_proofs'=>1,
+            'status'=>'accepted',
+            'counts_toward_series'=>true,
+        ]);
+
+        OrderDay::create([
+            'order_id'=>$order->id,
+            'day_number'=>1,
+            'series_number'=>1,
+            'date'=>now('Europe/Berlin')->subDay()->toDateString(),
+            'required_proofs'=>1,
+            'status'=>'accepted',
+            'counts_toward_series'=>true,
+        ]);
+
+        $shipment=$order->shipment()->create([
+            'carrier'=>'DHL',
+            'status'=>'shipped',
+            'review_status'=>'pending',
+            'shipped_at'=>now()->subDay(),
+        ]);
+
+        $order->goodsReceipt()->create([
+            'received_by'=>null,
+            'status'=>'received',
+            'complete'=>true,
+            'received_at'=>now(),
+        ]);
+
+        $this->assertFalse($order->fresh()->readyForFinalInspection());
+
+        $shipment->update(['review_status'=>'accepted']);
+
+        $this->assertTrue($order->fresh()->readyForFinalInspection());
+    }
+
     private function provider(string $email): User
     {
         $user=User::create([
