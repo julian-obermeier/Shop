@@ -54,12 +54,12 @@ class Order extends Model
     public function countsAgainstPersonalLimit(): bool
     {
         return in_array($this->status,[
-            'approved','waiting_start','awaiting_date_confirmation','active','paused'
+            'approved','waiting_start','active','paused'
         ],true);
     }
 
     public function isTerminal(): bool
     {
-        return in_array($this->status,['completed','cancelled','rejected','not_started'],true);
+        return in_array($this->status,['completed','cancelled','rejected','request_rejected','not_started'],true);
     }
 }
