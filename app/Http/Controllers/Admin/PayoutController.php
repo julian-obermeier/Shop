@@ -24,14 +24,15 @@ class PayoutController extends Controller
             'admin_note'=>['nullable','string','max:2000'],
         ]);
 
-        DB::transaction(function() use($request,$payout,$data,$audit,$notifications) {
+        DB::transaction(function() use($payout,$data,$audit,$notifications) {
             $payout=PayoutRequest::whereKey($payout->id)->lockForUpdate()->firstOrFail();
-            abort_if(in_array($payout->status,['paid','rejected','cancelled'],true),422,'Diese Auszahlung ist bereits abgeschlossen.');
+            abort_if(in_array($payout->status,['paid','rejected','failed','cancelled'],true),422,'Diese Auszahlung ist bereits abgeschlossen.');
             $before=$payout->toArray();
             $wallet=WalletAccount::where('user_id',$payout->user_id)->lockForUpdate()->firstOrFail();
             $amount=(float)$payout->amount;
 
             if($data['status']==='paid') {
+                abort_if($wallet->entries()->where('reference',$payout->payout_number)->where('entry_type','payout_paid')->exists(),422,'Diese Auszahlung wurde bereits verbucht.');
                 $wallet->entries()->create(['bucket'=>'payout_pending','entry_type'=>'payout_completed','amount'=>-$amount,'reference'=>$payout->payout_number,'description'=>'Auszahlung abgeschlossen','metadata'=>['payout_request_id'=>$payout->id]]);
                 $wallet->entries()->create(['bucket'=>'paid','entry_type'=>'payout_paid','amount'=>$amount,'reference'=>$payout->payout_number,'description'=>'Ausgezahlt','metadata'=>['payout_request_id'=>$payout->id]]);
             }
@@ -49,8 +50,15 @@ class PayoutController extends Controller
                 'admin_note'=>$data['admin_note']??null,
                 'paid_at'=>$data['status']==='paid'?now():$payout->paid_at,
             ]);
+
             $audit->log('payout.status.changed',$payout,$before,$payout->fresh()->toArray());
-            $notifications->send($payout->user,'payout_'.$data['status'],'Auszahlung '.strtoupper($data['status']),'Dein Auszahlungsantrag '.$payout->payout_number.' wurde aktualisiert.',route('wallet.index'));
+            $notifications->send(
+                $payout->user,
+                'payout_'.$data['status'],
+                'Auszahlung '.strtoupper($data['status']),
+                'Dein Auszahlungsantrag '.$payout->payout_number.' wurde aktualisiert.',
+                route('wallet.index')
+            );
         });
 
         return back()->with('success','Auszahlungsstatus wurde aktualisiert.');
