@@ -6,6 +6,7 @@ use App\Http\Controllers\Admin\ConversationController as AdminConversationContro
 use App\Http\Controllers\Admin\DashboardController as AdminDashboardController;
 use App\Http\Controllers\Admin\DocumentController as AdminDocumentController;
 use App\Http\Controllers\Admin\GoodsReceiptController as AdminGoodsReceiptController;
+use App\Http\Controllers\Admin\GoodsInspectionController as AdminGoodsInspectionController;
 use App\Http\Controllers\Admin\HealthController as AdminHealthController;
 use App\Http\Controllers\Admin\OfferController as AdminOfferController;
 use App\Http\Controllers\Admin\OrderController as AdminOrderController;
@@ -144,6 +145,7 @@ Route::prefix('admin')->name('admin.')->middleware(['auth','active','admin'])->g
         Route::post('/auftraege/{order}/fortsetzen', [AdminOrderController::class, 'resume'])->name('orders.resume');
         Route::post('/auftraege/{order}/anforderungen', [AdminOrderController::class, 'updateRequirements'])->name('orders.requirements');
         Route::post('/auftraege/{order}/wareneingang', [AdminGoodsReceiptController::class, 'store'])->name('orders.goods-receipt');
+        Route::post('/auftraege/{order}/warenpruefung', [AdminGoodsInspectionController::class, 'store'])->name('orders.goods-inspection');
         Route::get('/ruecksendungen/{returnRequest}/label', [AdminReturnRequestController::class, 'label'])->name('returns.label');
         Route::post('/ruecksendungen/{returnRequest}/kosten', [AdminReturnRequestController::class, 'quote'])->name('returns.quote');
         Route::post('/ruecksendungen/{returnRequest}/zahlung-bestaetigen', [AdminReturnRequestController::class, 'confirmPayment'])->name('returns.confirm-payment');
