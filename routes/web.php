@@ -1,21 +1,26 @@
 <?php
 
+use App\Http\Controllers\Admin\AuditController as AdminAuditController;
 use App\Http\Controllers\Admin\ConversationController as AdminConversationController;
 use App\Http\Controllers\Admin\DashboardController as AdminDashboardController;
 use App\Http\Controllers\Admin\DocumentController as AdminDocumentController;
 use App\Http\Controllers\Admin\GoodsReceiptController as AdminGoodsReceiptController;
 use App\Http\Controllers\Admin\OfferController as AdminOfferController;
 use App\Http\Controllers\Admin\OrderController as AdminOrderController;
+use App\Http\Controllers\Admin\PayoutController as AdminPayoutController;
 use App\Http\Controllers\Admin\PrecheckController as AdminPrecheckController;
 use App\Http\Controllers\Admin\ProofController as AdminProofController;
+use App\Http\Controllers\Admin\UserController as AdminUserController;
 use App\Http\Controllers\Admin\VerificationController as AdminVerificationController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\ConversationController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DocumentController;
+use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\OfferController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\PrecheckController;
+use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ProofController;
 use App\Http\Controllers\ShipmentController;
 use App\Http\Controllers\VerificationController;
@@ -31,9 +36,16 @@ Route::middleware('guest')->group(function () {
     Route::post('/registrieren', [AuthController::class, 'register'])->name('register.submit');
 });
 
-Route::middleware('auth')->group(function () {
+Route::middleware(['auth','active'])->group(function () {
     Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
     Route::get('/dashboard', DashboardController::class)->name('dashboard');
+
+    Route::get('/profil', [ProfileController::class, 'edit'])->name('profile.edit');
+    Route::put('/profil', [ProfileController::class, 'update'])->name('profile.update');
+
+    Route::get('/benachrichtigungen', [NotificationController::class, 'index'])->name('notifications.index');
+    Route::post('/benachrichtigungen/alle-gelesen', [NotificationController::class, 'readAll'])->name('notifications.read-all');
+    Route::get('/benachrichtigungen/{notification}/oeffnen', [NotificationController::class, 'read'])->name('notifications.read');
 
     Route::get('/verifizierung', [VerificationController::class, 'index'])->name('verification.index');
     Route::post('/verifizierung', [VerificationController::class, 'store'])->name('verification.store');
@@ -63,8 +75,14 @@ Route::middleware('auth')->group(function () {
     Route::post('/dokumente/version/{version}/zustimmen', [DocumentController::class, 'consent'])->name('documents.consent');
 });
 
-Route::prefix('admin')->name('admin.')->middleware(['auth', 'admin'])->group(function () {
+Route::prefix('admin')->name('admin.')->middleware(['auth','active','admin'])->group(function () {
     Route::get('/', AdminDashboardController::class)->name('dashboard');
+
+    Route::get('/anbieterinnen', [AdminUserController::class, 'index'])->name('users.index');
+    Route::get('/anbieterinnen/{user}', [AdminUserController::class, 'show'])->name('users.show');
+    Route::post('/anbieterinnen/{user}/verwarnung', [AdminUserController::class, 'warning'])->name('users.warning');
+    Route::post('/anbieterinnen/{user}/sperre', [AdminUserController::class, 'restriction'])->name('users.restriction');
+    Route::post('/anbieterinnen/{user}/sperre/{restriction}/aufheben', [AdminUserController::class, 'removeRestriction'])->name('users.restriction.remove');
 
     Route::get('/angebote', [AdminOfferController::class, 'index'])->name('offers.index');
     Route::get('/angebote/neu', [AdminOfferController::class, 'create'])->name('offers.create');
@@ -90,6 +108,9 @@ Route::prefix('admin')->name('admin.')->middleware(['auth', 'admin'])->group(fun
     Route::get('/vorpruefungen/{precheck}/datei', [AdminPrecheckController::class, 'file'])->name('prechecks.file');
     Route::post('/vorpruefungen/{precheck}/pruefen', [AdminPrecheckController::class, 'review'])->name('prechecks.review');
 
+    Route::get('/auszahlungen', [AdminPayoutController::class, 'index'])->name('payouts.index');
+    Route::post('/auszahlungen/{payout}', [AdminPayoutController::class, 'update'])->name('payouts.update');
+
     Route::get('/nachrichten', [AdminConversationController::class, 'index'])->name('messages.index');
     Route::get('/nachrichten/{conversation}', [AdminConversationController::class, 'show'])->name('messages.show');
     Route::post('/nachrichten/{conversation}/antwort', [AdminConversationController::class, 'reply'])->name('messages.reply');
@@ -97,4 +118,6 @@ Route::prefix('admin')->name('admin.')->middleware(['auth', 'admin'])->group(fun
 
     Route::get('/dokumente', [AdminDocumentController::class, 'index'])->name('documents.index');
     Route::post('/dokumente', [AdminDocumentController::class, 'store'])->name('documents.store');
+
+    Route::get('/audit', [AdminAuditController::class, 'index'])->name('audit.index');
 });
