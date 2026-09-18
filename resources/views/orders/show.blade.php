@@ -26,6 +26,15 @@ $trackingMode=(string)data_get($order->offer_snapshot,'tracking_mode','optional'
 </div>
 @endif
 
+@if($order->status==='request_rejected')
+<div class="panel">
+<h2>Auftragsanfrage abgelehnt</h2>
+<p>Der Admin hat diese Anfrage abgelehnt. Die Anfrage zählt nicht gegen dein persönliches Auftragslimit und kann später vom Admin wieder geöffnet werden.</p>
+@php($rejectEvent=$order->statusHistory->where('to_status','request_rejected')->sortByDesc('created_at')->first())
+@if($rejectEvent?->reason)<div class="notice">{{ $rejectEvent->reason }}</div>@endif
+</div>
+@endif
+
 @if($order->status==='awaiting_date_confirmation')
 <div class="panel">
 <h2>Neuer Starttermin vorgeschlagen</h2>
