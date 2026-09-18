@@ -13,6 +13,7 @@
     "ext-gd": "*",
     "laravel/framework": "^13.0",
     "laravel/tinker": "^2.10",
+    "minishlink/web-push": "^11.0",
     "php": "^8.3"
   },
   "require-dev": {
