@@ -26,6 +26,7 @@ use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\MessageFileController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\OfferController;
+use App\Http\Controllers\OfferWaitlistController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\PrecheckController;
 use App\Http\Controllers\ProfileController;
@@ -67,6 +68,8 @@ Route::middleware(['auth','active'])->group(function () {
     Route::get('/angebote', [OfferController::class, 'index'])->name('offers.index');
     Route::get('/angebote/{offer:slug}', [OfferController::class, 'show'])->name('offers.show');
     Route::post('/angebote/{offer}/annehmen', [OrderController::class, 'store'])->middleware('throttle:10,1')->name('offers.accept');
+    Route::post('/angebote/{offer}/warteliste', [OfferWaitlistController::class, 'join'])->name('offers.waitlist.join');
+    Route::delete('/angebote/{offer}/warteliste', [OfferWaitlistController::class, 'leave'])->name('offers.waitlist.leave');
 
     Route::get('/auftraege', [OrderController::class, 'index'])->name('orders.index');
     Route::get('/auftraege/{order}', [OrderController::class, 'show'])->name('orders.show');
