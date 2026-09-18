@@ -3,6 +3,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Order;
+use App\Models\User;
 use App\Services\AuditService;
 use App\Services\NotificationService;
 use App\Services\OrderService;
@@ -200,7 +201,7 @@ class OrderController extends Controller
 
         DB::transaction(function() use($order,$request,$orders,$data){
             $order=Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
-            $lockedUser=AppModelsUser::whereKey($order->user_id)->lockForUpdate()->firstOrFail();
+            $lockedUser=User::whereKey($order->user_id)->lockForUpdate()->firstOrFail();
             $order->setRelation('user',$lockedUser);
 
             $origin=$order->paused_from_status ?: 'active';
