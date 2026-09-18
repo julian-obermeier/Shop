@@ -53,6 +53,8 @@ $pointsAffect=(bool)data_get($inspectionConfig,'points_affect_compensation',fals
 @foreach($day->proofs as $proof)
 <div style="margin-bottom:8px">
 <a href="{{ route('admin.proofs.file',$proof) }}">{{ $proof->window_key }} · Versuch {{ $proof->retry_number }} · {{ strtoupper($proof->review_status) }}</a>
+@if($proof->text_value)<small> · Text: {{ $proof->text_value }}</small>@endif
+@if(is_array($proof->proof_data))@foreach($proof->proof_data as $entry)<small> · {{ $entry['label']??'Pflichtangabe' }}: {{ $entry['value']??'–' }}</small>@endforeach @endif
 @if($proof->review_comment)<small> · {{ $proof->review_comment }}</small>@endif
 @if($proof->review_status==='rejected' && !$proof->extra_retry_granted)
 <form method="post" action="{{ route('admin.proofs.extra-retry',$proof) }}" style="display:inline">@csrf<button class="btn secondary">Zusatzversuch +2h</button></form>
