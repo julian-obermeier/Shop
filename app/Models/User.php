@@ -36,6 +36,7 @@ class User extends Authenticatable implements MustVerifyEmailContract
     public function userNotifications(): HasMany { return $this->hasMany(UserNotification::class); }
     public function payouts(): HasMany { return $this->hasMany(PayoutRequest::class); }
     public function privacyRequests(): HasMany { return $this->hasMany(PrivacyRequest::class); }
+    public function reliabilityEvents(): HasMany { return $this->hasMany(ReliabilityEvent::class); }
 
     public function isAdmin(): bool
     {
@@ -50,6 +51,17 @@ class User extends Authenticatable implements MustVerifyEmailContract
     public function hasRestriction(string $type): bool
     {
         return $this->restrictions()->current()->whereIn('type',[$type,'account'])->exists();
+    }
+
+    public function isOfferBlocked(int $offerId): bool
+    {
+        return $this->restrictions()
+            ->current()
+            ->get()
+            ->contains(function($restriction) use($offerId){
+                $blocked=$restriction->blocked_offer_ids;
+                return is_array($blocked) && in_array($offerId,array_map('intval',$blocked),true);
+            });
     }
 
     public function effectiveOrderLimit(): int
