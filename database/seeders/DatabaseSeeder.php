@@ -3,65 +3,49 @@
 namespace Database\Seeders;
 
 use App\Models\Category;
-use App\Models\Permission;
 use App\Models\Setting;
 use Illuminate\Database\Seeder;
-use Illuminate\Support\Facades\DB;
 
 class DatabaseSeeder extends Seeder
 {
     public function run(): void
     {
-        $permissionMap=[
-            'admin.dashboard'=>'Admin-Dashboard öffnen',
-            'users.manage'=>'Anbieterinnen verwalten',
-            'categories.manage'=>'Kategorien verwalten',
-            'offers.manage'=>'Angebote verwalten',
-            'orders.manage'=>'Aufträge und Vorprüfungen verwalten',
-            'proofs.manage'=>'Nachweise prüfen',
-            'verification.manage'=>'Verifizierungen prüfen',
-            'payouts.manage'=>'Auszahlungen verwalten',
-            'messages.manage'=>'Nachrichten verwalten',
-            'documents.manage'=>'Dokumente verwalten',
-            'reports.view'=>'Berichte und Exporte ansehen',
-            'audit.view'=>'Audit-Log ansehen',
-            'settings.manage'=>'Systemeinstellungen verwalten',
-            'privacy.manage'=>'Datenschutzanfragen verwalten',
-        ];
-
-        $permissions=[];
-        foreach($permissionMap as $key=>$name){
-            $permissions[$key]=Permission::updateOrCreate(['key'=>$key],['name'=>$name]);
-        }
-
-        $roles=[
-            'admin'=>array_keys($permissionMap),
-            'staff'=>[
-                'admin.dashboard','users.manage','orders.manage','proofs.manage',
-                'verification.manage','messages.manage',
+        $reliabilityRules=[
+            [
+                'key'=>'level_1',
+                'violations'=>1,
+                'max_active_orders'=>4,
+                'blocked_offer_ids'=>[],
+                'reason'=>'Auftragslimit nach erstem Zuverlässigkeitsverstoß auf 4 reduziert.',
             ],
-            'accounting'=>['admin.dashboard','payouts.manage','reports.view'],
+            [
+                'key'=>'level_2',
+                'violations'=>2,
+                'max_active_orders'=>3,
+                'blocked_offer_ids'=>[],
+                'reason'=>'Auftragslimit nach wiederholten Zuverlässigkeitsverstößen auf 3 reduziert.',
+            ],
+            [
+                'key'=>'level_3',
+                'violations'=>3,
+                'max_active_orders'=>2,
+                'blocked_offer_ids'=>[],
+                'reason'=>'Auftragslimit nach wiederholten Zuverlässigkeitsverstößen auf 2 reduziert.',
+            ],
+            [
+                'key'=>'level_4',
+                'violations'=>4,
+                'max_active_orders'=>1,
+                'blocked_offer_ids'=>[],
+                'reason'=>'Auftragslimit nach fortgesetzten Zuverlässigkeitsverstößen auf 1 reduziert.',
+            ],
         ];
-
-        foreach($roles as $role=>$keys){
-            foreach($keys as $key){
-                DB::table('role_permissions')->updateOrInsert(
-                    ['role'=>$role,'permission_id'=>$permissions[$key]->id],
-                    ['updated_at'=>now(),'created_at'=>now()]
-                );
-            }
-        }
 
         $settings=[
             'site_name'=>['Wear&Earn','string'],
-            'minimum_payout'=>['10','float'],
-            'proof_reminders_enabled'=>['1','bool'],
-            'email_notifications_enabled'=>['1','bool'],
+            'push_notifications_enabled'=>['1','bool'],
             'support_email'=>['','string'],
-            'identity_retention_days'=>['30','int'],
-            'precheck_retention_days'=>['180','int'],
-            'proof_retention_days'=>['365','int'],
-            'message_attachment_retention_days'=>['365','int'],
+            'reliability_rules'=>[json_encode($reliabilityRules,JSON_UNESCAPED_UNICODE|JSON_PRETTY_PRINT),'json'],
         ];
 
         foreach($settings as $key=>[$value,$type]){
