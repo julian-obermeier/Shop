@@ -44,10 +44,6 @@ class User extends Authenticatable implements MustVerifyEmailContract
         return $this->role==='admin';
     }
 
-    public function hasPermission(string $permission): bool
-    {
-        return $this->isAdmin();
-    }
 
     public function hasRestriction(string $type): bool
     {
