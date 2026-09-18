@@ -5,6 +5,7 @@ use App\Http\Controllers\Controller;
 use App\Models\ProofSubmission;
 use App\Services\AuditService;
 use App\Services\NotificationService;
+use App\Services\OrderService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -15,40 +16,118 @@ class ProofController extends Controller
     {
         $proofs=ProofSubmission::with('orderDay.order.user')
             ->where('review_status','pending')
-            ->whereNull('purged_at')
             ->latest()->paginate(40);
+
         return view('admin.proofs.index',compact('proofs'));
     }
 
     public function file(ProofSubmission $proof): StreamedResponse
     {
-        abort_if($proof->purged_at,410,'Diese Datei wurde nach Ablauf der Aufbewahrungsfrist gelöscht.');
         abort_unless(Storage::disk('proofs')->exists($proof->storage_path),404);
         return Storage::disk('proofs')->download($proof->storage_path,$proof->original_name);
     }
 
-    public function review(Request $request, ProofSubmission $proof, AuditService $audit, NotificationService $notifications)
+    public function review(Request $request, ProofSubmission $proof, AuditService $audit, NotificationService $notifications, OrderService $orders)
     {
-        abort_if($proof->purged_at,422,'Dieser Nachweis wurde bereits aus dem Dateispeicher entfernt.');
         $data=$request->validate([
-            'review_status'=>['required','in:accepted,rejected,resubmit'],
-            'review_comment'=>['nullable','string','max:1000'],
+            'review_status'=>['required','in:accepted,rejected'],
+            'review_comment'=>['nullable','string','max:1000','required_if:review_status,rejected'],
+            'rejection_kind'=>['nullable','in:technical,non_reproducible','required_if:review_status,rejected'],
         ]);
+
         $before=$proof->toArray();
-        $proof->update($data+['reviewed_by'=>$request->user()->id,'reviewed_at'=>now()]);
+
+        if($data['review_status']==='accepted'){
+            $proof->update([
+                'review_status'=>'accepted',
+                'review_comment'=>$data['review_comment']??null,
+                'rejection_kind'=>null,
+                'resubmit_due_at'=>null,
+                'reviewed_by'=>$request->user()->id,
+                'reviewed_at'=>now(),
+            ]);
+            $this->refreshDayStatus($proof);
+        } else {
+            $technical=$data['rejection_kind']==='technical';
+            $proof->update([
+                'review_status'=>'rejected',
+                'review_comment'=>$data['review_comment'],
+                'rejection_kind'=>$data['rejection_kind'],
+                'resubmit_due_at'=>$technical?now()->addHours(2):null,
+                'reviewed_by'=>$request->user()->id,
+                'reviewed_at'=>now(),
+            ]);
+
+            if(!$technical){
+                $orders->invalidateDay($proof->orderDay,$data['review_comment']);
+            }
+        }
+
         $audit->log('proof.reviewed',$proof,$before,$proof->fresh()->toArray());
 
         $order=$proof->orderDay->order;
-        if($data['review_status']!=='accepted'){
+        if($data['review_status']==='rejected'){
             $notifications->send(
                 $order->user,
-                'proof_'.$data['review_status'],
-                'Nachweis '.strtoupper($data['review_status']),
-                $data['review_comment'] ?: 'Ein Nachweis zu Auftrag #'.$order->order_number.' benötigt Aufmerksamkeit.',
+                'proof_rejected',
+                'Nachweis abgelehnt',
+                $data['rejection_kind']==='technical'
+                    ? $data['review_comment'].' Du hast ab der Ablehnung 2 Stunden Zeit für die Nachreichung.'
+                    : $data['review_comment'].' Der Nachweis ist nicht reproduzierbar; der Tag wird nach den Auftragsregeln behandelt.',
                 route('orders.show',$order)
             );
         }
 
         return back()->with('success','Nachweis wurde geprüft.');
+    }
+
+    public function grantExtraRetry(Request $request, ProofSubmission $proof, AuditService $audit, NotificationService $notifications)
+    {
+        abort_unless($proof->review_status==='rejected',422,'Zusatzversuche können nur nach einer Ablehnung freigegeben werden.');
+
+        $before=$proof->toArray();
+        $proof->update([
+            'extra_retry_granted'=>true,
+            'resubmit_due_at'=>now()->addHours(2),
+        ]);
+        $audit->log('proof.extra_retry.granted',$proof,$before,$proof->fresh()->toArray());
+
+        $notifications->send(
+            $proof->orderDay->order->user,
+            'proof_extra_retry',
+            'Zusätzlicher Nachweisversuch freigegeben',
+            'Für Auftrag #'.$proof->orderDay->order->order_number.' wurde ein weiterer Nachreichversuch freigegeben. Die Frist beträgt 2 Stunden.',
+            route('orders.show',$proof->orderDay->order)
+        );
+
+        return back()->with('success','Zusätzlicher Nachreichversuch wurde für 2 Stunden freigegeben.');
+    }
+
+    private function refreshDayStatus(ProofSubmission $proof): void
+    {
+        $day=$proof->orderDay()->with('order','proofs')->firstOrFail();
+
+        if($day->day_number===0){
+            if($day->proofs->where('review_status','accepted')->count()>=1) $day->update(['status'=>'accepted']);
+            return;
+        }
+
+        $windows=data_get($day->order->current_requirements ?: $day->order->offer_snapshot,'proof_requirements',[]);
+        $complete=true;
+
+        foreach(is_array($windows)?$windows:[] as $window){
+            $required=(int)($window['required_images']??0);
+            if($required<=0) continue;
+            $accepted=$day->proofs
+                ->where('window_key',(string)($window['key']??''))
+                ->where('review_status','accepted')
+                ->count();
+            if($accepted<$required){
+                $complete=false;
+                break;
+            }
+        }
+
+        if($complete) $day->update(['status'=>'accepted']);
     }
 }
