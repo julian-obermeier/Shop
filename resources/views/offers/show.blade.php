@@ -2,7 +2,7 @@
 @section('title',$offer->title)
 @section('content')
 @php
-$canRequest=$availableSlots>0 || $waitlistEntry?->status==='reserved';
+$canRequest=!$offerBlocked && ($availableSlots>0 || $waitlistEntry?->status==='reserved');
 $proofWindows=$offer->proof_requirements ?: [];
 $inspection=$offer->inspection_config ?: [];
 @endphp
@@ -67,7 +67,9 @@ Dieses Angebot ist derzeit voll.
 <div class="big-price"><span>Max. vereinbart</span><strong data-total>{{ number_format($offer->base_compensation,2,',','.') }} €</strong></div>
 <div class="summary-row"><span>Grundvergütung</span><strong>{{ number_format($offer->base_compensation,2,',','.') }} €</strong></div>
 
-@if(!$canRequest)
+@if($offerBlocked)
+<div class="notice"><strong>Für dein Konto derzeit nicht verfügbar.</strong><br>Eine aktive Zuverlässigkeitseinschränkung verhindert neue Anfragen oder schließt dieses konkrete Angebot aus.</div>
+@elseif(!$canRequest)
 @if($waitlistEntry?->status==='waiting')
 <div class="notice"><strong>Warteliste · Position {{ $waitlistPosition }}</strong><br>Du wirst nach FIFO berücksichtigt, sobald ein Platz frei wird.</div>
 <form method="post" action="{{ route('offers.waitlist.leave',$offer) }}">@csrf @method('DELETE')<button class="btn secondary wide">Von Warteliste austragen</button></form>
