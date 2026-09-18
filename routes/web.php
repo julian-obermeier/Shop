@@ -108,7 +108,6 @@ Route::middleware(['auth','active'])->group(function () {
     Route::get('/datenschutz/export', [PrivacyController::class, 'export'])->middleware('throttle:3,1')->name('privacy.export');
 
     Route::get('/dokumente', [DocumentController::class, 'index'])->name('documents.index');
-    Route::post('/dokumente/version/{version}/zustimmen', [DocumentController::class, 'consent'])->name('documents.consent');
 });
 
 Route::prefix('admin')->name('admin.')->middleware(['auth','active','admin'])->group(function () {
