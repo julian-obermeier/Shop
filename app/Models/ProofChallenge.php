@@ -10,7 +10,7 @@ class ProofChallenge extends Model
 
     protected function casts(): array
     {
-        return ['expires_at'=>'datetime','used_at'=>'datetime'];
+        return ['expires_at'=>'datetime','expired_at'=>'datetime','used_at'=>'datetime'];
     }
 
     public function order(): BelongsTo { return $this->belongsTo(Order::class); }
@@ -19,6 +19,6 @@ class ProofChallenge extends Model
 
     public function isUsable(): bool
     {
-        return !$this->used_at && $this->expires_at && $this->expires_at->isFuture();
+        return !$this->used_at && !$this->expired_at && $this->expires_at && $this->expires_at->isFuture();
     }
 }
