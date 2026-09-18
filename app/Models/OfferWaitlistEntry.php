@@ -13,6 +13,7 @@ class OfferWaitlistEntry extends Model
         return [
             'reserved_at'=>'datetime',
             'reservation_expires_at'=>'datetime',
+            'reservation_remaining_seconds'=>'integer',
             'planned_start_date'=>'date',
         ];
     }
