@@ -214,14 +214,27 @@ $windowProofs=$day->proofs->where('window_key',$key);
 $accepted=$windowProofs->where('review_status','accepted')->count();
 $pending=$windowProofs->where('review_status','pending')->count();
 $latestRejected=$windowProofs->where('review_status','rejected')->sortByDesc('id')->first();
+$rejectedCount=$windowProofs->where('review_status','rejected')->count();
+$awaitingExtraRetry=$rejectedCount>2 && !($latestRejected?->extra_retry_granted);
+$isStartResubmission=$day->day_number===0
+    && $order->status==='active'
+    && $latestRejected?->rejection_kind==='technical'
+    && $latestRejected?->resubmit_due_at?->isFuture();
 $challenge=$order->proofChallenges->first(fn($c)=>$c->order_day_id===$day->id && $c->window_key===$key && !$c->used_at && $c->expires_at?->isFuture());
-$canSubmit=$isCurrent && $day->counts_toward_series && in_array($order->status,['active','waiting_start'],true) && ($accepted+$pending)<$required;
+$canSubmit=$isCurrent
+    && $day->counts_toward_series
+    && ($accepted+$pending)<$required
+    && !$awaitingExtraRetry
+    && ($day->day_number===0 ? ($order->status==='waiting_start' || $isStartResubmission) : $order->status==='active');
 @endphp
 <div class="panel" style="margin:12px 0">
 <strong>{{ $window['label']??$key }}</strong>
 <small class="muted"> · {{ $window['start']??'00:00' }}–{{ $window['end']??'23:59' }} · akzeptiert {{ $accepted }}/{{ $required }}@if($window['face_required']??false) · Gesicht Pflicht@endif</small>
 @if(!empty($window['image_requirements']))<div class="notice"><strong>Bildanforderung:</strong> {{ $window['image_requirements'] }}</div>@endif
 @if(!empty($window['required_fields']))<div class="notice"><strong>Zusätzliche Pflichtangaben:</strong> {{ collect($window['required_fields'])->pluck('label')->filter()->implode(', ') }}</div>@endif
+@if($awaitingExtraRetry)
+<div class="notice"><strong>Reguläre Nachreichversuche ausgeschöpft.</strong><br>Ein weiterer Versuch ist nur möglich, wenn der Admin ihn ausdrücklich freigibt.</div>
+@endif
 @foreach($windowProofs as $proof)
 <div class="proof-list"><div><span>📎 Versuch {{ $proof->retry_number }} · Code {{ $proof->proof_code }}</span><span class="status {{ $proof->review_status }}">{{ strtoupper($proof->review_status) }}</span></div>
 @if($proof->text_value)<small>Text: {{ $proof->text_value }}</small>@endif
@@ -229,7 +242,7 @@ $canSubmit=$isCurrent && $day->counts_toward_series && in_array($order->status,[
 @if($proof->review_comment)<small>{{ $proof->review_comment }}</small>@endif</div>
 @endforeach
 
-@if($canSubmit && $day->day_number>0)
+@if($canSubmit && ($day->day_number>0 || $isStartResubmission))
 @if(!$challenge)
 <form method="post" action="{{ route('proofs.challenge',$day) }}" style="margin-top:10px">@csrf<input type="hidden" name="window_key" value="{{ $key }}"><button class="btn secondary">10-Minuten-Code erzeugen</button></form>
 @else
