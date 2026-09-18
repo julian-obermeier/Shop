@@ -7,25 +7,32 @@ use App\Models\Offer;
 use App\Services\AuditService;
 use App\Services\ImageSanitizer;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class OfferController extends Controller
 {
     public function index()
     {
-        $offers=Offer::with('category')->latest()->paginate(30);
+        $offers=Offer::with('category')->withCount([
+            'orders as active_orders_count'=>fn($q)=>$q->whereNotIn('status',['completed','cancelled','rejected','not_started'])
+        ])->latest()->paginate(30);
+
         return view('admin.offers.index',compact('offers'));
     }
 
     public function create()
     {
         $categories=Category::where('active',true)->orderBy('name')->get();
+
         return view('admin.offers.form',[
             'offer'=>new Offer,
             'categories'=>$categories,
             'optionRows'=>[],
             'fieldRows'=>[],
+            'proofRows'=>[
+                ['key'=>'daily','label'=>'Tagesnachweis','start'=>'00:00','end'=>'23:59','required_images'=>1,'text_required'=>false,'face_required'=>false],
+            ],
+            'inspectionConfig'=>$this->defaultInspectionConfig(),
         ]);
     }
 
@@ -40,6 +47,7 @@ class OfferController extends Controller
         $this->syncFields($request,$offer);
 
         $audit->log('offer.created',$offer,[],$offer->fresh()->toArray());
+
         return redirect()->route('admin.offers.edit',$offer)->with('success','Angebot wurde erstellt.');
     }
 
@@ -64,7 +72,12 @@ class OfferController extends Controller
             return $row;
         })->values()->all();
 
-        return view('admin.offers.form',compact('offer','categories','optionRows','fieldRows'));
+        $proofRows=$offer->proof_requirements ?: [
+            ['key'=>'daily','label'=>'Tagesnachweis','start'=>'00:00','end'=>'23:59','required_images'=>max(1,(int)$offer->proofs_per_day),'text_required'=>false,'face_required'=>false],
+        ];
+        $inspectionConfig=$offer->inspection_config ?: $this->defaultInspectionConfig();
+
+        return view('admin.offers.form',compact('offer','categories','optionRows','fieldRows','proofRows','inspectionConfig'));
     }
 
     public function update(Request $request, Offer $offer, AuditService $audit, ImageSanitizer $images)
@@ -74,9 +87,46 @@ class OfferController extends Controller
         $this->handleImage($request,$offer,$images);
         $this->syncOptions($request,$offer);
         $this->syncFields($request,$offer);
+
         $audit->log('offer.updated',$offer,$before,$offer->fresh()->toArray());
 
         return back()->with('success','Angebot wurde gespeichert.');
+    }
+
+    public function duplicate(Offer $offer, AuditService $audit)
+    {
+        $offer->load('options','fields');
+
+        $copy=$offer->replicate();
+        $copy->title=$offer->title.' – Kopie';
+        $copy->slug=Str::slug($copy->title).'-'.Str::lower(Str::random(5));
+        $copy->active=false;
+        $copy->save();
+
+        foreach($offer->options as $option){
+            $new=$option->replicate();
+            $new->offer_id=$copy->id;
+            $new->save();
+        }
+
+        foreach($offer->fields as $field){
+            $new=$field->replicate();
+            $new->offer_id=$copy->id;
+            $new->save();
+        }
+
+        $audit->log('offer.duplicated',$copy,[],['source_offer_id'=>$offer->id]+$copy->toArray());
+
+        return redirect()->route('admin.offers.edit',$copy)->with('success','Angebot wurde vollständig dupliziert und als inaktiver Entwurf angelegt.');
+    }
+
+    public function destroy(Offer $offer, AuditService $audit)
+    {
+        $before=$offer->toArray();
+        $audit->log('offer.deleted',$offer,$before,[]);
+        $offer->delete();
+
+        return redirect()->route('admin.offers.index')->with('success','Angebot wurde gelöscht. Bestehende Aufträge behalten ihren Snapshot.');
     }
 
     private function validated(Request $request): array
@@ -89,19 +139,76 @@ class OfferController extends Controller
             'base_compensation'=>['required','numeric','min:0'],
             'duration_days'=>['required','integer','min:1','max:365'],
             'minimum_minutes_per_day'=>['required','integer','min:0','max:1440'],
-            'proofs_per_day'=>['required','integer','min:0','max:20'],
-            'shipping_deadline_hours'=>['required','integer','min:1','max:720'],
             'capacity'=>['nullable','integer','min:1','max:100000'],
-            'available_from'=>['nullable','date'],
-            'available_until'=>['nullable','date','after:available_from'],
+            'tracking_mode'=>['required','in:required,optional,none'],
             'rules_text'=>['nullable','string'],
             'image'=>['nullable','image','mimes:jpg,jpeg,png,webp','max:12288'],
+            'proof_windows'=>['required','array','min:1','max:20'],
+            'proof_windows.*.key'=>['nullable','string','max:80'],
+            'proof_windows.*.label'=>['required','string','max:160'],
+            'proof_windows.*.start'=>['required','date_format:H:i'],
+            'proof_windows.*.end'=>['required','date_format:H:i'],
+            'proof_windows.*.required_images'=>['required','integer','min:1','max:20'],
+            'points_affect_compensation'=>['nullable','boolean'],
+            'score_bands'=>['nullable','string','max:5000'],
         ]);
 
-        unset($data['rules_text'],$data['image']);
+        $proofWindows=[];
+        foreach($data['proof_windows'] as $i=>$row){
+            $key=Str::slug((string)($row['key']?:$row['label']),'_');
+            if($key==='') $key='window_'.($i+1);
+            $base=$key;
+            $suffix=2;
+            while(collect($proofWindows)->contains(fn($existing)=>$existing['key']===$key)) $key=$base.'_'.$suffix++;
+
+            $proofWindows[]=[
+                'key'=>$key,
+                'label'=>trim($row['label']),
+                'start'=>$row['start'],
+                'end'=>$row['end'],
+                'required_images'=>(int)$row['required_images'],
+                'text_required'=>filter_var($request->input("proof_windows.$i.text_required",false),FILTER_VALIDATE_BOOLEAN),
+                'face_required'=>filter_var($request->input("proof_windows.$i.face_required",false),FILTER_VALIDATE_BOOLEAN),
+            ];
+        }
+
+        $bands=[];
+        foreach(preg_split('/\r\n|\r|\n/',(string)($data['score_bands']??'')) as $line){
+            $line=trim($line);
+            if($line==='') continue;
+            if(!preg_match('/^(\d{1,2})\s*[-–]\s*(\d{1,2})\s*=\s*(\d{1,3}(?:[.,]\d+)?)$/',$line,$m)){
+                abort(422,'Punktebänder müssen im Format 45-50=100 angegeben werden.');
+            }
+            $min=(int)$m[1]; $max=(int)$m[2]; $percent=(float)str_replace(',','.',$m[3]);
+            abort_if($min<0 || $max>50 || $min>$max || $percent<0 || $percent>100,422,'Ungültiges Punkteband: '.$line);
+            $bands[]=['min'=>$min,'max'=>$max,'percentage'=>$percent];
+        }
+
+        $categories=[];
+        foreach(['appearance'=>'Aussehen','smell'=>'Geruch','taste'=>'Geschmack','proofs'=>'Nachweise','extras'=>'Extras'] as $key=>$label){
+            $categories[$key]=[
+                'label'=>$label,
+                'ko'=>$request->boolean('inspection_ko_'.$key),
+            ];
+        }
+
+        unset($data['rules_text'],$data['image'],$data['proof_windows'],$data['points_affect_compensation'],$data['score_bands']);
+
         $data['requires_precheck']=$request->boolean('requires_precheck');
+        $data['is_sock_wearing']=$request->boolean('is_sock_wearing');
         $data['active']=$request->boolean('active');
+        $data['available_from']=null;
+        $data['available_until']=null;
+        $data['shipping_deadline_hours']=24;
+        $data['proof_requirements']=$proofWindows;
+        $data['proofs_per_day']=collect($proofWindows)->sum('required_images');
         $data['rules']=array_values(array_filter(array_map('trim',preg_split('/\r\n|\r|\n/',$request->input('rules_text','')))));
+        $data['inspection_config']=[
+            'categories'=>$categories,
+            'points_affect_compensation'=>$request->boolean('points_affect_compensation'),
+            'score_bands'=>$bands,
+            'start_face_required'=>$request->boolean('start_face_required'),
+        ];
 
         return $data;
     }
@@ -111,10 +218,7 @@ class OfferController extends Controller
         if(!$request->hasFile('image')) return;
 
         $stored=$images->store($request->file('image'),'public','offers',1800,1200);
-        $old=$offer->image_path;
         $offer->update(['image_path'=>$stored['path']]);
-
-        if($old && $old!==$stored['path']) Storage::disk('public')->delete($old);
     }
 
     private function syncFields(Request $request, Offer $offer): void
@@ -224,5 +328,21 @@ class OfferController extends Controller
                 'min_duration_days'=>(int)($row['min_duration_days']??0),
             ]]);
         }
+    }
+
+    private function defaultInspectionConfig(): array
+    {
+        return [
+            'categories'=>[
+                'appearance'=>['label'=>'Aussehen','ko'=>false],
+                'smell'=>['label'=>'Geruch','ko'=>false],
+                'taste'=>['label'=>'Geschmack','ko'=>false],
+                'proofs'=>['label'=>'Nachweise','ko'=>false],
+                'extras'=>['label'=>'Extras','ko'=>false],
+            ],
+            'points_affect_compensation'=>false,
+            'score_bands'=>[],
+            'start_face_required'=>false,
+        ];
     }
 }
