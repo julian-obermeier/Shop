@@ -86,6 +86,12 @@ class GoodsInspectionController extends Controller
 
         $extraResults=[];
         $extraTotal=0.0;
+        $contractedExtrasTotal=$order->options->sum(fn($option)=>(float)$option->price_delta);
+        $additionalCompensation=max(
+            0.0,
+            round((float)$order->compensation_total - $base - $contractedExtrasTotal,2)
+        );
+
         foreach($order->options as $option){
             $row=$data['extras'][$option->id]??[];
             $fulfilled=(bool)($row['fulfilled']??false);
@@ -100,16 +106,20 @@ class GoodsInspectionController extends Controller
 
         $calculated=$koFailed
             ? 0.0
-            : round(($base*($basePercentage/100))+$extraTotal,2);
+            : round(($base*($basePercentage/100))+$extraTotal+$additionalCompensation,2);
 
         if($data['result']==='rejected') $calculated=0.0;
 
         DB::transaction(function() use(
-            $request,$order,$data,$categories,$totalPoints,$basePercentage,$extraResults,$calculated,$koFailed
+            $request,$order,$data,$categories,$totalPoints,$basePercentage,$extraResults,$calculated,$koFailed,$additionalCompensation
         ){
             $order->goodsInspection()->updateOrCreate([],[
                 'reviewed_by'=>$request->user()->id,
-                'categories'=>$categories+['_total_points'=>$totalPoints,'_ko_failed'=>$koFailed],
+                'categories'=>$categories+[
+                    '_total_points'=>$totalPoints,
+                    '_ko_failed'=>$koFailed,
+                    '_additional_compensation'=>$additionalCompensation,
+                ],
                 'base_percentage'=>$basePercentage,
                 'extra_results'=>$extraResults,
                 'calculated_compensation'=>$calculated,
