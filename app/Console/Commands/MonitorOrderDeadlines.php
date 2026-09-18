@@ -161,13 +161,21 @@ class MonitorOrderDeadlines extends Command
 
                         if($submitted >= $required) continue;
 
-                        $activeResubmission=$day->proofs
+                        $rejectedProofs=$day->proofs
                             ->where('window_key',$key)
-                            ->where('review_status','rejected')
+                            ->where('review_status','rejected');
+
+                        $activeResubmission=$rejectedProofs
                             ->filter(fn($proof)=>$proof->resubmit_due_at && $proof->resubmit_due_at->isFuture())
                             ->isNotEmpty();
 
-                        if($activeResubmission) continue;
+                        $latestRejected=$rejectedProofs->sortByDesc('id')->first();
+                        $awaitingAdminExtraRetry=$latestRejected
+                            && $latestRejected->rejection_kind==='technical'
+                            && (int)$latestRejected->retry_number>=2
+                            && !$latestRejected->resubmit_due_at;
+
+                        if($activeResubmission || $awaitingAdminExtraRetry) continue;
 
                         $orders->invalidateDay($day,'Verpflichtetes Nachweisfenster „'.($window['label']??$key).'“ versäumt');
 
