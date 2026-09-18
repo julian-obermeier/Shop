@@ -10,6 +10,10 @@ class ImageSanitizer
 {
     public function store(UploadedFile $file, string $disk, string $folder, int $maxWidth=2400, int $maxHeight=2400): array
     {
+        if(!function_exists('imagecreatefromstring') || !function_exists('imagecreatetruecolor')){
+            throw new RuntimeException('Die PHP-GD-Erweiterung ist für sichere Bildverarbeitung erforderlich.');
+        }
+
         $binary=file_get_contents($file->getRealPath());
         if($binary===false) throw new RuntimeException('Bilddatei konnte nicht gelesen werden.');
 
@@ -56,10 +60,13 @@ class ImageSanitizer
         imagedestroy($source);
         imagedestroy($target);
 
-        if($clean===false) throw new RuntimeException('Bilddatei konnte nicht gespeichert werden.');
+        if($clean===false || $clean===''){
+            throw new RuntimeException('Bilddatei konnte nicht gespeichert werden.');
+        }
 
         $path=trim($folder,'/').'/'.Str::uuid().'.'.$extension;
-        Storage::disk($disk)->put($path,$clean);
+        $written=Storage::disk($disk)->put($path,$clean);
+        if(!$written) throw new RuntimeException('Bilddatei konnte nicht in den Speicher geschrieben werden.');
 
         return ['path'=>$path,'mime'=>$storedMime,'size'=>strlen($clean)];
     }
