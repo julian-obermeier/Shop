@@ -44,17 +44,32 @@ class AuthController extends Controller
                 'expires_at'=>now()->addMinutes(10),
             ]);
 
+            try{
+                Mail::raw(
+                    "Dein Wear&Earn Sicherheitscode lautet: {$code}\n\nDer Code ist 10 Minuten gültig.",
+                    fn($message)=>$message->to($user->email)->subject('Wear&Earn Sicherheitscode')
+                );
+            }catch(\Throwable $e){
+                $challenge->delete();
+                Auth::logout();
+                $request->session()->forget(['2fa_user_id','2fa_challenge_id','2fa_remember']);
+
+                Log::error('Admin 2FA email could not be sent',[
+                    'user_id'=>$user->id,
+                    'error'=>$e->getMessage(),
+                ]);
+
+                return back()
+                    ->withErrors(['email'=>'Der Sicherheitscode konnte nicht versendet werden. Bitte prüfe die Mail-Konfiguration oder versuche es später erneut.'])
+                    ->onlyInput('email');
+            }
+
             Auth::logout();
             $request->session()->put([
                 '2fa_user_id'=>$user->id,
                 '2fa_challenge_id'=>$challenge->id,
                 '2fa_remember'=>$remember,
             ]);
-
-            Mail::raw(
-                "Dein Wear&Earn Sicherheitscode lautet: {$code}\n\nDer Code ist 10 Minuten gültig.",
-                fn($message)=>$message->to($user->email)->subject('Wear&Earn Sicherheitscode')
-            );
 
             return redirect()->route('two-factor.show');
         }
