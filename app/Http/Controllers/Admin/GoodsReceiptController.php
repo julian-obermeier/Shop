@@ -17,6 +17,8 @@ class GoodsReceiptController extends Controller
         $before=$order->toArray();
 
         DB::transaction(function() use($request,$order,$data){
+            $order->shipment?->update(['risk_transferred_at'=>now()]);
+
             $order->goodsReceipt()->updateOrCreate([],[
                 'received_by'=>$request->user()->id,
                 'status'=>$data['complete']?'received':'partial',
