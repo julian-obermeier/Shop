@@ -26,7 +26,8 @@ class OrderController extends Controller
     public function store(Request $request, Offer $offer, OrderService $service, ConsentService $consents)
     {
         abort_if($request->user()->hasRestriction('offers'),422,'Die Annahme neuer Angebote ist für dieses Konto derzeit gesperrt.');
-        abort_unless($request->user()->verified_at,422,'Vor der Annahme eines Angebots ist eine abgeschlossene Verifizierung erforderlich.');
+        abort_unless($request->user()->verified_at,422,'Vor der Annahme eines Angebots ist eine abgeschlossene Identitätsprüfung erforderlich.');
+        abort_unless($request->user()->hasVerifiedEmail(),422,'Bitte bestätige zuerst deine E-Mail-Adresse.');
         $consents->assertRequiredConsents($request->user());
 
         $data=$request->validate([
@@ -49,7 +50,8 @@ class OrderController extends Controller
     {
         abort_unless($order->user_id===request()->user()->id,403);
         abort_if(request()->user()->hasRestriction('offers'),422,'Auftragsstarts sind für dieses Konto derzeit gesperrt.');
-        abort_unless(request()->user()->verified_at,422,'Die Verifizierung muss abgeschlossen sein.');
+        abort_unless(request()->user()->verified_at,422,'Die Identitätsprüfung muss abgeschlossen sein.');
+        abort_unless(request()->user()->hasVerifiedEmail(),422,'Bitte bestätige zuerst deine E-Mail-Adresse.');
         $service->start($order);
 
         return back()->with('success','Die Erfüllungsphase wurde gestartet.');
