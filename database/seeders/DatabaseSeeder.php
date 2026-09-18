@@ -4,9 +4,12 @@ namespace Database\Seeders;
 
 use App\Models\Category;
 use App\Models\Offer;
+use App\Models\Permission;
+use App\Models\Setting;
 use App\Models\User;
 use App\Models\WalletAccount;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 
 class DatabaseSeeder extends Seeder
@@ -40,6 +43,50 @@ class DatabaseSeeder extends Seeder
             ]
         );
         WalletAccount::firstOrCreate(['user_id' => $provider->id]);
+
+        $permissionMap = [
+            'admin.dashboard' => 'Admin-Dashboard öffnen',
+            'users.manage' => 'Anbieterinnen verwalten',
+            'categories.manage' => 'Kategorien verwalten',
+            'offers.manage' => 'Angebote verwalten',
+            'orders.manage' => 'Aufträge und Vorprüfungen verwalten',
+            'proofs.manage' => 'Nachweise prüfen',
+            'verification.manage' => 'Verifizierungen prüfen',
+            'payouts.manage' => 'Auszahlungen verwalten',
+            'messages.manage' => 'Nachrichten verwalten',
+            'documents.manage' => 'Dokumente verwalten',
+            'reports.view' => 'Berichte und Exporte ansehen',
+            'audit.view' => 'Audit-Log ansehen',
+            'settings.manage' => 'Systemeinstellungen verwalten',
+        ];
+
+        $permissions = [];
+        foreach ($permissionMap as $key => $name) {
+            $permissions[$key] = Permission::updateOrCreate(['key' => $key], ['name' => $name]);
+        }
+
+        $roles = [
+            'admin' => array_keys($permissionMap),
+            'staff' => [
+                'admin.dashboard','users.manage','orders.manage','proofs.manage',
+                'verification.manage','messages.manage',
+            ],
+            'accounting' => ['admin.dashboard','payouts.manage','reports.view'],
+        ];
+
+        foreach ($roles as $role => $keys) {
+            foreach ($keys as $key) {
+                DB::table('role_permissions')->updateOrInsert(
+                    ['role' => $role, 'permission_id' => $permissions[$key]->id],
+                    ['updated_at' => now(), 'created_at' => now()]
+                );
+            }
+        }
+
+        Setting::updateOrCreate(['key'=>'site_name'],['value'=>'Wear&Earn','type'=>'string']);
+        Setting::updateOrCreate(['key'=>'minimum_payout'],['value'=>'10','type'=>'float']);
+        Setting::updateOrCreate(['key'=>'proof_reminders_enabled'],['value'=>'1','type'=>'bool']);
+        Setting::updateOrCreate(['key'=>'support_email'],['value'=>'','type'=>'string']);
 
         $categories = [
             ['name' => 'Socken', 'slug' => 'socken', 'icon' => '🧦'],
