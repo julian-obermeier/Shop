@@ -440,6 +440,146 @@ class MasterPromptLifecycleTest extends TestCase
     }
 
 
+    public function test_late_technical_start_proof_rejection_can_be_resubmitted_while_order_is_active(): void
+    {
+        Storage::fake('proofs');
+
+        $now=CarbonImmutable::parse('2026-09-19 12:00:00','Europe/Berlin');
+        CarbonImmutable::setTestNow($now);
+
+        try{
+            $provider=$this->provider('late-start-resubmit@example.test');
+            $category=$this->category();
+            $offer=$this->offer($category,'Late Start Resubmission');
+
+            $order=Order::create([
+                'order_number'=>'20260000307',
+                'user_id'=>$provider->id,
+                'offer_id'=>$offer->id,
+                'status'=>'active',
+                'compensation_total'=>40,
+                'offer_snapshot'=>[
+                    'title'=>$offer->title,
+                    'duration_days'=>1,
+                    'inspection_config'=>['start_face_required'=>false],
+                ],
+                'current_requirements'=>[
+                    'inspection_config'=>['start_face_required'=>false],
+                ],
+                'series_number'=>1,
+                'activation_date'=>$now->subDay()->toDateString(),
+                'start_date'=>$now->toDateString(),
+                'end_date'=>$now->toDateString(),
+            ]);
+
+            $startDay=OrderDay::create([
+                'order_id'=>$order->id,
+                'day_number'=>0,
+                'series_number'=>1,
+                'date'=>$now->subDay()->toDateString(),
+                'required_proofs'=>1,
+                'status'=>'activation',
+                'counts_toward_series'=>true,
+            ]);
+
+            ProofSubmission::create([
+                'order_day_id'=>$startDay->id,
+                'user_id'=>$provider->id,
+                'type'=>'start_photo',
+                'window_key'=>'start',
+                'storage_path'=>'old-start.jpg',
+                'original_name'=>'old-start.jpg',
+                'mime_type'=>'image/jpeg',
+                'file_size'=>100,
+                'sha256'=>str_repeat('a',64),
+                'retry_number'=>0,
+                'review_status'=>'rejected',
+                'rejection_kind'=>'technical',
+                'review_comment'=>'Technisch nicht eindeutig',
+                'resubmit_due_at'=>$now->addHours(2),
+                'reviewed_at'=>$now,
+            ]);
+
+            $this->actingAs($provider)->post(route('proofs.challenge',$startDay),[
+                'window_key'=>'start',
+            ])->assertRedirect();
+
+            $challenge=$order->proofChallenges()->latest('id')->firstOrFail();
+            $this->assertTrue($challenge->expires_at->isFuture());
+
+            $this->actingAs($provider)->post(route('proofs.store',$startDay),[
+                'proof'=>UploadedFile::fake()->image('start-new.jpg',800,600),
+                'challenge_id'=>$challenge->id,
+                'proof_code'=>$challenge->code,
+                'window_key'=>'start',
+            ])->assertRedirect();
+
+            $order->refresh();
+            $this->assertSame('active',$order->status);
+            $this->assertSame(1,$order->series_number);
+
+            $newProof=$startDay->proofs()->latest('id')->firstOrFail();
+            $this->assertSame(1,(int)$newProof->retry_number);
+            $this->assertSame('pending',$newProof->review_status);
+            $this->assertNotNull($challenge->fresh()->used_at);
+        } finally {
+            CarbonImmutable::setTestNow();
+        }
+    }
+
+    public function test_archived_series_day_cannot_generate_new_proof_challenge(): void
+    {
+        $provider=$this->provider('archived-proof@example.test');
+        $category=$this->category();
+        $offer=$this->offer($category,'Archived Proof');
+
+        $order=Order::create([
+            'order_number'=>'20260000308',
+            'user_id'=>$provider->id,
+            'offer_id'=>$offer->id,
+            'status'=>'active',
+            'compensation_total'=>40,
+            'offer_snapshot'=>[
+                'title'=>$offer->title,
+                'duration_days'=>1,
+                'proof_requirements'=>[[
+                    'key'=>'daily',
+                    'label'=>'Tagesnachweis',
+                    'start'=>'00:00',
+                    'end'=>'23:59',
+                    'required_images'=>1,
+                ]],
+            ],
+            'current_requirements'=>[
+                'proof_requirements'=>[[
+                    'key'=>'daily',
+                    'label'=>'Tagesnachweis',
+                    'start'=>'00:00',
+                    'end'=>'23:59',
+                    'required_images'=>1,
+                ]],
+            ],
+            'series_number'=>2,
+        ]);
+
+        $archivedDay=OrderDay::create([
+            'order_id'=>$order->id,
+            'day_number'=>1,
+            'series_number'=>1,
+            'date'=>now('Europe/Berlin')->toDateString(),
+            'required_proofs'=>1,
+            'status'=>'open',
+            'counts_toward_series'=>false,
+        ]);
+
+        $this->actingAs($provider)->post(route('proofs.challenge',$archivedDay),[
+            'window_key'=>'daily',
+        ])->assertStatus(422);
+
+        $this->assertDatabaseCount('proof_challenges',0);
+    }
+
+
     private function provider(string $email): User
     {
         $user=User::create([
