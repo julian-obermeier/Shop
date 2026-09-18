@@ -78,6 +78,7 @@ Route::middleware(['auth','active'])->group(function () {
     Route::post('/auftraege/{order}/abbrechen', [OrderController::class, 'abort'])->name('orders.abort');
     Route::post('/auftraege/{order}/versand', [ShipmentController::class, 'store'])->name('orders.shipment');
 
+    Route::post('/auftragstage/{day}/nachweiscode', [ProofController::class, 'challenge'])->middleware('throttle:20,10')->name('proofs.challenge');
     Route::post('/auftragstage/{day}/nachweise', [ProofController::class, 'store'])->middleware('throttle:30,10')->name('proofs.store');
 
     Route::get('/wallet', [WalletController::class, 'index'])->name('wallet.index');
@@ -145,6 +146,7 @@ Route::prefix('admin')->name('admin.')->middleware(['auth','active','admin'])->g
         Route::get('/nachweise', [AdminProofController::class, 'index'])->name('proofs.index');
         Route::get('/nachweise/{proof}/datei', [AdminProofController::class, 'file'])->name('proofs.file');
         Route::post('/nachweise/{proof}/pruefen', [AdminProofController::class, 'review'])->name('proofs.review');
+        Route::post('/nachweise/{proof}/zusatzversuch', [AdminProofController::class, 'grantExtraRetry'])->name('proofs.extra-retry');
     });
     Route::middleware('permission:payouts.manage')->group(function () {
         Route::get('/auszahlungen', [AdminPayoutController::class, 'index'])->name('payouts.index');
