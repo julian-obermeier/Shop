@@ -1,0 +1,10 @@
+<?php
+namespace App\Models;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+class DocumentConsent extends Model {
+    protected $guarded=[];
+    protected function casts(): array { return ['consented_at'=>'datetime']; }
+    public function version(): BelongsTo { return $this->belongsTo(DocumentVersion::class,'document_version_id'); }
+    public function user(): BelongsTo { return $this->belongsTo(User::class); }
+}
