@@ -31,6 +31,20 @@ class PayoutController extends Controller
             $wallet=WalletAccount::where('user_id',$payout->user_id)->lockForUpdate()->firstOrFail();
             $amount=(float)$payout->amount;
             $wasTerminal=in_array($payout->status,['completed','rejected','cancelled'],true);
+
+            $normalProcessingStatuses=['review','approved','payment_executed','completed'];
+            if(
+                !$wasTerminal
+                && in_array($data['status'],$normalProcessingStatuses,true)
+                && $payout->processing_date
+            ){
+                $processingDate=CarbonCarbonImmutable::parse($payout->processing_date,'Europe/Berlin')->startOfDay();
+                abort_if(
+                    CarbonCarbonImmutable::today('Europe/Berlin')->lt($processingDate),
+                    422,
+                    'Dieser Auszahlungsantrag ist erst ab dem vorgesehenen Bearbeitungsfreitag '.$processingDate->format('d.m.Y').' zur finanziellen Bearbeitung freigegeben.'
+                );
+            }
             $isPaid=$wallet->entries()
                 ->where('reference',$payout->payout_number)
                 ->where('bucket','paid')
