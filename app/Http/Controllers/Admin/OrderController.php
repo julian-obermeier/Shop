@@ -24,7 +24,7 @@ class OrderController extends Controller
     {
         $order->load(
             'user','offer','options','fieldValues','days.proofs','statusHistory',
-            'precheck','shipment','goodsReceipt','goodsInspection','returnRequest','conversation'
+            'precheck','shipment.evidences','goodsReceipt','goodsInspection','returnRequest','conversation'
         );
         return view('admin.orders.show',compact('order'));
     }
