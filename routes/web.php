@@ -124,6 +124,8 @@ Route::prefix('admin')->name('admin.')->middleware(['auth','active','admin'])->g
         Route::post('/angebote', [AdminOfferController::class, 'store'])->name('offers.store');
         Route::get('/angebote/{offer}/bearbeiten', [AdminOfferController::class, 'edit'])->name('offers.edit');
         Route::put('/angebote/{offer}', [AdminOfferController::class, 'update'])->name('offers.update');
+        Route::post('/angebote/{offer}/duplizieren', [AdminOfferController::class, 'duplicate'])->name('offers.duplicate');
+        Route::delete('/angebote/{offer}', [AdminOfferController::class, 'destroy'])->name('offers.destroy');
     });
 
     Route::middleware('permission:orders.manage')->group(function () {
