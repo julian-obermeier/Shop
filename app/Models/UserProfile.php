@@ -16,6 +16,7 @@ class UserProfile extends Model
             'paypal_name'=>'encrypted',
             'payout_details_changed_at'=>'datetime',
             'payout_name_approved_at'=>'datetime',
+            'reliability_cycle_violations'=>'integer',
         ];
     }
 }
