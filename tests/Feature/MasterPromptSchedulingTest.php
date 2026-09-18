@@ -102,7 +102,7 @@ class MasterPromptSchedulingTest extends TestCase
             'issued_by'=>null,
             'type'=>'reliability',
             'reason'=>'Temporär keine neuen Aufträge',
-            'starts_at'=>now()->subMinute(),
+            'starts_at'=>CarbonImmutable::parse('2026-09-18 09:00:00','Europe/Berlin'),
             'active'=>true,
             'required_successes'=>5,
             'successful_count'=>0,
