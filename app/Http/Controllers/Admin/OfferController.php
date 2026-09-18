@@ -73,9 +73,15 @@ class OfferController extends Controller
             return $row;
         })->values()->all();
 
-        $proofRows=$offer->proof_requirements ?: [
+        $proofRows=collect($offer->proof_requirements ?: [
             ['key'=>'daily','label'=>'Tagesnachweis','start'=>'00:00','end'=>'23:59','required_images'=>max(1,(int)$offer->proofs_per_day),'text_required'=>false,'face_required'=>false],
-        ];
+        ])->map(function($row){
+            $row['required_fields_text']=collect($row['required_fields']??[])
+                ->pluck('label')
+                ->filter()
+                ->implode("\n");
+            return $row;
+        })->values()->all();
         $inspectionConfig=$offer->inspection_config ?: $this->defaultInspectionConfig();
 
         return view('admin.offers.form',compact('offer','categories','optionRows','fieldRows','proofRows','inspectionConfig'));
