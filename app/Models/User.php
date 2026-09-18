@@ -15,5 +15,10 @@ class User extends Authenticatable {
     public function verifications(): HasMany { return $this->hasMany(IdentityVerification::class); }
     public function conversations(): HasMany { return $this->hasMany(Conversation::class); }
     public function documentConsents(): HasMany { return $this->hasMany(DocumentConsent::class); }
+    public function warnings(): HasMany { return $this->hasMany(UserWarning::class); }
+    public function restrictions(): HasMany { return $this->hasMany(UserRestriction::class); }
+    public function userNotifications(): HasMany { return $this->hasMany(UserNotification::class); }
+    public function payouts(): HasMany { return $this->hasMany(PayoutRequest::class); }
     public function isAdmin(): bool { return in_array($this->role, ['admin','superadmin','staff','accounting'], true); }
+    public function hasRestriction(string $type): bool { return $this->restrictions()->current()->whereIn('type',[$type,'account'])->exists(); }
 }
