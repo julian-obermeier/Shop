@@ -33,7 +33,7 @@ class OrderService
 
             if($lockedOffer->capacity){
                 $used=Order::where('offer_id',$lockedOffer->id)
-                    ->whereNotIn('status',['completed','cancelled','rejected','not_started'])
+                    ->whereNotIn('status',['completed','cancelled','rejected','request_rejected','not_started'])
                     ->lockForUpdate()
                     ->count();
 
@@ -54,7 +54,7 @@ class OrderService
             abort_if(
                 Order::where('user_id',$user->id)
                     ->where('offer_id',$lockedOffer->id)
-                    ->whereNotIn('status',['completed','cancelled','rejected','not_started'])
+                    ->whereNotIn('status',['completed','cancelled','rejected','request_rejected','not_started'])
                     ->exists(),
                 422,
                 'Dasselbe Angebot kann nur einmal gleichzeitig offen oder aktiv sein.'
