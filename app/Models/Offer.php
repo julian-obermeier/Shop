@@ -36,7 +36,7 @@ class Offer extends Model
     public function activeCapacityUsage(): int
     {
         return $this->orders()
-            ->whereNotIn('status',['completed','cancelled','rejected','not_started'])
+            ->whereNotIn('status',['completed','cancelled','rejected','request_rejected','not_started'])
             ->count();
     }
 
