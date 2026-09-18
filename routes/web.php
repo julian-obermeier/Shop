@@ -1,6 +1,5 @@
 <?php
 
-use App\Http\Controllers\Admin\AdminUserController as AdminTeamController;
 use App\Http\Controllers\Admin\AuditController as AdminAuditController;
 use App\Http\Controllers\Admin\CategoryController as AdminCategoryController;
 use App\Http\Controllers\Admin\ConversationController as AdminConversationController;
@@ -17,11 +16,9 @@ use App\Http\Controllers\Admin\ProofController as AdminProofController;
 use App\Http\Controllers\Admin\ReportController as AdminReportController;
 use App\Http\Controllers\Admin\SettingsController as AdminSettingsController;
 use App\Http\Controllers\Admin\UserController as AdminUserController;
-use App\Http\Controllers\Admin\VerificationController as AdminVerificationController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\Auth\EmailVerificationController;
 use App\Http\Controllers\Auth\PasswordResetController;
-use App\Http\Controllers\Auth\TwoFactorController;
 use App\Http\Controllers\AccountSecurityController;
 use App\Http\Controllers\ConversationController;
 use App\Http\Controllers\DashboardController;
@@ -35,7 +32,6 @@ use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\PrivacyController;
 use App\Http\Controllers\ProofController;
 use App\Http\Controllers\ShipmentController;
-use App\Http\Controllers\VerificationController;
 use App\Http\Controllers\WalletController;
 use Illuminate\Support\Facades\Route;
 
@@ -50,12 +46,7 @@ Route::middleware('guest')->group(function () {
     Route::get('/passwort-vergessen', [PasswordResetController::class, 'requestForm'])->name('password.request');
     Route::post('/passwort-vergessen', [PasswordResetController::class, 'sendLink'])->middleware('throttle:3,1')->name('password.email');
     Route::get('/passwort-zuruecksetzen/{token}', [PasswordResetController::class, 'resetForm'])->name('password.reset');
-    Route::post('/passwort-zuruecksetzen', [PasswordResetController::class, 'reset'])->middleware('throttle:5,1')->name('password.update');
-
-    Route::get('/zwei-faktor', [TwoFactorController::class, 'show'])->name('two-factor.show');
-    Route::post('/zwei-faktor', [TwoFactorController::class, 'verify'])->middleware('throttle:5,1')->name('two-factor.verify');
-    Route::post('/zwei-faktor/neu', [TwoFactorController::class, 'resend'])->middleware('throttle:2,1')->name('two-factor.resend');
-});
+    Route::post('/passwort-zuruecksetzen', [PasswordResetController::class, 'reset'])->middleware('throttle:5,1')->name('password.update');});
 
 Route::middleware(['auth','active'])->group(function () {
     Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
@@ -73,10 +64,6 @@ Route::middleware(['auth','active'])->group(function () {
     Route::get('/benachrichtigungen', [NotificationController::class, 'index'])->name('notifications.index');
     Route::post('/benachrichtigungen/alle-gelesen', [NotificationController::class, 'readAll'])->name('notifications.read-all');
     Route::get('/benachrichtigungen/{notification}/oeffnen', [NotificationController::class, 'read'])->name('notifications.read');
-
-    Route::get('/verifizierung', [VerificationController::class, 'index'])->name('verification.index');
-    Route::post('/verifizierung', [VerificationController::class, 'store'])->middleware('throttle:5,10')->name('verification.store');
-
     Route::get('/angebote', [OfferController::class, 'index'])->name('offers.index');
     Route::get('/angebote/{offer:slug}', [OfferController::class, 'show'])->name('offers.show');
     Route::post('/angebote/{offer}/annehmen', [OrderController::class, 'store'])->middleware('throttle:10,1')->name('offers.accept');
@@ -100,9 +87,7 @@ Route::middleware(['auth','active'])->group(function () {
     Route::post('/nachrichten/{conversation}/antwort', [ConversationController::class, 'reply'])->middleware('throttle:30,1')->name('messages.reply');
 
     Route::get('/datenschutz', [PrivacyController::class, 'index'])->name('privacy.index');
-    Route::get('/datenschutz/export', [PrivacyController::class, 'export'])->middleware('throttle:3,1')->name('privacy.export');
-    Route::post('/datenschutz/loeschantrag', [PrivacyController::class, 'requestDeletion'])->middleware('throttle:3,60')->name('privacy.delete-request');
-    Route::post('/datenschutz/antrag/{privacyRequest}/stornieren', [PrivacyController::class, 'cancel'])->name('privacy.cancel');
+    Route::get('/datenschutz/export', [PrivacyController::class, 'export'])->middleware('throttle:3,1')->name('privacy.export');    Route::post('/datenschutz/antrag/{privacyRequest}/stornieren', [PrivacyController::class, 'cancel'])->name('privacy.cancel');
 
     Route::get('/dokumente', [DocumentController::class, 'index'])->name('documents.index');
     Route::post('/dokumente/version/{version}/zustimmen', [DocumentController::class, 'consent'])->name('documents.consent');
@@ -150,13 +135,6 @@ Route::prefix('admin')->name('admin.')->middleware(['auth','active','admin'])->g
         Route::get('/nachweise/{proof}/datei', [AdminProofController::class, 'file'])->name('proofs.file');
         Route::post('/nachweise/{proof}/pruefen', [AdminProofController::class, 'review'])->name('proofs.review');
     });
-
-    Route::middleware('permission:verification.manage')->group(function () {
-        Route::get('/verifizierungen', [AdminVerificationController::class, 'index'])->name('verifications.index');
-        Route::get('/verifizierungen/{verification}/datei/{side}', [AdminVerificationController::class, 'file'])->name('verifications.file');
-        Route::post('/verifizierungen/{verification}/pruefen', [AdminVerificationController::class, 'review'])->name('verifications.review');
-    });
-
     Route::middleware('permission:payouts.manage')->group(function () {
         Route::get('/auszahlungen', [AdminPayoutController::class, 'index'])->name('payouts.index');
         Route::post('/auszahlungen/{payout}', [AdminPayoutController::class, 'update'])->name('payouts.update');
@@ -189,10 +167,6 @@ Route::prefix('admin')->name('admin.')->middleware(['auth','active','admin'])->g
     Route::get('/audit', [AdminAuditController::class, 'index'])->middleware('permission:audit.view')->name('audit.index');
 
     Route::middleware('permission:settings.manage')->group(function () {
-        Route::get('/team', [AdminTeamController::class, 'index'])->name('admin-users.index');
-        Route::post('/team', [AdminTeamController::class, 'store'])->name('admin-users.store');
-        Route::put('/team/{adminUser}', [AdminTeamController::class, 'update'])->name('admin-users.update');
-
         Route::get('/systemzustand', AdminHealthController::class)->name('health.index');
 
         Route::get('/einstellungen', [AdminSettingsController::class, 'index'])->name('settings.index');
