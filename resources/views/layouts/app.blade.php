@@ -27,11 +27,16 @@
         <div class="nav-caption">Administration</div>
         <a class="{{ request()->routeIs('admin.dashboard')?'active':'' }}" href="{{ route('admin.dashboard') }}">⚙ <span>Admin-Dashboard</span></a>
         <a class="{{ request()->routeIs('admin.users.*')?'active':'' }}" href="{{ route('admin.users.index') }}">♙ <span>Anbieterinnen</span></a>
+        <a class="{{ request()->routeIs('admin.categories.*')?'active':'' }}" href="{{ route('admin.categories.index') }}">◇ <span>Kategorien</span></a>
+        <a class="{{ request()->routeIs('admin.offers.*')?'active':'' }}" href="{{ route('admin.offers.index') }}">▣ <span>Angebote</span></a>
+        <a class="{{ request()->routeIs('admin.orders.*')?'active':'' }}" href="{{ route('admin.orders.index') }}">☷ <span>Aufträge</span></a>
+        <a class="{{ request()->routeIs('admin.proofs.*')?'active':'' }}" href="{{ route('admin.proofs.index') }}">▤ <span>Nachweise</span></a>
         <a class="{{ request()->routeIs('admin.verifications.*')?'active':'' }}" href="{{ route('admin.verifications.index') }}">✓ <span>Verifizierungen</span></a>
         <a class="{{ request()->routeIs('admin.prechecks.*')?'active':'' }}" href="{{ route('admin.prechecks.index') }}">⌕ <span>Vorprüfungen</span></a>
         <a class="{{ request()->routeIs('admin.payouts.*')?'active':'' }}" href="{{ route('admin.payouts.index') }}">€ <span>Auszahlungen</span></a>
         <a class="{{ request()->routeIs('admin.messages.*')?'active':'' }}" href="{{ route('admin.messages.index') }}">✉ <span>Nachrichten</span></a>
         <a class="{{ request()->routeIs('admin.documents.*')?'active':'' }}" href="{{ route('admin.documents.index') }}">▤ <span>Dokumente</span></a>
+        <a class="{{ request()->routeIs('admin.reports.*')?'active':'' }}" href="{{ route('admin.reports.index') }}">▥ <span>Berichte</span></a>
         <a class="{{ request()->routeIs('admin.audit.*')?'active':'' }}" href="{{ route('admin.audit.index') }}">☷ <span>Audit-Log</span></a>
         @endif
     </nav>
