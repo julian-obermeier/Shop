@@ -167,7 +167,10 @@ class OrderService
     public function approve(Order $order, User $admin, ?string $date=null): void
     {
         DB::transaction(function() use($order,$admin,$date){
-            $order=Order::with('user')->whereKey($order->id)->lockForUpdate()->firstOrFail();
+            $order=Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
+            $lockedUser=User::whereKey($order->user_id)->lockForUpdate()->firstOrFail();
+            $order->setRelation('user',$lockedUser);
+
             abort_unless(in_array($order->status,['requested','awaiting_date_confirmation'],true),422,'Dieser Antrag kann nicht bestätigt werden.');
 
             $start=CarbonImmutable::parse($date ?: $order->proposed_start_date,'Europe/Berlin')->startOfDay();
