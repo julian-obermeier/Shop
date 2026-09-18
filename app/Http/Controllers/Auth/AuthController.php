@@ -2,16 +2,13 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
-use App\Models\LoginChallenge;
 use App\Models\User;
 use App\Models\WalletAccount;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
 
 class AuthController extends Controller
 {
@@ -33,48 +30,7 @@ class AuthController extends Controller
             return back()->withErrors(['email'=>'Dieses Konto ist derzeit nicht aktiv.']);
         }
 
-        if($user->isAdmin()){
-            $remember=$request->boolean('remember');
-            $code=(string)random_int(100000,999999);
-
-            $challenge=LoginChallenge::create([
-                'user_id'=>$user->id,
-                'code_hash'=>Hash::make($code),
-                'ip_address'=>$request->ip(),
-                'expires_at'=>now()->addMinutes(10),
-            ]);
-
-            try{
-                Mail::raw(
-                    "Dein Wear&Earn Sicherheitscode lautet: {$code}\n\nDer Code ist 10 Minuten gültig.",
-                    fn($message)=>$message->to($user->email)->subject('Wear&Earn Sicherheitscode')
-                );
-            }catch(\Throwable $e){
-                $challenge->delete();
-                Auth::logout();
-                $request->session()->forget(['2fa_user_id','2fa_challenge_id','2fa_remember']);
-
-                Log::error('Admin 2FA email could not be sent',[
-                    'user_id'=>$user->id,
-                    'error'=>$e->getMessage(),
-                ]);
-
-                return back()
-                    ->withErrors(['email'=>'Der Sicherheitscode konnte nicht versendet werden. Bitte prüfe die Mail-Konfiguration oder versuche es später erneut.'])
-                    ->onlyInput('email');
-            }
-
-            Auth::logout();
-            $request->session()->put([
-                '2fa_user_id'=>$user->id,
-                '2fa_challenge_id'=>$challenge->id,
-                '2fa_remember'=>$remember,
-            ]);
-
-            return redirect()->route('two-factor.show');
-        }
-
-        return redirect()->intended(route('dashboard'));
+        return redirect()->intended($user->isAdmin()?route('admin.dashboard'):route('dashboard'));
     }
 
     public function showRegister(){ return view('auth.register'); }
