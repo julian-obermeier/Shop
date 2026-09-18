@@ -50,6 +50,8 @@ class OfferController extends Controller
                 ->count();
         }
 
-        return view('offers.show',compact('offer','availableSlots','waitlistEntry','waitlistPosition'));
+        $offerBlocked=request()->user()->effectiveOrderLimit()===0 || request()->user()->isOfferBlocked($offer->id);
+
+        return view('offers.show',compact('offer','availableSlots','waitlistEntry','waitlistPosition','offerBlocked'));
     }
 }
