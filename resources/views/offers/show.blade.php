@@ -44,7 +44,13 @@ Dieses Angebot ist derzeit voll.
 <h3>Nachweise</h3>
 <p>Der bestätigte Starttag ist der Aktivierungstag. Das Startfoto benötigt einen 10-Minuten-Code; Tag 1 beginnt am folgenden Kalendertag.</p>
 @foreach($proofWindows as $window)
-<div class="notice"><strong>{{ $window['label']??$window['key'] }}</strong> · {{ $window['start']??'00:00' }}–{{ $window['end']??'23:59' }} Uhr · {{ $window['required_images']??1 }} Bild(er)@if($window['text_required']??false) · Text Pflicht@endif @if($window['face_required']??false) · Gesicht sichtbar@endif</div>
+<div class="notice">
+<strong>{{ $window['label']??$window['key'] }}</strong> · {{ $window['start']??'00:00' }}–{{ $window['end']??'23:59' }} Uhr · {{ $window['required_images']??1 }} Bild(er)@if($window['text_required']??false) · Text Pflicht@endif @if($window['face_required']??false) · Gesicht sichtbar@endif
+@if(!empty($window['image_requirements']))<br><small><strong>Bildanforderung:</strong> {{ $window['image_requirements'] }}</small>@endif
+@if(!empty($window['required_fields']))
+<br><small><strong>Zusätzliche Pflichtangaben:</strong> {{ collect($window['required_fields'])->pluck('label')->filter()->implode(', ') }}</small>
+@endif
+</div>
 @endforeach
 @if(data_get($inspection,'start_face_required',false))<p><strong>Startfoto:</strong> Gesicht muss sichtbar sein.</p>@endif
 <p class="muted">Nachweisbilder werden dauerhaft im Original einschließlich vorhandener Metadaten gespeichert und können nach Einreichung nicht gelöscht werden. Andere Personen dürfen nicht erkennbar sein.</p>
