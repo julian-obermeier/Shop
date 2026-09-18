@@ -1,5 +1,6 @@
 <?php
 namespace App\Http\Controllers;
+
 use App\Models\PayoutRequest;
 use App\Models\Setting;
 use App\Models\WalletAccount;
@@ -20,7 +21,9 @@ class WalletController extends Controller
     public function payout(Request $request, NotificationService $notifications)
     {
         abort_if($request->user()->hasRestriction('payouts'),422,'Auszahlungen sind für dieses Konto derzeit gesperrt.');
-        abort_unless($request->user()->verified_at,422,'Für Auszahlungen ist eine abgeschlossene Verifizierung erforderlich.');
+        abort_unless($request->user()->verified_at,422,'Für Auszahlungen ist eine abgeschlossene Identitätsprüfung erforderlich.');
+        abort_unless($request->user()->hasVerifiedEmail(),422,'Bitte bestätige vor einer Auszahlung deine E-Mail-Adresse.');
+
         $minimum=(float)Setting::valueOf('minimum_payout',10);
         $data=$request->validate([
             'amount'=>['required','numeric','min:'.$minimum],
@@ -32,6 +35,7 @@ class WalletController extends Controller
             $available=(float)$wallet->entries()->where('bucket','available')->sum('amount');
             $amount=(float)$data['amount'];
             abort_if($amount>$available,422,'Nicht genügend verfügbares Guthaben.');
+
             $number='P'.now()->format('YmdHis').$request->user()->id;
             $payout=PayoutRequest::create([
                 'payout_number'=>$number,
@@ -41,12 +45,29 @@ class WalletController extends Controller
                 'method'=>'bank_transfer',
                 'destination'=>['iban'=>$data['iban']],
             ]);
-            $wallet->entries()->create(['bucket'=>'available','entry_type'=>'payout_reserved','amount'=>-$amount,'reference'=>$number,'description'=>'Für Auszahlung reserviert','metadata'=>['payout_request_id'=>$payout->id]]);
-            $wallet->entries()->create(['bucket'=>'payout_pending','entry_type'=>'payout_requested','amount'=>$amount,'reference'=>$number,'description'=>'Auszahlung beantragt','metadata'=>['payout_request_id'=>$payout->id]]);
+
+            $wallet->entries()->create([
+                'bucket'=>'available','entry_type'=>'payout_reserved','amount'=>-$amount,
+                'reference'=>$number,'description'=>'Für Auszahlung reserviert',
+                'metadata'=>['payout_request_id'=>$payout->id],
+            ]);
+            $wallet->entries()->create([
+                'bucket'=>'payout_pending','entry_type'=>'payout_requested','amount'=>$amount,
+                'reference'=>$number,'description'=>'Auszahlung beantragt',
+                'metadata'=>['payout_request_id'=>$payout->id],
+            ]);
+
             return $payout;
         });
 
-        $notifications->send($request->user(),'payout_requested','Auszahlung beantragt','Deine Auszahlung '.$payout->payout_number.' wurde zur Prüfung eingereicht.',route('wallet.index'));
+        $notifications->send(
+            $request->user(),
+            'payout_requested',
+            'Auszahlung beantragt',
+            'Deine Auszahlung '.$payout->payout_number.' wurde zur Prüfung eingereicht.',
+            route('wallet.index')
+        );
+
         return back()->with('success','Auszahlung wurde beantragt und der Betrag reserviert.');
     }
 }
