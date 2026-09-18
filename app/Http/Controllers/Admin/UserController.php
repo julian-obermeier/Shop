@@ -278,6 +278,12 @@ class UserController extends Controller
                 }
 
                 if($action==='pause'){
+                    abort_if(
+                        in_array($from,['requested','awaiting_date_confirmation'],true),
+                        422,
+                        'Noch nicht bestätigte Anfrage #'.$order->order_number.' kann bei Kontodeaktivierung nicht pausiert werden; sie muss abgebrochen werden.'
+                    );
+
                     if($from==='active'){
                         $order->days()
                             ->where('series_number',$order->series_number)
