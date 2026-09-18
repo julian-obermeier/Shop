@@ -10,7 +10,12 @@
 <span class="eyebrow">Auftrag #{{ $proof->orderDay->order->order_number }} · {{ $proof->orderDay->day_number===0?'Startfoto':'Tag '.$proof->orderDay->day_number }} · {{ $proof->window_key }}</span>
 <h3>{{ $proof->orderDay->order->user->first_name }} {{ $proof->orderDay->order->user->last_name }}</h3>
 <p>{{ $proof->original_name }} · {{ number_format($proof->file_size/1024,0,',','.') }} KB · Code <strong>{{ $proof->proof_code }}</strong> · Versuch {{ $proof->retry_number }}</p>
-@if($proof->text_value)<div class="notice">{{ $proof->text_value }}</div>@endif
+@if($proof->text_value)<div class="notice"><strong>Pflichttext:</strong> {{ $proof->text_value }}</div>@endif
+@if(is_array($proof->proof_data) && count($proof->proof_data))
+<div class="notice">
+@foreach($proof->proof_data as $entry)<div><strong>{{ $entry['label']??'Pflichtangabe' }}:</strong> {{ $entry['value']??'–' }}</div>@endforeach
+</div>
+@endif
 <a class="btn secondary wide" href="{{ route('admin.proofs.file',$proof) }}">Datei öffnen</a>
 <form method="post" action="{{ route('admin.proofs.review',$proof) }}" class="stack-form review-form">@csrf
 <label>Prüfung<select name="review_status" data-proof-review-select><option value="accepted">Akzeptieren</option><option value="rejected">Ablehnen</option></select></label>
