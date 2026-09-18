@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="csrf-token" content="{{ csrf_token() }}">
+<title>@yield('title', 'Wear&Earn')</title>
+<link rel="stylesheet" href="{{ asset('assets/css/app.css') }}">
+<script defer src="{{ asset('assets/js/app.js') }}"></script>
+</head>
+<body>
+<div class="app-shell">
+<aside class="sidebar">
+    <a href="{{ route('dashboard') }}" class="brand"><span class="brand-mark">♥</span><span><strong>Wear&Earn</strong><small>Deine Sachen. Unser Interesse.</small></span></a>
+    <nav class="side-nav">
+        <a class="{{ request()->routeIs('dashboard')?'active':'' }}" href="{{ route('dashboard') }}">⌂ <span>Dashboard</span></a>
+        <a class="{{ request()->routeIs('offers.*')?'active':'' }}" href="{{ route('offers.index') }}">▣ <span>Angebote</span></a>
+        <a class="{{ request()->routeIs('orders.*')?'active':'' }}" href="{{ route('orders.index') }}">☷ <span>Meine Aufträge</span></a>
+        <a href="{{ route('orders.index') }}#nachweise">▤ <span>Nachweise</span></a>
+        <a class="{{ request()->routeIs('wallet.*')?'active':'' }}" href="{{ route('wallet.index') }}">◫ <span>Wallet</span></a>
+        @if(auth()->user()->isAdmin())
+        <div class="nav-caption">Administration</div>
+        <a class="{{ request()->routeIs('admin.*')?'active':'' }}" href="{{ route('admin.dashboard') }}">⚙ <span>Adminbereich</span></a>
+        @endif
+    </nav>
+    <form action="{{ route('logout') }}" method="post" class="logout">@csrf<button>↪ Abmelden</button></form>
+</aside>
+<main class="main">
+<header class="topbar">
+    <form action="{{ route('offers.index') }}" class="top-search"><span>⌕</span><input name="q" value="{{ request('q') }}" placeholder="Angebote durchsuchen …"></form>
+    <div class="top-user"><div class="avatar">{{ strtoupper(substr(auth()->user()->first_name,0,1)) }}{{ strtoupper(substr(auth()->user()->last_name,0,1)) }}</div><div><strong>Hallo, {{ auth()->user()->first_name }}</strong><small>{{ auth()->user()->role === 'provider' ? 'Anbieterin' : ucfirst(auth()->user()->role) }}</small></div></div>
+</header>
+<div class="content">
+@if(session('success'))<div class="flash success">{{ session('success') }}</div>@endif
+@if($errors->any())<div class="flash error"><strong>Bitte prüfen:</strong><ul>@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>@endif
+@yield('content')
+</div>
+</main>
+</div>
+</body></html>
