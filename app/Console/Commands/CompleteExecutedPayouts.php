@@ -30,15 +30,28 @@ class CompleteExecutedPayouts extends Command
                         $wallet=WalletAccount::where('user_id',$payout->user_id)->lockForUpdate()->firstOrFail();
                         $amount=(float)$payout->amount;
 
-                        if(!$wallet->entries()->where('reference',$payout->payout_number)->where('entry_type','payout_paid')->exists()){
-                            $wallet->entries()->create([
-                                'bucket'=>'payout_pending',
-                                'entry_type'=>'payout_completed',
-                                'amount'=>-$amount,
-                                'reference'=>$payout->payout_number,
-                                'description'=>'Auszahlung nach 24 Stunden abgeschlossen',
-                                'metadata'=>['payout_request_id'=>$payout->id],
-                            ]);
+                        $paidForPayout=(float)$wallet->entries()
+                            ->where('reference',$payout->payout_number)
+                            ->where('bucket','paid')
+                            ->sum('amount');
+
+                        if($paidForPayout<=0){
+                            $pendingForPayout=(float)$wallet->entries()
+                                ->where('reference',$payout->payout_number)
+                                ->where('bucket','payout_pending')
+                                ->sum('amount');
+
+                            if($pendingForPayout>0){
+                                $wallet->entries()->create([
+                                    'bucket'=>'payout_pending',
+                                    'entry_type'=>'payout_completed',
+                                    'amount'=>-$pendingForPayout,
+                                    'reference'=>$payout->payout_number,
+                                    'description'=>'Auszahlung nach 24 Stunden abgeschlossen',
+                                    'metadata'=>['payout_request_id'=>$payout->id],
+                                ]);
+                            }
+
                             $wallet->entries()->create([
                                 'bucket'=>'paid',
                                 'entry_type'=>'payout_paid',
