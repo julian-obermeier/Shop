@@ -9,6 +9,7 @@ use App\Models\PayoutRequest;
 use App\Models\User;
 use App\Models\WalletAccount;
 use App\Services\ReliabilityService;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
@@ -251,6 +252,55 @@ class MasterPromptCoreTest extends TestCase
         $this->assertNotSame($dependent->id,$copiedDependent->id);
         $this->assertSame([$copiedBase->id],array_map('intval',$copiedDependent->rules['requires_ids']??[]));
         $this->assertNotContains($base->id,array_map('intval',$copiedDependent->rules['requires_ids']??[]));
+    }
+
+
+    public function test_wallet_override_counts_later_ledger_entries_even_in_same_second(): void
+    {
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-18 20:30:00','Europe/Berlin'));
+
+        try{
+            [$provider]=$this->providerAndCategory('wallet-override@example.test');
+
+            $admin=User::create([
+                'role'=>'admin',
+                'username'=>'wallet.override.admin',
+                'first_name'=>'Admin',
+                'last_name'=>'Wallet',
+                'birth_date'=>'1970-01-01',
+                'email'=>'wallet-override-admin@example.test',
+                'password'=>Hash::make('VerySecurePassword123!'),
+                'status'=>'active',
+            ]);
+            $admin->forceFill(['email_verified_at'=>now()])->save();
+
+            $wallet=$provider->walletAccount()->firstOrFail();
+            $wallet->entries()->create([
+                'bucket'=>'available',
+                'entry_type'=>'old_credit',
+                'amount'=>40,
+                'description'=>'Altguthaben',
+            ]);
+
+            $this->actingAs($admin)->post(route('admin.users.wallet-override',$provider),[
+                'available_balance'=>100,
+                'reason'=>'Korrektur des verfügbaren Guthabens',
+            ])->assertRedirect();
+
+            $wallet->refresh();
+            $this->assertEquals(100.0,$wallet->balance('available'));
+
+            $wallet->entries()->create([
+                'bucket'=>'available',
+                'entry_type'=>'new_credit',
+                'amount'=>25,
+                'description'=>'Gutschrift direkt nach Override',
+            ]);
+
+            $this->assertEquals(125.0,$wallet->fresh()->balance('available'));
+        } finally {
+            CarbonImmutable::setTestNow();
+        }
     }
 
 
