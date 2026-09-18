@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 use App\Models\Order;
 use App\Models\OrderDay;
 use App\Models\ProofSubmission;
+use App\Models\ReturnRequest;
 use App\Models\UserNotification;
 use App\Services\NotificationService;
 use App\Services\OrderService;
@@ -22,6 +23,7 @@ class MonitorOrderDeadlines extends Command
         $this->expireResubmissionDeadlines($orders,$notifications);
         $this->invalidateMissedProofWindows($orders,$notifications);
         $this->monitorShippingDeadlines($notifications);
+        $this->expireReturnRequests($notifications);
 
         return self::SUCCESS;
     }
@@ -241,6 +243,31 @@ class MonitorOrderDeadlines extends Command
                 }
             }
         }
+    }
+
+    private function expireReturnRequests(NotificationService $notifications): void
+    {
+        ReturnRequest::with(['user','order'])
+            ->whereIn('status',['requested','awaiting_quote_payment'])
+            ->where('fulfillment_due_at','<',now())
+            ->orderBy('id')
+            ->chunkById(100,function($rows) use($notifications){
+                foreach($rows as $row){
+                    $fresh=ReturnRequest::whereKey($row->id)->lockForUpdate()->first();
+                    if(!$fresh || !in_array($fresh->status,['requested','awaiting_quote_payment'],true) || $fresh->fulfillment_due_at->isFuture()) continue;
+
+                    $fresh->update(['status'=>'expired']);
+
+                    $notifications->send(
+                        $row->user,
+                        'return_request_expired',
+                        'Rücksendeoption abgelaufen',
+                        'Die 24-Stunden-Frist für die Rücksendung zu Auftrag #'.$row->order->order_number.' ist abgelaufen. Die Rücksendeoption ist endgültig verfallen und die Ware verbleibt beim Betreiber.',
+                        route('orders.show',$row->order),
+                        ['order_id'=>$row->order_id,'return_request_id'=>$row->id]
+                    );
+                }
+            });
     }
 
     private function resetProbation(int $userId): void
