@@ -90,7 +90,7 @@ class ConversationController extends Controller
     private function isWriteLocked(Conversation $conversation): bool
     {
         $order=$conversation->order;
-        if(!$order || $order->status!=='completed' || !$order->completed_at) return false;
+        if(!$order || !$order->completed_at) return false;
         return $order->completed_at->copy()->addDays(7)->isPast();
     }
 }
