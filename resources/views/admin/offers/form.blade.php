@@ -45,6 +45,8 @@ $scoreBandText=collect(data_get($inspectionConfig,'score_bands',[]))->map(fn($b)
 <label>Bilder<input type="number" min="1" max="20" name="proof_windows[{{ $i }}][required_images]" value="{{ $window['required_images']??1 }}" required></label>
 <label class="check"><input type="checkbox" name="proof_windows[{{ $i }}][text_required]" value="1" @checked($window['text_required']??false)><span>Text Pflicht</span></label>
 <label class="check"><input type="checkbox" name="proof_windows[{{ $i }}][face_required]" value="1" @checked($window['face_required']??false)><span>Gesicht Pflicht</span></label>
+<label class="wide">Konkrete Bildanforderungen<textarea name="proof_windows[{{ $i }}][image_requirements]" rows="2" placeholder="z. B. kompletter Artikel sichtbar, Code und Etikett gemeinsam im Bild">{{ $window['image_requirements']??'' }}</textarea></label>
+<label class="wide">Zusätzliche Pflichtangaben – eine pro Zeile<textarea name="proof_windows[{{ $i }}][required_fields_text]" rows="3" placeholder="z. B. Aktivität&#10;Ort/Umgebung&#10;Besonderheit">{{ $window['required_fields_text']??'' }}</textarea></label>
 <button type="button" class="icon-btn" data-remove-proof-window>×</button>
 </div>
 @endforeach
