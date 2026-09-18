@@ -166,10 +166,13 @@ class WalletController extends Controller
     private function processingDate(): string
     {
         $now=CarbonImmutable::now('Europe/Berlin');
-        if($now->dayOfWeekIso<=4){
-            return $now->next(CarbonImmutable::FRIDAY)->toDateString();
-        }
-        return $now->next(CarbonImmutable::FRIDAY)->toDateString();
+        $monday=$now->startOfWeek(CarbonImmutable::MONDAY)->startOfDay();
+        $cutoff=$monday->addDays(3)->setTime(23,59,59);
+        $thisFriday=$monday->addDays(4)->startOfDay();
+
+        return $now->lessThanOrEqualTo($cutoff)
+            ? $thisFriday->toDateString()
+            : $thisFriday->addWeek()->toDateString();
     }
 
     private function normalizeName(?string $value): string
