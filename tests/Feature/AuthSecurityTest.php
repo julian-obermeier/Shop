@@ -30,6 +30,33 @@ class AuthSecurityTest extends TestCase
         $this->assertDatabaseMissing('users',['email'=>'minor@example.test']);
     }
 
+    public function test_admin_can_login_with_username_or_email(): void
+    {
+        $admin=User::create([
+            'role'=>'admin',
+            'username'=>'admin.test',
+            'first_name'=>'Admin',
+            'last_name'=>'Test',
+            'birth_date'=>'1970-01-01',
+            'email'=>'admin-login@example.test',
+            'password'=>'VerySecurePassword123!',
+            'status'=>'active',
+        ]);
+        $admin->forceFill(['email_verified_at'=>now()])->save();
+
+        $this->post(route('login.submit'),[
+            'login'=>'admin.test',
+            'password'=>'VerySecurePassword123!',
+        ])->assertRedirect(route('admin.dashboard'));
+
+        $this->post(route('logout'))->assertRedirect(route('login'));
+
+        $this->post(route('login.submit'),[
+            'login'=>'admin-login@example.test',
+            'password'=>'VerySecurePassword123!',
+        ])->assertRedirect(route('admin.dashboard'));
+    }
+
     public function test_adult_registration_creates_unverified_email_account(): void
     {
         Notification::fake();
