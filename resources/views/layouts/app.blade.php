@@ -39,6 +39,7 @@
         @if(auth()->user()->hasPermission('reports.view'))<a class="{{ request()->routeIs('admin.reports.*')?'active':'' }}" href="{{ route('admin.reports.index') }}">▥ <span>Berichte</span></a>@endif
         @if(auth()->user()->hasPermission('audit.view'))<a class="{{ request()->routeIs('admin.audit.*')?'active':'' }}" href="{{ route('admin.audit.index') }}">☷ <span>Audit-Log</span></a>@endif
         @if(auth()->user()->hasPermission('settings.manage'))<a class="{{ request()->routeIs('admin.admin-users.*')?'active':'' }}" href="{{ route('admin.admin-users.index') }}">♟ <span>Admin-Team</span></a>@endif
+        @if(auth()->user()->hasPermission('settings.manage'))<a class="{{ request()->routeIs('admin.health.*')?'active':'' }}" href="{{ route('admin.health.index') }}">◉ <span>Systemzustand</span></a>@endif
         @if(auth()->user()->hasPermission('settings.manage'))<a class="{{ request()->routeIs('admin.settings.*')?'active':'' }}" href="{{ route('admin.settings.index') }}">⚙ <span>Einstellungen</span></a>@endif
         @endif
     </nav>
