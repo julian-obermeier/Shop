@@ -7,7 +7,7 @@ class ProfileController extends Controller
 {
     public function edit()
     {
-        $user=request()->user()->load('profile','warnings','restrictions');
+        $user=request()->user()->load(['profile','warnings','restrictions','reliabilityEvents'=>fn($q)=>$q->with('order')->latest('occurred_at')]);
         return view('profile.edit',compact('user'));
     }
 
