@@ -2,6 +2,8 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
+use App\Models\Document;
+use App\Models\DocumentConsent;
 use App\Models\User;
 use App\Models\WalletAccount;
 use Carbon\Carbon;
@@ -16,7 +18,10 @@ class AuthController extends Controller
 
     public function login(Request $request)
     {
-        $credentials=$request->validate(['email'=>['required','email'],'password'=>['required','string']]);
+        $credentials=$request->validate([
+            'email'=>['required','email'],
+            'password'=>['required','string'],
+        ]);
 
         if(!Auth::attempt($credentials,$request->boolean('remember'))){
             return back()->withErrors(['email'=>'E-Mail-Adresse oder Passwort ist falsch.'])->onlyInput('email');
@@ -33,7 +38,18 @@ class AuthController extends Controller
         return redirect()->intended($user->isAdmin()?route('admin.dashboard'):route('dashboard'));
     }
 
-    public function showRegister(){ return view('auth.register'); }
+    public function showRegister()
+    {
+        $documents=Document::where('active',true)
+            ->where('requires_consent',true)
+            ->with(['versions'=>fn($q)=>$q->where('active',true)->whereNotNull('published_at')->latest('published_at')])
+            ->orderBy('title')
+            ->get()
+            ->filter(fn($document)=>$document->versions->isNotEmpty())
+            ->values();
+
+        return view('auth.register',compact('documents'));
+    }
 
     public function register(Request $request)
     {
@@ -45,9 +61,13 @@ class AuthController extends Controller
             'password'=>['required','string','min:12','confirmed'],
             'terms'=>['accepted'],
             'adult'=>['accepted'],
-        ],['birth_date.before_or_equal'=>'Die Plattform ist ausschließlich für volljährige Personen vorgesehen.']);
+        ],[
+            'birth_date.before_or_equal'=>'Die Plattform ist ausschließlich für volljährige Personen vorgesehen.',
+        ]);
 
-        $user=DB::transaction(function() use($data){
+        $ip=$request->ip();
+
+        $user=DB::transaction(function() use($data,$ip){
             $user=User::create([
                 'role'=>'provider',
                 'first_name'=>$data['first_name'],
@@ -57,8 +77,27 @@ class AuthController extends Controller
                 'password'=>$data['password'],
                 'status'=>'active',
             ]);
+
             $user->profile()->create();
             WalletAccount::create(['user_id'=>$user->id]);
+
+            $documents=Document::where('active',true)
+                ->where('requires_consent',true)
+                ->with(['versions'=>fn($q)=>$q->where('active',true)->whereNotNull('published_at')->latest('published_at')])
+                ->get();
+
+            foreach($documents as $document){
+                $version=$document->versions->first();
+                if(!$version) continue;
+
+                DocumentConsent::create([
+                    'document_version_id'=>$version->id,
+                    'user_id'=>$user->id,
+                    'ip_address'=>$ip,
+                    'consented_at'=>now(),
+                ]);
+            }
+
             return $user;
         });
 
@@ -82,6 +121,7 @@ class AuthController extends Controller
         Auth::logout();
         $request->session()->invalidate();
         $request->session()->regenerateToken();
+
         return redirect()->route('login');
     }
 }
