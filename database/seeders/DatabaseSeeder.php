@@ -26,6 +26,7 @@ class DatabaseSeeder extends Seeder
             'reports.view'=>'Berichte und Exporte ansehen',
             'audit.view'=>'Audit-Log ansehen',
             'settings.manage'=>'Systemeinstellungen verwalten',
+            'privacy.manage'=>'Datenschutzanfragen verwalten',
         ];
 
         $permissions=[];
