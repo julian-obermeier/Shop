@@ -167,7 +167,21 @@ $pointsAffect=(bool)data_get($inspectionConfig,'points_affect_compensation',fals
 @endif
 
 @if($order->status==='paused')
-<div class="panel"><h2>Pause</h2><p>Bei Fortsetzung beginnt eine neue Trageserie wieder bei Tag 1.</p><form method="post" action="{{ route('admin.orders.resume',$order) }}">@csrf<button class="btn primary wide">Auftrag fortsetzen</button></form></div>
+<div class="panel">
+<h2>Pause</h2>
+<p>Vorheriger Status: <strong>{{ strtoupper(str_replace('_',' ',$order->paused_from_status ?: 'active')) }}</strong>.</p>
+<form method="post" action="{{ route('admin.orders.resume',$order) }}" class="stack-form">@csrf
+@if(in_array($order->paused_from_status,['approved','waiting_start'],true))
+<label>Neuer Aktivierungstag<input type="date" name="activation_date" min="{{ now('Europe/Berlin')->format('Y-m-d') }}" value="{{ now('Europe/Berlin')->format('Y-m-d') }}"></label>
+@endif
+@if($order->paused_from_status==='active')
+<div class="notice">Bei Fortsetzung einer bereits gestarteten Trageserie beginnt eine neue Serie wieder bei Tag 1.</div>
+@elseif(in_array($order->paused_from_status,['waiting_shipping','shipping_overdue'],true))
+<div class="notice">Bei Fortsetzung beginnt eine neue 24-Stunden-Versandfrist.</div>
+@endif
+<button class="btn primary wide">Auftrag fortsetzen</button>
+</form>
+</div>
 @endif
 
 @if(!$order->isTerminal() && !in_array($order->status,['requested','awaiting_date_confirmation'],true))
