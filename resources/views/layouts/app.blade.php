@@ -8,6 +8,7 @@
 <script defer src="{{ asset('assets/js/app.js') }}"></script>
 </head>
 <body>
+@php($unread=auth()->user()->userNotifications()->whereNull('read_at')->count())
 <div class="app-shell">
 <aside class="sidebar">
     <a href="{{ route('dashboard') }}" class="brand"><span class="brand-mark">♥</span><span><strong>Wear&Earn</strong><small>Deine Sachen. Unser Interesse.</small></span></a>
@@ -17,15 +18,21 @@
         <a class="{{ request()->routeIs('orders.*')?'active':'' }}" href="{{ route('orders.index') }}">☷ <span>Meine Aufträge</span></a>
         <a class="{{ request()->routeIs('wallet.*')?'active':'' }}" href="{{ route('wallet.index') }}">◫ <span>Wallet</span></a>
         <a class="{{ request()->routeIs('messages.*')?'active':'' }}" href="{{ route('messages.index') }}">✉ <span>Nachrichten</span></a>
+        <a class="{{ request()->routeIs('notifications.*')?'active':'' }}" href="{{ route('notifications.index') }}">◉ <span>Benachrichtigungen@if($unread) ({{ $unread }})@endif</span></a>
+        <a class="{{ request()->routeIs('profile.*')?'active':'' }}" href="{{ route('profile.edit') }}">♙ <span>Profil</span></a>
         <a class="{{ request()->routeIs('verification.*')?'active':'' }}" href="{{ route('verification.index') }}">✓ <span>Verifizierung</span></a>
         <a class="{{ request()->routeIs('documents.*')?'active':'' }}" href="{{ route('documents.index') }}">▤ <span>Dokumente</span></a>
+
         @if(auth()->user()->isAdmin())
         <div class="nav-caption">Administration</div>
         <a class="{{ request()->routeIs('admin.dashboard')?'active':'' }}" href="{{ route('admin.dashboard') }}">⚙ <span>Admin-Dashboard</span></a>
+        <a class="{{ request()->routeIs('admin.users.*')?'active':'' }}" href="{{ route('admin.users.index') }}">♙ <span>Anbieterinnen</span></a>
         <a class="{{ request()->routeIs('admin.verifications.*')?'active':'' }}" href="{{ route('admin.verifications.index') }}">✓ <span>Verifizierungen</span></a>
         <a class="{{ request()->routeIs('admin.prechecks.*')?'active':'' }}" href="{{ route('admin.prechecks.index') }}">⌕ <span>Vorprüfungen</span></a>
+        <a class="{{ request()->routeIs('admin.payouts.*')?'active':'' }}" href="{{ route('admin.payouts.index') }}">€ <span>Auszahlungen</span></a>
         <a class="{{ request()->routeIs('admin.messages.*')?'active':'' }}" href="{{ route('admin.messages.index') }}">✉ <span>Nachrichten</span></a>
         <a class="{{ request()->routeIs('admin.documents.*')?'active':'' }}" href="{{ route('admin.documents.index') }}">▤ <span>Dokumente</span></a>
+        <a class="{{ request()->routeIs('admin.audit.*')?'active':'' }}" href="{{ route('admin.audit.index') }}">☷ <span>Audit-Log</span></a>
         @endif
     </nav>
     <form action="{{ route('logout') }}" method="post" class="logout">@csrf<button>↪ Abmelden</button></form>
