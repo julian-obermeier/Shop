@@ -1,6 +1,11 @@
 @extends('layouts.app')
 @section('title',$offer->title)
 @section('content')
+@php
+$canRequest=$availableSlots>0 || $waitlistEntry?->status==='reserved';
+$proofWindows=$offer->proof_requirements ?: [];
+$inspection=$offer->inspection_config ?: [];
+@endphp
 <div class="offer-detail-grid" data-offer-configurator data-base="{{ $offer->base_compensation }}">
 <section>
 <a class="back" href="{{ route('offers.index') }}">← Zurück zu den Angeboten</a>
@@ -17,15 +22,40 @@
 <div class="prose">{!! nl2br(e($offer->description)) !!}</div>
 
 <div class="rule-grid">
-<div><strong>{{ $offer->duration_days }}</strong><span>Tage Grunddauer</span></div>
-<div><strong>{{ $offer->proofs_per_day }}</strong><span>Nachweise täglich</span></div>
-<div><strong>{{ $offer->minimum_minutes_per_day }}</strong><span>Minuten/Tag mindestens</span></div>
-<div><strong>{{ $offer->shipping_deadline_hours }}h</strong><span>Versandfrist</span></div>
+<div><strong>{{ $offer->duration_days }}</strong><span>gültige Kalendertage</span></div>
+<div><strong>{{ $offer->proofs_per_day }}</strong><span>Pflichtbilder/Tag</span></div>
+<div><strong>24h</strong><span>Versandfrist</span></div>
+<div><strong>{{ $offer->is_sock_wearing?'1':'5' }}</strong><span>{{ $offer->is_sock_wearing?'aktiver Sockenauftrag':'allg. Auftragslimit' }}</span></div>
 </div>
 
 @if($offer->capacity)
-<div class="notice">Kapazität: maximal {{ $offer->capacity }} Aufträge.</div>
+<div class="notice">
+@if($availableSlots>0)
+Aktuell {{ $availableSlots }} freie(r) Angebotsplatz/-plätze.
+@elseif($waitlistEntry?->status==='reserved')
+Dein Platz ist bis {{ $waitlistEntry->reservation_expires_at?->format('d.m.Y H:i') }} Uhr exklusiv reserviert.
+@else
+Dieses Angebot ist derzeit voll.
 @endif
+</div>
+@endif
+
+<div class="panel">
+<h3>Nachweise</h3>
+<p>Der bestätigte Starttag ist der Aktivierungstag. Das Startfoto benötigt einen 10-Minuten-Code; Tag 1 beginnt am folgenden Kalendertag.</p>
+@foreach($proofWindows as $window)
+<div class="notice"><strong>{{ $window['label']??$window['key'] }}</strong> · {{ $window['start']??'00:00' }}–{{ $window['end']??'23:59' }} Uhr · {{ $window['required_images']??1 }} Bild(er)@if($window['text_required']??false) · Text Pflicht@endif @if($window['face_required']??false) · Gesicht sichtbar@endif</div>
+@endforeach
+@if(data_get($inspection,'start_face_required',false))<p><strong>Startfoto:</strong> Gesicht muss sichtbar sein.</p>@endif
+<p class="muted">Nachweisbilder werden dauerhaft im Original einschließlich vorhandener Metadaten gespeichert und können nach Einreichung nicht gelöscht werden. Andere Personen dürfen nicht erkennbar sein.</p>
+</div>
+
+<div class="panel">
+<h3>Versand & Prüfung</h3>
+<p>Versand innerhalb von 24 Stunden nach Ende der Erfüllungsphase auf eigene Kosten. Paketfoto und Versandbeleg sind Pflicht.</p>
+<p><strong>Tracking:</strong> {{ ['required'=>'verpflichtend','optional'=>'optional','none'=>'nicht vorgesehen'][$offer->tracking_mode??'optional'] }}</p>
+<p>Die finale Warenprüfung bewertet Aussehen, Geruch, Geschmack, Nachweise und Extras jeweils mit bestanden/nicht bestanden und 0–10 Punkten. Extras werden separat als erfüllt oder nicht erfüllt vergütet.</p>
+</div>
 
 @if($offer->rules)
 <div class="panel"><h3>Regeln & Bedingungen</h3><ul>@foreach($offer->rules as $rule)<li>✓ {{ $rule }}</li>@endforeach</ul></div>
@@ -33,9 +63,28 @@
 </section>
 
 <aside class="config-card">
-<span class="eyebrow">Deine Vergütung</span>
-<div class="big-price"><span>Gesamt</span><strong data-total>{{ number_format($offer->base_compensation,2,',','.') }} €</strong></div>
+<span class="eyebrow">Auftragsanfrage</span>
+<div class="big-price"><span>Max. vereinbart</span><strong data-total>{{ number_format($offer->base_compensation,2,',','.') }} €</strong></div>
 <div class="summary-row"><span>Grundvergütung</span><strong>{{ number_format($offer->base_compensation,2,',','.') }} €</strong></div>
+
+@if(!$canRequest)
+@if($waitlistEntry?->status==='waiting')
+<div class="notice"><strong>Warteliste · Position {{ $waitlistPosition }}</strong><br>Du wirst nach FIFO berücksichtigt, sobald ein Platz frei wird.</div>
+<form method="post" action="{{ route('offers.waitlist.leave',$offer) }}">@csrf @method('DELETE')<button class="btn secondary wide">Von Warteliste austragen</button></form>
+@else
+<div class="notice">Alle Plätze sind belegt. Du kannst dich auf die Warteliste setzen.</div>
+<form method="post" action="{{ route('offers.waitlist.join',$offer) }}" class="stack-form">@csrf
+@if($offer->is_sock_wearing)
+<label>Geplanter Aktivierungstag<input type="date" name="planned_start_date" min="{{ now('Europe/Berlin')->format('Y-m-d') }}" required></label>
+<small class="muted">Der Zeitraum muss mit deinen anderen Sockenaufträgen und Socken-Wartelisten vereinbar sein.</small>
+@endif
+<button class="btn primary wide">Auf Warteliste setzen</button>
+</form>
+@endif
+@else
+@if($waitlistEntry?->status==='reserved')
+<div class="notice"><strong>Exklusives 24-Stunden-Vorrecht</strong><br>Reserviert bis {{ $waitlistEntry->reservation_expires_at?->format('d.m.Y H:i') }} Uhr. Danach wirst du automatisch von der Warteliste entfernt.</div>
+@endif
 
 <form method="post" action="{{ route('offers.accept',$offer) }}" class="stack-form">@csrf
 
@@ -48,15 +97,9 @@
 @elseif($field->type==='number')
 <label>{{ $field->label }}@if($field->required) * @endif<input type="number" step="any" name="fields[{{ $field->key }}]" value="{{ old('fields.'.$field->key) }}" @required($field->required)></label>
 @elseif($field->type==='select')
-<label>{{ $field->label }}@if($field->required) * @endif
-<select name="fields[{{ $field->key }}]" @required($field->required)>
-<option value="">Bitte auswählen</option>
-@foreach($field->options??[] as $value)<option value="{{ $value }}" @selected(old('fields.'.$field->key)===$value)>{{ $value }}</option>@endforeach
-</select></label>
+<label>{{ $field->label }}@if($field->required) * @endif<select name="fields[{{ $field->key }}]" @required($field->required)><option value="">Bitte auswählen</option>@foreach($field->options??[] as $value)<option value="{{ $value }}" @selected(old('fields.'.$field->key)===$value)>{{ $value }}</option>@endforeach</select></label>
 @elseif($field->type==='radio')
-<fieldset style="border:0;padding:0;margin:0"><legend><strong>{{ $field->label }}@if($field->required) * @endif</strong></legend>
-@foreach($field->options??[] as $value)<label class="check"><input type="radio" name="fields[{{ $field->key }}]" value="{{ $value }}" @checked(old('fields.'.$field->key)===$value) @required($field->required)><span>{{ $value }}</span></label>@endforeach
-</fieldset>
+<fieldset style="border:0;padding:0;margin:0"><legend><strong>{{ $field->label }}@if($field->required) * @endif</strong></legend>@foreach($field->options??[] as $value)<label class="check"><input type="radio" name="fields[{{ $field->key }}]" value="{{ $value }}" @checked(old('fields.'.$field->key)===$value) @required($field->required)><span>{{ $value }}</span></label>@endforeach</fieldset>
 @elseif($field->type==='checkbox')
 <label class="check"><input type="checkbox" name="fields[{{ $field->key }}]" value="1" @checked(old('fields.'.$field->key)) @required($field->required)><span>{{ $field->label }}@if($field->required) * @endif</span></label>
 @else
@@ -74,21 +117,24 @@
 @php($rules=$option->rules?:[])
 <label class="option">
 <input type="checkbox" name="options[]" value="{{ $option->id }}" data-price="{{ $option->price_delta }}" data-requires='@json($rules["requires_ids"]??[])' data-excludes='@json($rules["excludes_ids"]??[])' @checked($option->required || in_array($option->id,old('options',[]))) @if($option->required) required @endif>
-<span>
-<strong>{{ $option->name }} @if($option->required)<small style="display:inline;color:var(--pink)">Pflicht</small>@endif</strong>
-<small>{{ $option->description }}</small>
-@if(($rules['min_duration_days']??0)>0)<small>Mindestens {{ $rules['min_duration_days'] }} Tage Gesamtlaufzeit</small>@endif
-</span>
+<span><strong>{{ $option->name }} @if($option->required)<small style="display:inline;color:var(--pink)">Pflicht</small>@endif</strong><small>{{ $option->description }}</small></span>
 <b>+{{ number_format($option->price_delta,2,',','.') }} €</b>
 </label>
 @endforeach
 </div>
 @endif
 
-<div class="notice">Mit der Annahme werden Preis, Regeln, deine Angaben und gewählte Optionen als unveränderbare Auftragsversion gespeichert.</div>
-<button class="btn primary wide" @disabled(!auth()->user()->verified_at || auth()->user()->hasRestriction('offers'))>Auftrag verbindlich annehmen</button>
-@if(!auth()->user()->verified_at)<p class="muted">Vorher ist eine abgeschlossene Verifizierung erforderlich.</p>@endif
+<label>Gewünschter Aktivierungstag
+<input type="date" name="proposed_start_date" min="{{ now('Europe/Berlin')->format('Y-m-d') }}" value="{{ old('proposed_start_date',$waitlistEntry?->planned_start_date?->format('Y-m-d')) }}" @readonly($waitlistEntry?->planned_start_date) required>
+</label>
+@if($waitlistEntry?->planned_start_date)<small class="muted">Der konfliktfreie Termin wurde durch die Wartelistenplanung festgelegt.</small>@endif
+
+<div class="notice">Vor dem Absenden: Grundvergütung, Extras, Startdatum, Nachweisfenster, Versandregeln und die oben aufgeführten Bedingungen bilden die Auftragsanfrage. Der Admin muss Auftrag und Startdatum anschließend bestätigen.</div>
+<label class="check"><input type="checkbox" name="confirm_summary" value="1" required><span>Ich habe die vollständige Auftragszusammenfassung geprüft und bestätige sie.</span></label>
+<button class="btn primary wide" @disabled(!auth()->user()->hasVerifiedEmail() || auth()->user()->hasRestriction('offers'))>Auftrag anfragen</button>
+@if(!auth()->user()->hasVerifiedEmail())<p class="muted">Vor einer Auftragsanfrage muss deine E-Mail-Adresse bestätigt sein.</p>@endif
 </form>
+@endif
 </aside>
 </div>
 @endsection
