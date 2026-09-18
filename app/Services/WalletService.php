@@ -12,13 +12,18 @@ class WalletService
     public function release(Order $order): void
     {
         $completedOrder=DB::transaction(function() use($order){
-            $order=Order::with(['user','goodsInspection','days.proofs','shipment'])
+            $order=Order::with(['user','goodsInspection','goodsReceipt','days.proofs','shipment'])
                 ->whereKey($order->id)
                 ->lockForUpdate()
                 ->firstOrFail();
 
             abort_unless($order->status==='accepted',422,'Vergütung kann erst nach abgeschlossener und angenommener Warenprüfung freigegeben werden.');
             abort_unless($order->goodsInspection && $order->goodsInspection->result==='accepted',422,'Es fehlt eine erfolgreich abgeschlossene Warenprüfung.');
+            abort_unless(
+                $order->readyForFinalInspection(),
+                422,
+                'Vergütung darf nur freigegeben werden, wenn alle erforderlichen Nachweise und der vollständige Wareneingang bestätigt sind.'
+            );
 
             $wallet=WalletAccount::where('user_id',$order->user_id)->lockForUpdate()->firstOrCreate(['user_id'=>$order->user_id]);
             $already=$wallet->entries()
