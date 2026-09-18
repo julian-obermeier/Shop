@@ -24,6 +24,7 @@ class Order extends Model
             'end_date'=>'date',
             'accepted_at'=>'datetime',
             'received_at'=>'datetime',
+            'execution_completed_at'=>'datetime',
             'completed_at'=>'datetime',
             'shipping_due_at'=>'datetime',
             'paused_at'=>'datetime',
