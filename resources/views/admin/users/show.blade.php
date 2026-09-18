@@ -183,6 +183,19 @@ $openOrders=$user->orders->whereNotIn('status',['completed','cancelled','rejecte
 <form method="post" action="{{ route('admin.users.reactivate',$user) }}">@csrf<button class="btn primary wide">Konto wieder aktivieren</button></form>
 </div>
 @endif
+
+@if($user->status!=='deleted')
+<div class="panel danger-zone">
+<h2>Konto löschen / anonymisieren</h2>
+<p>Nur der Admin kann ein Konto endgültig löschen/anonymisieren. Laufende Aufträge, verfügbares oder reserviertes Wallet-Guthaben sowie offene Auszahlungen blockieren diesen Vorgang.</p>
+<p class="muted">Unveränderbare Auftragsnachweise und abgeschlossene Transaktionsdaten bleiben entsprechend der Projektspezifikation erhalten und werden vom anonymisierten Konto entkoppelt.</p>
+<form method="post" action="{{ route('admin.users.delete-account',$user) }}" class="stack-form" onsubmit="return confirm('Konto wirklich endgültig löschen/anonymisieren? Diese Aktion kann nicht rückgängig gemacht werden.')">@csrf
+<label>Begründung<textarea name="reason" rows="3" required></textarea></label>
+<label class="check"><input type="checkbox" name="confirm" value="1" required><span>Ich bestätige die endgültige Löschung/Anonymisierung dieses Kontos.</span></label>
+<button class="btn secondary wide">Konto endgültig löschen/anonymisieren</button>
+</form>
+</div>
+@endif
 </aside>
 </div>
 @endsection
