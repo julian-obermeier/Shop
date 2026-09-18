@@ -7,6 +7,7 @@ use App\Services\NotificationService;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class WalletController extends Controller
 {
@@ -93,7 +94,9 @@ class WalletController extends Controller
             $available=$wallet->balance('available');
             abort_if($amount>$available,422,'Nicht genügend verfügbares Guthaben.');
 
-            $number='P'.now()->format('YmdHis').$user->id;
+            do{
+                $number='P'.now()->format('YmdHis').$user->id.Str::upper(Str::random(6));
+            }while(PayoutRequest::where('payout_number',$number)->exists());
             $payout=PayoutRequest::create([
                 'payout_number'=>$number,
                 'user_id'=>$user->id,
