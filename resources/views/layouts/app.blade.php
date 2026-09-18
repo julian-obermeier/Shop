@@ -25,22 +25,22 @@
 
         @if(auth()->user()->isAdmin())
         <div class="nav-caption">Administration</div>
-        @if(auth()->user()->hasPermission('admin.dashboard'))<a class="{{ request()->routeIs('admin.dashboard')?'active':'' }}" href="{{ route('admin.dashboard') }}">⚙ <span>Admin-Dashboard</span></a>@endif
-        @if(auth()->user()->hasPermission('users.manage'))<a class="{{ request()->routeIs('admin.users.*')?'active':'' }}" href="{{ route('admin.users.index') }}">♙ <span>Anbieterinnen</span></a>@endif
-        @if(auth()->user()->hasPermission('categories.manage'))<a class="{{ request()->routeIs('admin.categories.*')?'active':'' }}" href="{{ route('admin.categories.index') }}">◇ <span>Kategorien</span></a>@endif
-        @if(auth()->user()->hasPermission('offers.manage'))<a class="{{ request()->routeIs('admin.offers.*')?'active':'' }}" href="{{ route('admin.offers.index') }}">▣ <span>Angebote</span></a>@endif
-        @if(auth()->user()->hasPermission('orders.manage'))<a class="{{ request()->routeIs('admin.orders.*')?'active':'' }}" href="{{ route('admin.orders.index') }}">☷ <span>Aufträge</span></a>@endif
-        @if(auth()->user()->hasPermission('proofs.manage'))<a class="{{ request()->routeIs('admin.proofs.*')?'active':'' }}" href="{{ route('admin.proofs.index') }}">▤ <span>Nachweise</span></a>@endif
-        @if(auth()->user()->hasPermission('orders.manage'))<a class="{{ request()->routeIs('admin.prechecks.*')?'active':'' }}" href="{{ route('admin.prechecks.index') }}">⌕ <span>Vorprüfungen</span></a>@endif
-        @if(auth()->user()->hasPermission('orders.manage'))<a class="{{ request()->routeIs('admin.unassigned-shipments.*')?'active':'' }}" href="{{ route('admin.unassigned-shipments.index') }}">▦ <span>Nicht zuordenbare Sendungen</span></a>@endif
-        @if(auth()->user()->hasPermission('payouts.manage'))<a class="{{ request()->routeIs('admin.payouts.*')?'active':'' }}" href="{{ route('admin.payouts.index') }}">€ <span>Auszahlungen</span></a>@endif
-        @if(auth()->user()->hasPermission('messages.manage'))<a class="{{ request()->routeIs('admin.messages.*')?'active':'' }}" href="{{ route('admin.messages.index') }}">✉ <span>Nachrichten</span></a>@endif
-        @if(auth()->user()->hasPermission('documents.manage'))<a class="{{ request()->routeIs('admin.documents.*')?'active':'' }}" href="{{ route('admin.documents.index') }}">▤ <span>Dokumente</span></a>@endif
-        @if(auth()->user()->hasPermission('privacy.manage'))<a class="{{ request()->routeIs('admin.privacy.*')?'active':'' }}" href="{{ route('admin.privacy.index') }}">◈ <span>Datenschutz</span></a>@endif
-        @if(auth()->user()->hasPermission('reports.view'))<a class="{{ request()->routeIs('admin.reports.*')?'active':'' }}" href="{{ route('admin.reports.index') }}">▥ <span>Berichte</span></a>@endif
-        @if(auth()->user()->hasPermission('audit.view'))<a class="{{ request()->routeIs('admin.audit.*')?'active':'' }}" href="{{ route('admin.audit.index') }}">☷ <span>Audit-Log</span></a>@endif
-        @if(auth()->user()->hasPermission('settings.manage'))<a class="{{ request()->routeIs('admin.health.*')?'active':'' }}" href="{{ route('admin.health.index') }}">◉ <span>Systemzustand</span></a>@endif
-        @if(auth()->user()->hasPermission('settings.manage'))<a class="{{ request()->routeIs('admin.settings.*')?'active':'' }}" href="{{ route('admin.settings.index') }}">⚙ <span>Einstellungen</span></a>@endif
+        <a class="{{ request()->routeIs('admin.dashboard')?'active':'' }}" href="{{ route('admin.dashboard') }}">⚙ <span>Admin-Dashboard</span></a>
+        <a class="{{ request()->routeIs('admin.users.*')?'active':'' }}" href="{{ route('admin.users.index') }}">♙ <span>Anbieterinnen</span></a>
+        <a class="{{ request()->routeIs('admin.categories.*')?'active':'' }}" href="{{ route('admin.categories.index') }}">◇ <span>Kategorien</span></a>
+        <a class="{{ request()->routeIs('admin.offers.*')?'active':'' }}" href="{{ route('admin.offers.index') }}">▣ <span>Angebote</span></a>
+        <a class="{{ request()->routeIs('admin.orders.*')?'active':'' }}" href="{{ route('admin.orders.index') }}">☷ <span>Aufträge</span></a>
+        <a class="{{ request()->routeIs('admin.proofs.*')?'active':'' }}" href="{{ route('admin.proofs.index') }}">▤ <span>Nachweise</span></a>
+        <a class="{{ request()->routeIs('admin.prechecks.*')?'active':'' }}" href="{{ route('admin.prechecks.index') }}">⌕ <span>Vorprüfungen</span></a>
+        <a class="{{ request()->routeIs('admin.unassigned-shipments.*')?'active':'' }}" href="{{ route('admin.unassigned-shipments.index') }}">▦ <span>Nicht zuordenbare Sendungen</span></a>
+        <a class="{{ request()->routeIs('admin.payouts.*')?'active':'' }}" href="{{ route('admin.payouts.index') }}">€ <span>Auszahlungen</span></a>
+        <a class="{{ request()->routeIs('admin.messages.*')?'active':'' }}" href="{{ route('admin.messages.index') }}">✉ <span>Nachrichten</span></a>
+        <a class="{{ request()->routeIs('admin.documents.*')?'active':'' }}" href="{{ route('admin.documents.index') }}">▤ <span>Dokumente</span></a>
+        <a class="{{ request()->routeIs('admin.privacy.*')?'active':'' }}" href="{{ route('admin.privacy.index') }}">◈ <span>Datenschutz</span></a>
+        <a class="{{ request()->routeIs('admin.reports.*')?'active':'' }}" href="{{ route('admin.reports.index') }}">▥ <span>Berichte</span></a>
+        <a class="{{ request()->routeIs('admin.audit.*')?'active':'' }}" href="{{ route('admin.audit.index') }}">☷ <span>Audit-Log</span></a>
+        <a class="{{ request()->routeIs('admin.health.*')?'active':'' }}" href="{{ route('admin.health.index') }}">◉ <span>Systemzustand</span></a>
+        <a class="{{ request()->routeIs('admin.settings.*')?'active':'' }}" href="{{ route('admin.settings.index') }}">⚙ <span>Einstellungen</span></a>
         @endif
     </nav>
     <form action="{{ route('logout') }}" method="post" class="logout">@csrf<button>↪ Abmelden</button></form>
