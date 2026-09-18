@@ -10,6 +10,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 
 class AuthController extends Controller
@@ -70,7 +71,7 @@ class AuthController extends Controller
             'last_name'=>['required','string','max:100'],
             'birth_date'=>['required','date','before_or_equal:'.now()->subYears(18)->toDateString()],
             'email'=>['required','email','max:255','unique:users,email'],
-            'password'=>['required','string','min:10','confirmed'],
+            'password'=>['required','string','min:12','confirmed'],
             'terms'=>['accepted'],
             'adult'=>['accepted'],
         ],['birth_date.before_or_equal'=>'Die Plattform ist ausschließlich für volljährige Personen vorgesehen.']);
@@ -92,7 +93,17 @@ class AuthController extends Controller
 
         Auth::login($user);
         $request->session()->regenerate();
-        return redirect()->route('dashboard');
+
+        try{
+            $user->sendEmailVerificationNotification();
+        }catch(\Throwable $e){
+            Log::warning('Initial verification email could not be sent',[
+                'user_id'=>$user->id,
+                'error'=>$e->getMessage(),
+            ]);
+        }
+
+        return redirect()->route('verification.notice');
     }
 
     public function logout(Request $request)
