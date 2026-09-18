@@ -90,6 +90,7 @@ class WaitlistService
 
         OfferWaitlistEntry::with(['offer','user'])
             ->where('status','reserved')
+            ->whereHas('offer',fn($q)=>$q->where('active',true))
             ->where('reservation_expires_at','<=',now())
             ->orderBy('id')
             ->chunkById(100,function($entries) use(&$count,$notifications){
