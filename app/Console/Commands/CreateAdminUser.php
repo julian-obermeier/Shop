@@ -14,10 +14,15 @@ class CreateAdminUser extends Command
         {--first-name= : Vorname}
         {--last-name= : Nachname}';
 
-    protected $description='Create the initial superadmin account securely';
+    protected $description='Create the single administration account';
 
     public function handle(): int
     {
+        if(User::where('role','admin')->where('status','active')->exists()){
+            $this->error('Es existiert bereits ein aktives Admin-Konto.');
+            return self::FAILURE;
+        }
+
         $email=(string)($this->option('email') ?: $this->ask('E-Mail-Adresse'));
         $firstName=(string)($this->option('first-name') ?: $this->ask('Vorname'));
         $lastName=(string)($this->option('last-name') ?: $this->ask('Nachname'));
@@ -39,28 +44,23 @@ class CreateAdminUser extends Command
         ]);
 
         if($validator->fails()){
-            foreach($validator->errors()->all() as $error){
-                $this->error($error);
-            }
+            foreach($validator->errors()->all() as $error) $this->error($error);
             return self::FAILURE;
         }
 
         $user=User::create([
-            'role'=>'superadmin',
+            'role'=>'admin',
             'first_name'=>$firstName,
             'last_name'=>$lastName,
             'birth_date'=>'1970-01-01',
             'email'=>$email,
             'password'=>Hash::make($password),
             'status'=>'active',
-            'verified_at'=>now(),
         ]);
 
         $user->forceFill(['email_verified_at'=>now()])->save();
 
-        $this->info('Superadmin wurde erfolgreich angelegt: '.$user->email);
-        $this->line('Beim Login ist die E-Mail-2FA verpflichtend.');
-
+        $this->info('Admin-Konto wurde erfolgreich angelegt: '.$user->email);
         return self::SUCCESS;
     }
 }
