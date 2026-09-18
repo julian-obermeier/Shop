@@ -8,6 +8,7 @@ use App\Models\ReturnRequest;
 use App\Models\UserNotification;
 use App\Services\NotificationService;
 use App\Services\OrderService;
+use App\Services\ReliabilityService;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
@@ -17,18 +18,18 @@ class MonitorOrderDeadlines extends Command
     protected $signature='orders:deadlines';
     protected $description='Monitor start, proof, resubmission and shipping deadlines';
 
-    public function handle(OrderService $orders, NotificationService $notifications): int
+    public function handle(OrderService $orders, NotificationService $notifications, ReliabilityService $reliability): int
     {
-        $this->expireMissedStarts($notifications);
+        $this->expireMissedStarts($notifications,$reliability);
         $this->expireResubmissionDeadlines($orders,$notifications);
         $this->invalidateMissedProofWindows($orders,$notifications);
-        $this->monitorShippingDeadlines($notifications);
+        $this->monitorShippingDeadlines($notifications,$reliability);
         $this->expireReturnRequests($notifications);
 
         return self::SUCCESS;
     }
 
-    private function expireMissedStarts(NotificationService $notifications): void
+    private function expireMissedStarts(NotificationService $notifications, ReliabilityService $reliability): void
     {
         $today=CarbonImmutable::today('Europe/Berlin');
 
@@ -37,9 +38,9 @@ class MonitorOrderDeadlines extends Command
             ->whereNotNull('confirmed_start_date')
             ->whereDate('confirmed_start_date','<',$today->toDateString())
             ->orderBy('id')
-            ->chunkById(100,function($rows) use($notifications){
+            ->chunkById(100,function($rows) use($notifications,$reliability){
                 foreach($rows as $row){
-                    DB::transaction(function() use($row,$notifications){
+                    DB::transaction(function() use($row,$notifications,$reliability){
                         $order=Order::with('user')->whereKey($row->id)->lockForUpdate()->first();
                         if(!$order || !in_array($order->status,['approved','waiting_start'],true)) return;
 
@@ -67,7 +68,7 @@ class MonitorOrderDeadlines extends Command
                             'reason'=>'Verpflichtendes Startfoto am bestätigten Startdatum nicht eingereicht',
                         ]);
 
-                        $this->resetProbation($order->user_id);
+                        $reliability->recordViolation($order->user,$order,'not_started','Verbindlichen Start nicht angetreten');
 
                         $notifications->send(
                             $order->user,
@@ -182,7 +183,7 @@ class MonitorOrderDeadlines extends Command
             });
     }
 
-    private function monitorShippingDeadlines(NotificationService $notifications): void
+    private function monitorShippingDeadlines(NotificationService $notifications, ReliabilityService $reliability): void
     {
         $orders=Order::with('user')
             ->whereIn('status',['waiting_shipping','shipping_overdue'])
@@ -192,7 +193,7 @@ class MonitorOrderDeadlines extends Command
 
         foreach($orders as $order){
             if($order->shipping_due_at->isPast() && $order->status!=='shipping_overdue'){
-                DB::transaction(function() use($order){
+                DB::transaction(function() use($order,$reliability){
                     $fresh=Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
                     if($fresh->status!=='waiting_shipping') return;
 
@@ -207,7 +208,7 @@ class MonitorOrderDeadlines extends Command
                         'to_status'=>'shipping_overdue',
                         'reason'=>'Versandfrist automatisch überschritten',
                     ]);
-                    $this->resetProbation($fresh->user_id);
+                    $reliability->recordViolation($fresh->user,$fresh,'shipping_overdue','24-Stunden-Versandfrist überschritten');
                 });
 
                 $notifications->send(
@@ -270,11 +271,5 @@ class MonitorOrderDeadlines extends Command
             });
     }
 
-    private function resetProbation(int $userId): void
-    {
-        DB::table('user_restrictions')
-            ->where('user_id',$userId)
-            ->where('active',true)
-            ->update(['successful_count'=>0,'progress_reset_at'=>now()]);
-    }
 }
+
