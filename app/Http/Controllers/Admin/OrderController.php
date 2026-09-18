@@ -3,6 +3,8 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Order;
+use App\Services\AuditService;
+use App\Services\NotificationService;
 use App\Services\WalletService;
 use Illuminate\Http\Request;
 
@@ -22,26 +24,24 @@ class OrderController extends Controller
         return view('admin.orders.show',compact('order'));
     }
 
-    public function status(Request $request, Order $order)
+    public function status(Request $request, Order $order, AuditService $audit, NotificationService $notifications)
     {
-        $data=$request->validate([
-            'status'=>['required','string','max:40'],
-            'reason'=>['nullable','string','max:1000'],
-        ]);
+        $data=$request->validate(['status'=>['required','string','max:40'],'reason'=>['nullable','string','max:1000']]);
+        $before=$order->toArray();
         $from=$order->status;
         $order->update(['status'=>$data['status']]);
-        $order->statusHistory()->create([
-            'changed_by'=>$request->user()->id,
-            'from_status'=>$from,
-            'to_status'=>$data['status'],
-            'reason'=>$data['reason']??null,
-        ]);
+        $order->statusHistory()->create(['changed_by'=>$request->user()->id,'from_status'=>$from,'to_status'=>$data['status'],'reason'=>$data['reason']??null]);
+        $audit->log('order.status.changed',$order,$before,$order->fresh()->toArray());
+        $notifications->send($order->user,'order_status','Auftragsstatus aktualisiert','Auftrag #'.$order->order_number.' steht jetzt auf '.strtoupper(str_replace('_',' ',$data['status'])).'.',route('orders.show',$order));
         return back()->with('success','Status wurde geändert.');
     }
 
-    public function release(Order $order, WalletService $wallet)
+    public function release(Order $order, WalletService $wallet, AuditService $audit, NotificationService $notifications)
     {
+        $before=$order->toArray();
         $wallet->release($order);
+        $audit->log('order.compensation.released',$order,$before,$order->fresh()->toArray());
+        $notifications->send($order->user,'compensation_released','Vergütung freigegeben','Die Vergütung für Auftrag #'.$order->order_number.' ist jetzt in deinem Wallet verfügbar.',route('wallet.index'));
         return back()->with('success','Vergütung wurde freigegeben.');
     }
 }
