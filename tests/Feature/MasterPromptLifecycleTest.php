@@ -131,7 +131,7 @@ class MasterPromptLifecycleTest extends TestCase
             ])->assertRedirect();
 
             $challenge=$order->proofChallenges()->firstOrFail();
-            $this->assertSame(600,$now->diffInSeconds($challenge->expires_at,false));
+            $this->assertEquals(600,$now->diffInSeconds($challenge->expires_at,false));
             $this->assertNull($challenge->used_at);
         } finally {
             CarbonImmutable::setTestNow();
@@ -175,7 +175,7 @@ class MasterPromptLifecycleTest extends TestCase
             $entry->refresh();
             $this->assertNull($entry->reservation_remaining_seconds);
             $this->assertNotNull($entry->reservation_expires_at);
-            $this->assertSame(43200,$now->diffInSeconds($entry->reservation_expires_at,false));
+            $this->assertEquals(43200,$now->diffInSeconds($entry->reservation_expires_at,false));
         } finally {
             CarbonImmutable::setTestNow();
         }
