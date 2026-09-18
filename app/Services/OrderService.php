@@ -2,6 +2,7 @@
 namespace App\Services;
 
 use App\Models\Offer;
+use App\Models\OfferWaitlistEntry;
 use App\Models\Order;
 use App\Models\OrderDay;
 use App\Models\User;
@@ -19,12 +20,35 @@ class OrderService
             $lockedOffer=Offer::whereKey($offer->id)->lockForUpdate()->firstOrFail();
             abort_unless($lockedOffer->active,404);
 
+            $reservation=OfferWaitlistEntry::where('offer_id',$lockedOffer->id)
+                ->where('user_id',$user->id)
+                ->where('status','reserved')
+                ->where('reservation_expires_at','>',now())
+                ->lockForUpdate()
+                ->first();
+
+            if($reservation?->planned_start_date){
+                $proposedStartDate=$reservation->planned_start_date->toDateString();
+            }
+
             if($lockedOffer->capacity){
                 $used=Order::where('offer_id',$lockedOffer->id)
                     ->whereNotIn('status',['completed','cancelled','rejected','not_started'])
                     ->lockForUpdate()
                     ->count();
-                abort_if($used >= $lockedOffer->capacity,422,'Dieses Angebot ist derzeit voll. Nutze bitte die Warteliste.');
+
+                $reservedByOthers=OfferWaitlistEntry::where('offer_id',$lockedOffer->id)
+                    ->where('status','reserved')
+                    ->where('reservation_expires_at','>',now())
+                    ->when($reservation,fn($q)=>$q->where('id','!=',$reservation->id))
+                    ->lockForUpdate()
+                    ->count();
+
+                abort_if(
+                    $used+$reservedByOthers >= (int)$lockedOffer->capacity,
+                    422,
+                    'Dieses Angebot ist derzeit vollständig belegt oder für eine Person auf der Warteliste reserviert.'
+                );
             }
 
             abort_if(
@@ -112,6 +136,13 @@ class OrderService
                 'to_status'=>'requested',
                 'reason'=>'Auftragsanfrage mit Startwunsch '.$start->format('d.m.Y').' erstellt',
             ]);
+
+            if($reservation){
+                $reservation->update([
+                    'status'=>'used',
+                    'reservation_expires_at'=>null,
+                ]);
+            }
 
             return $order;
         });
