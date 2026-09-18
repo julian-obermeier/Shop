@@ -15,6 +15,7 @@ use App\Http\Controllers\Admin\PrivacyController as AdminPrivacyController;
 use App\Http\Controllers\Admin\ProofController as AdminProofController;
 use App\Http\Controllers\Admin\ReportController as AdminReportController;
 use App\Http\Controllers\Admin\SettingsController as AdminSettingsController;
+use App\Http\Controllers\Admin\ShipmentController as AdminShipmentController;
 use App\Http\Controllers\Admin\UserController as AdminUserController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\Auth\EmailVerificationController;
@@ -140,6 +141,8 @@ Route::prefix('admin')->name('admin.')->middleware(['auth','active','admin'])->g
         Route::post('/auftraege/{order}/fortsetzen', [AdminOrderController::class, 'resume'])->name('orders.resume');
         Route::post('/auftraege/{order}/anforderungen', [AdminOrderController::class, 'updateRequirements'])->name('orders.requirements');
         Route::post('/auftraege/{order}/wareneingang', [AdminGoodsReceiptController::class, 'store'])->name('orders.goods-receipt');
+        Route::get('/versandnachweise/{evidence}/datei', [AdminShipmentController::class, 'evidence'])->name('shipments.evidence');
+        Route::post('/versand/{shipment}/pruefen', [AdminShipmentController::class, 'review'])->name('shipments.review');
         Route::post('/auftraege/{order}/verguetung-freigeben', [AdminOrderController::class, 'release'])->name('orders.release');
 
         Route::get('/vorpruefungen', [AdminPrecheckController::class, 'index'])->name('prechecks.index');
