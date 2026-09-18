@@ -32,6 +32,7 @@
         @if(auth()->user()->hasPermission('orders.manage'))<a class="{{ request()->routeIs('admin.orders.*')?'active':'' }}" href="{{ route('admin.orders.index') }}">☷ <span>Aufträge</span></a>@endif
         @if(auth()->user()->hasPermission('proofs.manage'))<a class="{{ request()->routeIs('admin.proofs.*')?'active':'' }}" href="{{ route('admin.proofs.index') }}">▤ <span>Nachweise</span></a>@endif
         @if(auth()->user()->hasPermission('orders.manage'))<a class="{{ request()->routeIs('admin.prechecks.*')?'active':'' }}" href="{{ route('admin.prechecks.index') }}">⌕ <span>Vorprüfungen</span></a>@endif
+        @if(auth()->user()->hasPermission('orders.manage'))<a class="{{ request()->routeIs('admin.unassigned-shipments.*')?'active':'' }}" href="{{ route('admin.unassigned-shipments.index') }}">▦ <span>Nicht zuordenbare Sendungen</span></a>@endif
         @if(auth()->user()->hasPermission('payouts.manage'))<a class="{{ request()->routeIs('admin.payouts.*')?'active':'' }}" href="{{ route('admin.payouts.index') }}">€ <span>Auszahlungen</span></a>@endif
         @if(auth()->user()->hasPermission('messages.manage'))<a class="{{ request()->routeIs('admin.messages.*')?'active':'' }}" href="{{ route('admin.messages.index') }}">✉ <span>Nachrichten</span></a>@endif
         @if(auth()->user()->hasPermission('documents.manage'))<a class="{{ request()->routeIs('admin.documents.*')?'active':'' }}" href="{{ route('admin.documents.index') }}">▤ <span>Dokumente</span></a>@endif
