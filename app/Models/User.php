@@ -50,4 +50,16 @@ class User extends Authenticatable implements MustVerifyEmailContract
     {
         return $this->restrictions()->current()->whereIn('type',[$type,'account'])->exists();
     }
+
+    public function effectiveOrderLimit(): int
+    {
+        $limits=$this->restrictions()
+            ->current()
+            ->whereNotNull('max_active_orders')
+            ->pluck('max_active_orders')
+            ->map(fn($value)=>(int)$value)
+            ->filter(fn($value)=>$value>=0);
+
+        return $limits->isEmpty()?5:max(0,(int)$limits->min());
+    }
 }
