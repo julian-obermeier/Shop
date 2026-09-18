@@ -9,7 +9,9 @@ use Illuminate\Support\Facades\Mail;
 
 class NotificationService
 {
-    public function send(User $user, string $type, string $title, string $body, ?string $url = null, array $data = []): UserNotification
+    public function __construct(private PushService $push) {}
+
+    public function send(User $user, string $type, string $title, string $body, ?string $url=null, array $data=[]): UserNotification
     {
         $notification=UserNotification::create([
             'user_id'=>$user->id,
@@ -27,8 +29,28 @@ class NotificationService
                     fn($message)=>$message->to($user->email)->subject('Wear&Earn · '.$title)
                 );
             }catch(\Throwable $e){
-                Log::warning('Notification email could not be sent',['user_id'=>$user->id,'type'=>$type,'error'=>$e->getMessage()]);
+                Log::warning('Notification email could not be sent',[
+                    'user_id'=>$user->id,
+                    'type'=>$type,
+                    'error'=>$e->getMessage(),
+                ]);
             }
+        }
+
+        try{
+            $this->push->send(
+                $user,
+                $title,
+                $body,
+                $url,
+                $data+['notification_id'=>$notification->id,'type'=>$type]
+            );
+        }catch(\Throwable $e){
+            Log::warning('Notification push channel failed',[
+                'user_id'=>$user->id,
+                'type'=>$type,
+                'error'=>$e->getMessage(),
+            ]);
         }
 
         return $notification;
