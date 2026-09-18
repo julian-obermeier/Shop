@@ -6,6 +6,7 @@ use App\Models\LoginChallenge;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 
 class TwoFactorController extends Controller
@@ -56,12 +57,25 @@ class TwoFactorController extends Controller
             'ip_address'=>$request->ip(),
             'expires_at'=>now()->addMinutes(10),
         ]);
-        $request->session()->put('2fa_challenge_id',$challenge->id);
+        try{
+            Mail::raw(
+                "Dein Wear&Earn Sicherheitscode lautet: {$code}\n\nDer Code ist 10 Minuten gültig.",
+                fn($message)=>$message->to($user->email)->subject('Wear&Earn Sicherheitscode')
+            );
+        }catch(\Throwable $e){
+            $challenge->delete();
 
-        Mail::raw(
-            "Dein Wear&Earn Sicherheitscode lautet: {$code}\n\nDer Code ist 10 Minuten gültig.",
-            fn($message)=>$message->to($user->email)->subject('Wear&Earn Sicherheitscode')
-        );
+            Log::error('Admin 2FA resend email could not be sent',[
+                'user_id'=>$user->id,
+                'error'=>$e->getMessage(),
+            ]);
+
+            return back()->withErrors([
+                'code'=>'Der Sicherheitscode konnte nicht erneut versendet werden. Bitte prüfe die Mail-Konfiguration.',
+            ]);
+        }
+
+        $request->session()->put('2fa_challenge_id',$challenge->id);
 
         return back()->with('success','Ein neuer Sicherheitscode wurde versendet.');
     }
