@@ -71,7 +71,7 @@ class ReliabilityService
     public function recordCleanCompletion(Order $order): void
     {
         DB::transaction(function() use($order){
-            $order=Order::with(['user.profile','days.proofs','goodsInspection'])->whereKey($order->id)->lockForUpdate()->firstOrFail();
+            $order=Order::with(['user.profile','days.proofs','goodsInspection','shipment.evidences'])->whereKey($order->id)->lockForUpdate()->firstOrFail();
             if(!$this->isCleanOrder($order)) return;
 
             $restrictions=$order->user->restrictions()
@@ -138,7 +138,10 @@ class ReliabilityService
         $proofs=$order->days->flatMap(fn($day)=>$day->proofs);
         if($proofs->contains(fn($proof)=>(int)$proof->retry_number>0 || $proof->review_status==='rejected')) return false;
 
-        if($order->shipment && $order->shipment->review_status==='rejected') return false;
+        if($order->shipment){
+            if(in_array($order->shipment->review_status,['rejected','expired'],true)) return false;
+            if($order->shipment->evidences->contains(fn($evidence)=>(int)$evidence->attempt>0)) return false;
+        }
 
         $extras=$order->goodsInspection?->extra_results;
         if(is_array($extras) && collect($extras)->contains(fn($result)=>!((bool)($result['fulfilled']??false)))) return false;
