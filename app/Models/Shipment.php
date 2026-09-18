@@ -13,6 +13,8 @@ class Shipment extends Model
     {
         return [
             'shipped_at'=>'datetime',
+            'ownership_transferred_at'=>'datetime',
+            'risk_transferred_at'=>'datetime',
             'delivered_at'=>'datetime',
             'resubmit_due_at'=>'datetime',
         ];
