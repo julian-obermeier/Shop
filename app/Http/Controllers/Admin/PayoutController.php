@@ -31,10 +31,39 @@ class PayoutController extends Controller
             $wallet=WalletAccount::where('user_id',$payout->user_id)->lockForUpdate()->firstOrFail();
             $amount=(float)$payout->amount;
             $wasTerminal=in_array($payout->status,['completed','rejected','cancelled'],true);
+            $isPaid=$wallet->entries()
+                ->where('reference',$payout->payout_number)
+                ->where('bucket','paid')
+                ->sum('amount') > 0;
+            $pendingForPayout=(float)$wallet->entries()
+                ->where('reference',$payout->payout_number)
+                ->where('bucket','payout_pending')
+                ->sum('amount');
 
-            if($data['status']==='completed' && !$wallet->entries()->where('reference',$payout->payout_number)->where('entry_type','payout_paid')->exists()){
+            $targetOpen=in_array($data['status'],['requested','review','approved','failed','payment_executed'],true);
+            if($targetOpen && !$isPaid && $pendingForPayout<=0){
                 $wallet->entries()->create([
-                    'bucket'=>'payout_pending','entry_type'=>'payout_completed','amount'=>-$amount,
+                    'bucket'=>'available',
+                    'entry_type'=>'payout_rereserved',
+                    'amount'=>-$amount,
+                    'reference'=>$payout->payout_number,
+                    'description'=>'Auszahlung nach Wiederöffnung erneut reserviert',
+                    'metadata'=>['payout_request_id'=>$payout->id],
+                ]);
+                $wallet->entries()->create([
+                    'bucket'=>'payout_pending',
+                    'entry_type'=>'payout_pending_rereserved',
+                    'amount'=>$amount,
+                    'reference'=>$payout->payout_number,
+                    'description'=>'Auszahlung nach Wiederöffnung erneut reserviert',
+                    'metadata'=>['payout_request_id'=>$payout->id],
+                ]);
+                $pendingForPayout=$amount;
+            }
+
+            if($data['status']==='completed' && !$isPaid){
+                $wallet->entries()->create([
+                    'bucket'=>'payout_pending','entry_type'=>'payout_completed','amount'=>-$pendingForPayout,
                     'reference'=>$payout->payout_number,'description'=>'Auszahlung abgeschlossen',
                     'metadata'=>['payout_request_id'=>$payout->id],
                 ]);
@@ -45,19 +74,27 @@ class PayoutController extends Controller
                 ]);
             }
 
-            if(in_array($data['status'],['rejected','cancelled'],true)){
-                $wasPaid=$wallet->entries()->where('reference',$payout->payout_number)->where('entry_type','payout_paid')->exists();
-                $alreadyRestored=$wallet->entries()->where('reference',$payout->payout_number)->where('entry_type','payout_restored')->exists();
+            if(in_array($data['status'],['rejected','cancelled'],true) && !$isPaid){
+                $pendingForPayout=(float)$wallet->entries()
+                    ->where('reference',$payout->payout_number)
+                    ->where('bucket','payout_pending')
+                    ->sum('amount');
 
-                if(!$wasPaid && !$alreadyRestored){
+                if($pendingForPayout>0){
                     $wallet->entries()->create([
-                        'bucket'=>'payout_pending','entry_type'=>'payout_pending_reversal','amount'=>-$amount,
-                        'reference'=>$payout->payout_number,'description'=>'Auszahlungsreservierung aufgehoben',
+                        'bucket'=>'payout_pending',
+                        'entry_type'=>'payout_pending_reversal',
+                        'amount'=>-$pendingForPayout,
+                        'reference'=>$payout->payout_number,
+                        'description'=>'Auszahlungsreservierung aufgehoben',
                         'metadata'=>['payout_request_id'=>$payout->id],
                     ]);
                     $wallet->entries()->create([
-                        'bucket'=>'available','entry_type'=>'payout_restored','amount'=>$amount,
-                        'reference'=>$payout->payout_number,'description'=>'Guthaben wieder freigegeben',
+                        'bucket'=>'available',
+                        'entry_type'=>'payout_restored',
+                        'amount'=>$pendingForPayout,
+                        'reference'=>$payout->payout_number,
+                        'description'=>'Guthaben wieder freigegeben',
                         'metadata'=>['payout_request_id'=>$payout->id],
                     ]);
                 }
