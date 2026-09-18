@@ -4,7 +4,6 @@ return [
     'disks' => [
         'local' => ['driver' => 'local', 'root' => storage_path('app/private'), 'throw' => false],
         'proofs' => ['driver' => 'local', 'root' => storage_path('app/private/proofs'), 'throw' => true],
-        'identity' => ['driver' => 'local', 'root' => storage_path('app/private/identity'), 'throw' => true],
         'prechecks' => ['driver' => 'local', 'root' => storage_path('app/private/prechecks'), 'throw' => true],
         'messages' => ['driver' => 'local', 'root' => storage_path('app/private/messages'), 'throw' => true],
         'shipments' => ['driver' => 'local', 'root' => storage_path('app/private/shipments'), 'throw' => true],
