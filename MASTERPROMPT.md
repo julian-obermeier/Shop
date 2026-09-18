@@ -189,6 +189,9 @@ Ein Angebot kann enthalten:
 - Qualitäts-/Punktebänder
 - Gesichtspflicht für bestimmte Nachweise
 - Kapazitätslimit gleichzeitig offener/aktiver Aufträge
+- angebotsspezifische Auswahl-/Eingabefelder
+- eine vorherige Kontroll-/Bestätigungsstufe, soweit für das konkrete Angebot vorgesehen
+- eine konkrete Sockenauswahl oder vergleichbare Warenangabe, ohne daraus eine separate dauerhafte Waren-ID oder ein allgemeines Wareninventar zu machen
 
 ### 6.1 Zusatzoptionen
 
@@ -447,6 +450,8 @@ An diesem Tag:
 - verpflichtendes Startfoto
 - Startfoto benötigt einen 10-Minuten-Einmalcode
 
+Für den Beginn von Tag 1 ist **keine vorherige Adminfreigabe des Startfotos erforderlich**. Der rechtzeitige Upload des Startfotos genügt zunächst. Eine spätere Ablehnung wird nach der unten festgelegten Reset-Logik behandelt.
+
 Der erste vollständige Tragetag beginnt am folgenden Kalendertag.
 
 Beispiel:
@@ -554,6 +559,8 @@ Für jeden regulären Versuch gilt grundsätzlich eine Frist von **2 Stunden ab 
 Der Admin kann unbegrenzt viele zusätzliche Nachreichversuche manuell freigeben.
 
 Zusätzliche Freigaben werden protokolliert.
+
+Wird eine laufende 2-Stunden-Nachreichfrist versäumt, gilt der betreffende Nachweis als endgültig fehlgeschlagen, der Tag wird ungültig und das Versäumnis wird zusätzlich als Zuverlässigkeitsverstoß dokumentiert.
 
 ### 12.8 Späte Adminprüfung
 
@@ -779,7 +786,7 @@ Auszahlungsinformationen werden ausschließlich direkt am Auszahlungsantrag ange
 
 Es gibt keinen öffentlichen oder dauerhaften 0–100-Score.
 
-Stattdessen regelbasierte Zuverlässigkeitseinschränkungen.
+Stattdessen gibt es regelbasierte Zuverlässigkeitseinschränkungen. Definierte Verstöße können die vorgesehenen Einschränkungen automatisch auslösen; die konkreten Regeln müssen zentral konfigurierbar und technisch nachvollziehbar sein.
 
 Mögliche Folgen:
 
@@ -804,14 +811,15 @@ Erforderlich:
 1. 5 vollständig fehlerfreie Aufträge direkt hintereinander
 2. danach manuelle Aufhebung durch Admin
 
-Ein Bewährungsauftrag zählt nur, wenn er ohne relevante Fehler abgeschlossen wurde, insbesondere:
+Ein Bewährungsauftrag zählt nur, wenn er **vollständig ohne Fehler oder Abweichung** abgeschlossen wurde, insbesondere:
 
 - keine verspäteten Nachweise
 - keine Nachreichung
 - keine Versandverspätung
 - keine abgelehnten Extras
+- keine sonstige Abweichung von den verbindlichen Auftragsanforderungen
 
-Ein neuer relevanter Verstoß setzt den Fortschritt auf 0.
+Ein Auftrag mit einem kleineren Fehler zählt nicht als erfolgreicher Bewährungsauftrag. Ein neuer relevanter Zuverlässigkeitsverstoß setzt die laufende Serie vollständig auf 0.
 
 Anzeige z. B. „3 von 5 erfolgreich“.
 
@@ -962,7 +970,7 @@ Nicht-KO-Fehler wirken über die reguläre Punkte-/Vergütungslogik.
 
 ### 21.1 Punktebänder
 
-Pro Angebot können feste Prozentbänder definiert werden, z. B.:
+Pro Angebot wird festgelegt, **ob und wie** die Gesamtpunktzahl die Grundvergütung beeinflusst. Wird eine punktbasierte Vergütung verwendet, können feste Prozentbänder definiert werden, z. B.:
 
 - 45–50 Punkte = 100 %
 - 40–44 Punkte = 90 %
