@@ -109,9 +109,9 @@ Route::middleware(['auth','active'])->group(function () {
 });
 
 Route::prefix('admin')->name('admin.')->middleware(['auth','active','admin'])->group(function () {
-    Route::get('/', AdminDashboardController::class)->middleware('permission:admin.dashboard')->name('dashboard');
+    Route::get('/', AdminDashboardController::class)->name('dashboard');
 
-    Route::middleware('permission:users.manage')->group(function () {
+    
         Route::get('/anbieterinnen', [AdminUserController::class, 'index'])->name('users.index');
         Route::get('/anbieterinnen/{user}', [AdminUserController::class, 'show'])->name('users.show');
         Route::put('/anbieterinnen/{user}/stammdaten', [AdminUserController::class, 'updateMasterData'])->name('users.master-data');
@@ -122,15 +122,15 @@ Route::prefix('admin')->name('admin.')->middleware(['auth','active','admin'])->g
         Route::post('/anbieterinnen/{user}/verwarnung', [AdminUserController::class, 'warning'])->name('users.warning');
         Route::post('/anbieterinnen/{user}/sperre', [AdminUserController::class, 'restriction'])->name('users.restriction');
         Route::post('/anbieterinnen/{user}/sperre/{restriction}/aufheben', [AdminUserController::class, 'removeRestriction'])->name('users.restriction.remove');
-    });
+    
 
-    Route::middleware('permission:categories.manage')->group(function () {
+    
         Route::get('/kategorien', [AdminCategoryController::class, 'index'])->name('categories.index');
         Route::post('/kategorien', [AdminCategoryController::class, 'store'])->name('categories.store');
         Route::put('/kategorien/{category}', [AdminCategoryController::class, 'update'])->name('categories.update');
-    });
+    
 
-    Route::middleware('permission:offers.manage')->group(function () {
+    
         Route::get('/angebote', [AdminOfferController::class, 'index'])->name('offers.index');
         Route::get('/angebote/neu', [AdminOfferController::class, 'create'])->name('offers.create');
         Route::post('/angebote', [AdminOfferController::class, 'store'])->name('offers.store');
@@ -138,9 +138,9 @@ Route::prefix('admin')->name('admin.')->middleware(['auth','active','admin'])->g
         Route::put('/angebote/{offer}', [AdminOfferController::class, 'update'])->name('offers.update');
         Route::post('/angebote/{offer}/duplizieren', [AdminOfferController::class, 'duplicate'])->name('offers.duplicate');
         Route::delete('/angebote/{offer}', [AdminOfferController::class, 'destroy'])->name('offers.destroy');
-    });
+    
 
-    Route::middleware('permission:orders.manage')->group(function () {
+    
         Route::get('/auftraege', [AdminOrderController::class, 'index'])->name('orders.index');
         Route::get('/auftraege/{order}', [AdminOrderController::class, 'show'])->name('orders.show');
         Route::post('/auftraege/{order}/bestaetigen', [AdminOrderController::class, 'approve'])->name('orders.approve');
@@ -163,48 +163,48 @@ Route::prefix('admin')->name('admin.')->middleware(['auth','active','admin'])->g
         Route::get('/vorpruefungen', [AdminPrecheckController::class, 'index'])->name('prechecks.index');
         Route::get('/vorpruefungen/{precheck}/datei', [AdminPrecheckController::class, 'file'])->name('prechecks.file');
         Route::post('/vorpruefungen/{precheck}/pruefen', [AdminPrecheckController::class, 'review'])->name('prechecks.review');
-    });
+    
 
-    Route::middleware('permission:proofs.manage')->group(function () {
+    
         Route::get('/nachweise', [AdminProofController::class, 'index'])->name('proofs.index');
         Route::get('/nachweise/{proof}/datei', [AdminProofController::class, 'file'])->name('proofs.file');
         Route::post('/nachweise/{proof}/pruefen', [AdminProofController::class, 'review'])->name('proofs.review');
         Route::post('/nachweise/{proof}/zusatzversuch', [AdminProofController::class, 'grantExtraRetry'])->name('proofs.extra-retry');
-    });
-    Route::middleware('permission:payouts.manage')->group(function () {
+    
+    
         Route::get('/auszahlungen', [AdminPayoutController::class, 'index'])->name('payouts.index');
         Route::post('/auszahlungen/{payout}', [AdminPayoutController::class, 'update'])->name('payouts.update');
-    });
+    
 
-    Route::middleware('permission:messages.manage')->group(function () {
+    
         Route::get('/nachrichten', [AdminConversationController::class, 'index'])->name('messages.index');
         Route::get('/nachrichten/{conversation}', [AdminConversationController::class, 'show'])->name('messages.show');
         Route::post('/nachrichten/{conversation}/antwort', [AdminConversationController::class, 'reply'])->name('messages.reply');
-    });
+    
 
-    Route::middleware('permission:privacy.manage')->group(function () {
+    
         Route::get('/datenschutz', [AdminPrivacyController::class, 'index'])->name('privacy.index');
         Route::get('/datenschutz/{privacyRequest}', [AdminPrivacyController::class, 'show'])->name('privacy.show');
         Route::post('/datenschutz/{privacyRequest}/pruefen', [AdminPrivacyController::class, 'review'])->name('privacy.review');
         Route::post('/datenschutz/{privacyRequest}/anonymisieren', [AdminPrivacyController::class, 'anonymize'])->name('privacy.anonymize');
-    });
+    
 
-    Route::middleware('permission:documents.manage')->group(function () {
+    
         Route::get('/dokumente', [AdminDocumentController::class, 'index'])->name('documents.index');
         Route::post('/dokumente', [AdminDocumentController::class, 'store'])->name('documents.store');
-    });
+    
 
-    Route::middleware('permission:reports.view')->group(function () {
+    
         Route::get('/berichte', [AdminReportController::class, 'index'])->name('reports.index');
         Route::get('/berichte/export/{type}', [AdminReportController::class, 'export'])->name('reports.export');
-    });
+    
 
-    Route::get('/audit', [AdminAuditController::class, 'index'])->middleware('permission:audit.view')->name('audit.index');
+    Route::get('/audit', [AdminAuditController::class, 'index'])->name('audit.index');
 
-    Route::middleware('permission:settings.manage')->group(function () {
+    
         Route::get('/systemzustand', AdminHealthController::class)->name('health.index');
 
         Route::get('/einstellungen', [AdminSettingsController::class, 'index'])->name('settings.index');
         Route::put('/einstellungen', [AdminSettingsController::class, 'update'])->name('settings.update');
-    });
+    
 });
