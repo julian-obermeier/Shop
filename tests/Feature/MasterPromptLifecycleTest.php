@@ -8,10 +8,12 @@ use App\Models\OfferWaitlistEntry;
 use App\Models\Order;
 use App\Models\OrderDay;
 use App\Models\ProofSubmission;
+use App\Models\ProofChallenge;
 use App\Models\User;
 use App\Models\WalletAccount;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
@@ -343,6 +345,98 @@ class MasterPromptLifecycleTest extends TestCase
         $this->assertSame('returned',$return->status);
         $this->assertSame('RET-123456',$return->tracking_number);
         $this->assertNotNull($return->returned_at);
+    }
+
+
+    public function test_additional_proof_fields_are_server_required_and_stored(): void
+    {
+        Storage::fake('proofs');
+
+        $provider=$this->provider('proof-fields@example.test');
+        $category=$this->category();
+        $offer=$this->offer($category,'Proof Fields');
+
+        $requirements=[[
+            'key'=>'evening',
+            'label'=>'Abendnachweis',
+            'start'=>'00:00',
+            'end'=>'23:59',
+            'required_images'=>1,
+            'text_required'=>false,
+            'face_required'=>false,
+            'image_requirements'=>'Artikel und Code müssen vollständig sichtbar sein.',
+            'required_fields'=>[
+                ['key'=>'aktivitaet','label'=>'Aktivität'],
+                ['key'=>'umgebung','label'=>'Umgebung'],
+            ],
+        ]];
+
+        $order=Order::create([
+            'order_number'=>'20260000306',
+            'user_id'=>$provider->id,
+            'offer_id'=>$offer->id,
+            'status'=>'active',
+            'compensation_total'=>40,
+            'offer_snapshot'=>[
+                'title'=>$offer->title,
+                'duration_days'=>1,
+                'proof_requirements'=>$requirements,
+            ],
+            'current_requirements'=>[
+                'proof_requirements'=>$requirements,
+            ],
+            'series_number'=>1,
+        ]);
+
+        $day=OrderDay::create([
+            'order_id'=>$order->id,
+            'day_number'=>1,
+            'series_number'=>1,
+            'date'=>now('Europe/Berlin')->toDateString(),
+            'required_proofs'=>1,
+            'status'=>'open',
+            'counts_toward_series'=>true,
+        ]);
+
+        $challenge=ProofChallenge::create([
+            'order_id'=>$order->id,
+            'order_day_id'=>$day->id,
+            'user_id'=>$provider->id,
+            'purpose'=>'daily',
+            'window_key'=>'evening',
+            'code'=>'ABC123',
+            'expires_at'=>now()->addMinutes(10),
+        ]);
+
+        $this->actingAs($provider)->post(route('proofs.store',$day),[
+            'proof'=>UploadedFile::fake()->image('proof.jpg',800,600),
+            'challenge_id'=>$challenge->id,
+            'proof_code'=>'ABC123',
+            'window_key'=>'evening',
+            'proof_data'=>[
+                'aktivitaet'=>'Spaziergang',
+            ],
+        ])->assertStatus(422);
+
+        $this->assertDatabaseCount('proof_submissions',0);
+        $this->assertNull($challenge->fresh()->used_at);
+
+        $this->actingAs($provider)->post(route('proofs.store',$day),[
+            'proof'=>UploadedFile::fake()->image('proof.jpg',800,600),
+            'challenge_id'=>$challenge->id,
+            'proof_code'=>'ABC123',
+            'window_key'=>'evening',
+            'proof_data'=>[
+                'aktivitaet'=>'Spaziergang',
+                'umgebung'=>'Draußen',
+            ],
+        ])->assertRedirect();
+
+        $proof=$day->proofs()->firstOrFail();
+        $this->assertSame('Spaziergang',$proof->proof_data['aktivitaet']['value']);
+        $this->assertSame('Aktivität',$proof->proof_data['aktivitaet']['label']);
+        $this->assertSame('Draußen',$proof->proof_data['umgebung']['value']);
+        $this->assertNotNull($challenge->fresh()->used_at);
     }
 
 
