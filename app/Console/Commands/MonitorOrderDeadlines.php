@@ -5,6 +5,7 @@ use App\Models\Order;
 use App\Models\OrderDay;
 use App\Models\ProofSubmission;
 use App\Models\ReturnRequest;
+use App\Models\Shipment;
 use App\Models\UserNotification;
 use App\Services\NotificationService;
 use App\Services\OrderService;
@@ -24,6 +25,7 @@ class MonitorOrderDeadlines extends Command
         $this->expireResubmissionDeadlines($orders,$notifications);
         $this->invalidateMissedProofWindows($orders,$notifications);
         $this->monitorShippingDeadlines($notifications,$reliability);
+        $this->expireShipmentEvidenceResubmissions($notifications,$reliability);
         $this->expireReturnRequests($notifications);
 
         return self::SUCCESS;
@@ -244,6 +246,50 @@ class MonitorOrderDeadlines extends Command
                 }
             }
         }
+    }
+
+    private function expireShipmentEvidenceResubmissions(NotificationService $notifications, ReliabilityService $reliability): void
+    {
+        Shipment::with('order.user')
+            ->where('review_status','rejected')
+            ->whereNotNull('resubmit_due_at')
+            ->where('resubmit_due_at','<',now())
+            ->orderBy('id')
+            ->chunkById(100,function($rows) use($notifications,$reliability){
+                foreach($rows as $row){
+                    DB::transaction(function() use($row,$notifications,$reliability){
+                        $shipment=Shipment::with('order.user')->whereKey($row->id)->lockForUpdate()->first();
+                        if(!$shipment || $shipment->review_status!=='rejected' || !$shipment->resubmit_due_at || $shipment->resubmit_due_at->isFuture()) return;
+
+                        $shipment->update([
+                            'review_status'=>'expired',
+                            'resubmit_due_at'=>null,
+                        ]);
+
+                        $order=$shipment->order;
+                        $order->update([
+                            'reliability_issue_count'=>DB::raw('reliability_issue_count + 1'),
+                            'last_reliability_issue'=>'2-Stunden-Nachreichfrist für Versandnachweise versäumt',
+                        ]);
+
+                        $reliability->recordViolation(
+                            $order->user,
+                            $order,
+                            'shipment_evidence_resubmission_missed',
+                            '2-Stunden-Nachreichfrist für Versandnachweise versäumt'
+                        );
+
+                        $notifications->send(
+                            $order->user,
+                            'shipment_evidence_expired',
+                            'Nachreichfrist für Versandnachweise abgelaufen',
+                            'Die 2-Stunden-Frist für neue Versandnachweise zu Auftrag #'.$order->order_number.' ist abgelaufen. Die Fristversäumnis wurde in der Zuverlässigkeit berücksichtigt.',
+                            route('orders.show',$order),
+                            ['order_id'=>$order->id,'shipment_id'=>$shipment->id]
+                        );
+                    });
+                }
+            });
     }
 
     private function expireReturnRequests(NotificationService $notifications): void
