@@ -194,7 +194,6 @@ class PrivacyService
                 'email'=>'deleted+'.$user->id.'+'.Str::lower(Str::random(16)).'@invalid.local',
                 'password'=>Hash::make(Str::random(64)),
                 'status'=>'deleted',
-                'verified_at'=>null,
                 'deactivated_at'=>now(),
                 'deactivation_reason'=>'Konto durch Admin anonymisiert',
             ]);
