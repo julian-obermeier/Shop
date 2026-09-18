@@ -119,6 +119,8 @@ document.addEventListener('DOMContentLoaded', () => {
       <label>Bilder<input type="number" min="1" max="20" name="proof_windows[${index}][required_images]" value="1" required></label>
       <label class="check"><input type="checkbox" name="proof_windows[${index}][text_required]" value="1"><span>Text Pflicht</span></label>
       <label class="check"><input type="checkbox" name="proof_windows[${index}][face_required]" value="1"><span>Gesicht Pflicht</span></label>
+      <label class="wide">Konkrete Bildanforderungen<textarea name="proof_windows[${index}][image_requirements]" rows="2"></textarea></label>
+      <label class="wide">Zusätzliche Pflichtangaben – eine pro Zeile<textarea name="proof_windows[${index}][required_fields_text]" rows="3"></textarea></label>
       <button type="button" class="icon-btn" data-remove-proof-window>×</button>`;
     holder.appendChild(row);
     index++;
