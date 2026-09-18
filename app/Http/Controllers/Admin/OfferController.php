@@ -184,6 +184,8 @@ class OfferController extends Controller
             'proof_windows.*.start'=>['required','date_format:H:i'],
             'proof_windows.*.end'=>['required','date_format:H:i'],
             'proof_windows.*.required_images'=>['required','integer','min:1','max:20'],
+            'proof_windows.*.image_requirements'=>['nullable','string','max:2000'],
+            'proof_windows.*.required_fields_text'=>['nullable','string','max:4000'],
             'points_affect_compensation'=>['nullable','boolean'],
             'score_bands'=>['nullable','string','max:5000'],
         ]);
@@ -196,6 +198,25 @@ class OfferController extends Controller
             $suffix=2;
             while(collect($proofWindows)->contains(fn($existing)=>$existing['key']===$key)) $key=$base.'_'.$suffix++;
 
+            $requiredFields=[];
+            foreach(preg_split('/\r\n|\r|\n/',(string)($row['required_fields_text']??'')) as $fieldIndex=>$fieldLabel){
+                $fieldLabel=trim($fieldLabel);
+                if($fieldLabel==='') continue;
+
+                $fieldKey=Str::slug($fieldLabel,'_');
+                if($fieldKey==='') $fieldKey='pflichtangabe_'.($fieldIndex+1);
+                $baseFieldKey=$fieldKey;
+                $fieldSuffix=2;
+                while(collect($requiredFields)->contains(fn($existing)=>$existing['key']===$fieldKey)){
+                    $fieldKey=$baseFieldKey.'_'.$fieldSuffix++;
+                }
+
+                $requiredFields[]=[
+                    'key'=>$fieldKey,
+                    'label'=>$fieldLabel,
+                ];
+            }
+
             $proofWindows[]=[
                 'key'=>$key,
                 'label'=>trim($row['label']),
@@ -204,6 +225,8 @@ class OfferController extends Controller
                 'required_images'=>(int)$row['required_images'],
                 'text_required'=>filter_var($request->input("proof_windows.$i.text_required",false),FILTER_VALIDATE_BOOLEAN),
                 'face_required'=>filter_var($request->input("proof_windows.$i.face_required",false),FILTER_VALIDATE_BOOLEAN),
+                'image_requirements'=>trim((string)($row['image_requirements']??'')) ?: null,
+                'required_fields'=>$requiredFields,
             ];
         }
 
