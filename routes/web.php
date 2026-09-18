@@ -71,8 +71,11 @@ Route::middleware(['auth','active'])->group(function () {
     Route::get('/auftraege', [OrderController::class, 'index'])->name('orders.index');
     Route::get('/auftraege/{order}', [OrderController::class, 'show'])->name('orders.show');
     Route::post('/auftraege/{order}/vorpruefung', [PrecheckController::class, 'store'])->middleware('throttle:10,10')->name('orders.precheck');
+    Route::post('/auftraege/{order}/termin-bestaetigen', [OrderController::class, 'acceptDate'])->name('orders.accept-date');
+    Route::post('/auftraege/{order}/zurueckziehen', [OrderController::class, 'withdraw'])->name('orders.withdraw');
     Route::post('/auftraege/{order}/start', [OrderController::class, 'start'])->name('orders.start');
     Route::post('/auftraege/{order}/abschliessen', [OrderController::class, 'complete'])->name('orders.complete');
+    Route::post('/auftraege/{order}/abbrechen', [OrderController::class, 'abort'])->name('orders.abort');
     Route::post('/auftraege/{order}/versand', [ShipmentController::class, 'store'])->name('orders.shipment');
 
     Route::post('/auftragstage/{day}/nachweise', [ProofController::class, 'store'])->middleware('throttle:30,10')->name('proofs.store');
@@ -125,7 +128,11 @@ Route::prefix('admin')->name('admin.')->middleware(['auth','active','admin'])->g
     Route::middleware('permission:orders.manage')->group(function () {
         Route::get('/auftraege', [AdminOrderController::class, 'index'])->name('orders.index');
         Route::get('/auftraege/{order}', [AdminOrderController::class, 'show'])->name('orders.show');
+        Route::post('/auftraege/{order}/bestaetigen', [AdminOrderController::class, 'approve'])->name('orders.approve');
+        Route::post('/auftraege/{order}/termin-vorschlagen', [AdminOrderController::class, 'proposeDate'])->name('orders.propose-date');
         Route::post('/auftraege/{order}/status', [AdminOrderController::class, 'status'])->name('orders.status');
+        Route::post('/auftraege/{order}/fortsetzen', [AdminOrderController::class, 'resume'])->name('orders.resume');
+        Route::post('/auftraege/{order}/anforderungen', [AdminOrderController::class, 'updateRequirements'])->name('orders.requirements');
         Route::post('/auftraege/{order}/wareneingang', [AdminGoodsReceiptController::class, 'store'])->name('orders.goods-receipt');
         Route::post('/auftraege/{order}/verguetung-freigeben', [AdminOrderController::class, 'release'])->name('orders.release');
 
