@@ -9,6 +9,7 @@ use App\Models\UserRestriction;
 use App\Models\WalletAccount;
 use App\Services\AuditService;
 use App\Services\NotificationService;
+use App\Services\PrivacyService;
 use App\Services\ReliabilityService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -361,6 +362,36 @@ class UserController extends Controller
         );
 
         return back()->with('success','Konto wurde deaktiviert; alle offenen Aufträge wurden gemäß den gewählten Entscheidungen verarbeitet.');
+    }
+
+    public function deleteAccount(Request $request, User $user, PrivacyService $privacy, AuditService $audit)
+    {
+        abort_unless($user->role==='provider',404);
+        abort_if($user->status==='deleted',422,'Dieses Konto wurde bereits gelöscht/anonymisiert.');
+
+        $data=$request->validate([
+            'confirm'=>['accepted'],
+            'reason'=>['required','string','max:2000'],
+        ]);
+
+        $blockers=$privacy->blockingReasons($user);
+        abort_if($blockers!==[],422,'Kontolöschung derzeit nicht möglich: '.implode('; ',$blockers));
+
+        $before=[
+            'user'=>$user->toArray(),
+            'reason'=>$data['reason'],
+        ];
+
+        $privacy->anonymize($user);
+
+        $audit->log('user.account.deleted',$user,$before,[
+            'user'=>$user->fresh()->toArray(),
+            'reason'=>$data['reason'],
+            'evidence_retained'=>true,
+        ]);
+
+        return redirect()->route('admin.users.index')
+            ->with('success','Konto wurde gelöscht/anonymisiert. Dauerhaft aufzubewahrende Auftragsnachweise und abgeschlossene Transaktionsdaten bleiben erhalten.');
     }
 
     public function reactivate(Request $request, User $user, AuditService $audit, NotificationService $notifications)
