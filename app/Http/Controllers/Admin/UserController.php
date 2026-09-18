@@ -23,8 +23,46 @@ class UserController extends Controller
 
     public function show(User $user)
     {
-        $user->load('profile','orders','warnings.issuer','restrictions.issuer','verifications');
+        $user->load('profile','orders','warnings.issuer','restrictions.issuer');
         return view('admin.users.show',compact('user'));
+    }
+
+    public function approvePayoutName(Request $request, User $user, AuditService $audit)
+    {
+        abort_unless($user->role==='provider',404);
+        $profile=$user->profile()->firstOrFail();
+        $before=$profile->toArray();
+        $profile->update(['payout_name_approved_at'=>now()]);
+        $audit->log('user.payout_recipient.approved',$profile,$before,$profile->fresh()->toArray());
+        return back()->with('success','Abweichender Auszahlungsempfänger wurde freigegeben.');
+    }
+
+    public function updateMasterData(Request $request, User $user, AuditService $audit)
+    {
+        abort_unless($user->role==='provider',404);
+        $data=$request->validate([
+            'first_name'=>['required','string','max:100'],
+            'last_name'=>['required','string','max:100'],
+            'birth_date'=>['required','date','before_or_equal:'.now()->subYears(18)->toDateString()],
+            'street'=>['nullable','string','max:180'],
+            'postal_code'=>['nullable','string','max:20'],
+            'city'=>['nullable','string','max:120'],
+            'country_code'=>['required','string','size:2'],
+        ]);
+        $before=['user'=>$user->toArray(),'profile'=>$user->profile?->toArray()];
+        $user->update([
+            'first_name'=>$data['first_name'],
+            'last_name'=>$data['last_name'],
+            'birth_date'=>$data['birth_date'],
+        ]);
+        $user->profile()->updateOrCreate([],[
+            'street'=>$data['street']??null,
+            'postal_code'=>$data['postal_code']??null,
+            'city'=>$data['city']??null,
+            'country_code'=>strtoupper($data['country_code']),
+        ]);
+        $audit->log('user.master_data.updated',$user,$before,['user'=>$user->fresh()->toArray(),'profile'=>$user->profile()->first()?->toArray()]);
+        return back()->with('success','Stammdaten wurden aktualisiert.');
     }
 
     public function warning(Request $request, User $user, AuditService $audit, NotificationService $notifications)
