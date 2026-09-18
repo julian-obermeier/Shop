@@ -59,7 +59,6 @@ class ConversationController extends Controller
     {
         $order=$conversation->order;
         return $order
-            && $order->status==='completed'
             && $order->completed_at
             && $order->completed_at->copy()->addDays(7)->isPast();
     }
