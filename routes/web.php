@@ -180,7 +180,6 @@ Route::prefix('admin')->name('admin.')->middleware(['auth','active','admin'])->g
         Route::get('/nachrichten', [AdminConversationController::class, 'index'])->name('messages.index');
         Route::get('/nachrichten/{conversation}', [AdminConversationController::class, 'show'])->name('messages.show');
         Route::post('/nachrichten/{conversation}/antwort', [AdminConversationController::class, 'reply'])->name('messages.reply');
-        Route::post('/nachrichten/{conversation}/schliessen', [AdminConversationController::class, 'close'])->name('messages.close');
     });
 
     Route::middleware('permission:privacy.manage')->group(function () {
