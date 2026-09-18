@@ -19,6 +19,7 @@ use App\Http\Controllers\Admin\ReturnRequestController as AdminReturnRequestCont
 use App\Http\Controllers\Admin\SettingsController as AdminSettingsController;
 use App\Http\Controllers\Admin\ShipmentController as AdminShipmentController;
 use App\Http\Controllers\Admin\UserController as AdminUserController;
+use App\Http\Controllers\Admin\UnassignedShipmentController as AdminUnassignedShipmentController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\Auth\EmailVerificationController;
 use App\Http\Controllers\Auth\PasswordResetController;
@@ -156,6 +157,8 @@ Route::prefix('admin')->name('admin.')->middleware(['auth','active','admin'])->g
         Route::get('/versandnachweise/{evidence}/datei', [AdminShipmentController::class, 'evidence'])->name('shipments.evidence');
         Route::post('/versand/{shipment}/pruefen', [AdminShipmentController::class, 'review'])->name('shipments.review');
         Route::post('/auftraege/{order}/verguetung-freigeben', [AdminOrderController::class, 'release'])->name('orders.release');
+        Route::get('/nicht-zuordenbare-sendungen', [AdminUnassignedShipmentController::class, 'index'])->name('unassigned-shipments.index');
+        Route::post('/nicht-zuordenbare-sendungen', [AdminUnassignedShipmentController::class, 'store'])->name('unassigned-shipments.store');
 
         Route::get('/vorpruefungen', [AdminPrecheckController::class, 'index'])->name('prechecks.index');
         Route::get('/vorpruefungen/{precheck}/datei', [AdminPrecheckController::class, 'file'])->name('prechecks.file');
