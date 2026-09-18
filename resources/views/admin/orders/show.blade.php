@@ -227,6 +227,8 @@ $pointsAffect=(bool)data_get($inspectionConfig,'points_affect_compensation',fals
 @if($order->returnRequest)
 <div class="panel"><h2>Rücksendung</h2>
 <p>Status: <strong>{{ strtoupper($order->returnRequest->status) }}</strong><br>Frist: {{ $order->returnRequest->fulfillment_due_at?->format('d.m.Y H:i') }}</p>
+@if($order->returnRequest->returned_at)<p>Zurückgesendet: <strong>{{ $order->returnRequest->returned_at->format('d.m.Y H:i') }}</strong></p>@endif
+@if($order->returnRequest->tracking_number)<p>Tracking: <strong>{{ $order->returnRequest->tracking_number }}</strong></p>@endif
 @if($order->returnRequest->method==='own_label' && $order->returnRequest->return_label_path)
 <a class="btn secondary wide" href="{{ route('admin.returns.label',$order->returnRequest) }}">Rücksendeetikett öffnen</a>
 @endif
