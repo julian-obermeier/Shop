@@ -22,6 +22,7 @@
         <a class="{{ request()->routeIs('profile.*')?'active':'' }}" href="{{ route('profile.edit') }}">♙ <span>Profil</span></a>
         <a class="{{ request()->routeIs('verification.*')?'active':'' }}" href="{{ route('verification.index') }}">✓ <span>Verifizierung</span></a>
         <a class="{{ request()->routeIs('documents.*')?'active':'' }}" href="{{ route('documents.index') }}">▤ <span>Dokumente</span></a>
+        <a class="{{ request()->routeIs('privacy.*')?'active':'' }}" href="{{ route('privacy.index') }}">◈ <span>Datenschutz</span></a>
 
         @if(auth()->user()->isAdmin())
         <div class="nav-caption">Administration</div>
@@ -36,6 +37,7 @@
         @if(auth()->user()->hasPermission('payouts.manage'))<a class="{{ request()->routeIs('admin.payouts.*')?'active':'' }}" href="{{ route('admin.payouts.index') }}">€ <span>Auszahlungen</span></a>@endif
         @if(auth()->user()->hasPermission('messages.manage'))<a class="{{ request()->routeIs('admin.messages.*')?'active':'' }}" href="{{ route('admin.messages.index') }}">✉ <span>Nachrichten</span></a>@endif
         @if(auth()->user()->hasPermission('documents.manage'))<a class="{{ request()->routeIs('admin.documents.*')?'active':'' }}" href="{{ route('admin.documents.index') }}">▤ <span>Dokumente</span></a>@endif
+        @if(auth()->user()->hasPermission('privacy.manage'))<a class="{{ request()->routeIs('admin.privacy.*')?'active':'' }}" href="{{ route('admin.privacy.index') }}">◈ <span>Datenschutz</span></a>@endif
         @if(auth()->user()->hasPermission('reports.view'))<a class="{{ request()->routeIs('admin.reports.*')?'active':'' }}" href="{{ route('admin.reports.index') }}">▥ <span>Berichte</span></a>@endif
         @if(auth()->user()->hasPermission('audit.view'))<a class="{{ request()->routeIs('admin.audit.*')?'active':'' }}" href="{{ route('admin.audit.index') }}">☷ <span>Audit-Log</span></a>@endif
         @if(auth()->user()->hasPermission('settings.manage'))<a class="{{ request()->routeIs('admin.admin-users.*')?'active':'' }}" href="{{ route('admin.admin-users.index') }}">♟ <span>Admin-Team</span></a>@endif
