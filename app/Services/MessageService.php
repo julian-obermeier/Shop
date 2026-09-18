@@ -10,10 +10,10 @@ use Illuminate\Support\Str;
 
 class MessageService
 {
-    public function __construct(private ImageSanitizer $images) {}
-
     public function create(Conversation $conversation, User $sender, ?string $body, ?UploadedFile $attachment=null): Message
     {
+        abort_unless($conversation->order_id,422,'Nachrichten sind nur innerhalb eines Auftrags zulässig.');
+
         $attributes=[
             'user_id'=>$sender->id,
             'body'=>trim((string)$body),
@@ -22,24 +22,17 @@ class MessageService
         if($attachment){
             $original=$attachment->getClientOriginalName();
             $mime=$attachment->getMimeType() ?: 'application/octet-stream';
-            $folder='conversation-'.$conversation->id;
+            abort_unless(str_starts_with($mime,'image/') || $mime==='application/pdf',422,'Als Anhang sind nur Bilder oder PDF-Dateien erlaubt.');
 
-            if(str_starts_with($mime,'image/')){
-                $stored=$this->images->store($attachment,'messages',$folder,2200,2200);
-                $path=$stored['path'];
-                $mime=$stored['mime'];
-                $size=$stored['size'];
-            } else {
-                abort_unless($mime==='application/pdf',422,'Als Anhang sind nur Bilder oder PDF-Dateien erlaubt.');
-                $path=$attachment->storeAs($folder,Str::uuid().'.pdf','messages');
-                $size=$attachment->getSize();
-            }
+            $folder='conversation-'.$conversation->id;
+            $extension=strtolower($attachment->getClientOriginalExtension() ?: ($mime==='application/pdf'?'pdf':'jpg'));
+            $path=$attachment->storeAs($folder,Str::uuid().'.'.$extension,'messages');
 
             $attributes += [
                 'attachment_path'=>$path,
                 'attachment_original_name'=>$original,
                 'attachment_mime'=>$mime,
-                'attachment_size'=>$size,
+                'attachment_size'=>$attachment->getSize(),
                 'attachment_sha256'=>hash_file('sha256',Storage::disk('messages')->path($path)),
             ];
         }
