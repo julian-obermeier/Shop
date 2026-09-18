@@ -15,6 +15,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
@@ -577,6 +578,207 @@ class MasterPromptLifecycleTest extends TestCase
         ])->assertStatus(422);
 
         $this->assertDatabaseCount('proof_challenges',0);
+    }
+
+
+    public function test_upload_restriction_blocks_provider_files_but_keeps_text_and_non_upload_return_path_available(): void
+    {
+        Mail::fake();
+        Storage::fake('shipments');
+        Storage::fake('messages');
+        Storage::fake('returns');
+
+        $provider=$this->provider('upload-restricted@example.test');
+        $category=$this->category();
+        $offer=$this->offer($category,'Upload Restriction');
+
+        $provider->restrictions()->create([
+            'issued_by'=>null,
+            'type'=>'uploads',
+            'reason'=>'Testweise Uploads gesperrt',
+            'starts_at'=>now()->subMinute(),
+            'active'=>true,
+            'required_successes'=>0,
+            'successful_count'=>0,
+        ]);
+
+        $shippingOrder=Order::create([
+            'order_number'=>'20260000309',
+            'user_id'=>$provider->id,
+            'offer_id'=>$offer->id,
+            'status'=>'waiting_shipping',
+            'compensation_total'=>40,
+            'offer_snapshot'=>[
+                'title'=>$offer->title,
+                'duration_days'=>1,
+                'tracking_mode'=>'optional',
+            ],
+            'execution_completed_at'=>now(),
+            'shipping_due_at'=>now()->addHours(24),
+        ]);
+
+        $this->actingAs($provider)->post(route('orders.shipment',$shippingOrder),[
+            'carrier'=>'DHL',
+            'tracking_number'=>'TRACK-1',
+            'package_photo'=>UploadedFile::fake()->image('package.jpg',800,600),
+            'receipt_photo'=>UploadedFile::fake()->image('receipt.jpg',800,600),
+        ])->assertStatus(422);
+
+        $this->assertDatabaseMissing('shipments',['order_id'=>$shippingOrder->id]);
+
+        $messageOrder=Order::create([
+            'order_number'=>'20260000310',
+            'user_id'=>$provider->id,
+            'offer_id'=>$offer->id,
+            'status'=>'requested',
+            'compensation_total'=>40,
+            'offer_snapshot'=>['title'=>$offer->title,'duration_days'=>1],
+        ]);
+
+        $this->actingAs($provider)->post(route('messages.store'),[
+            'order_id'=>$messageOrder->id,
+            'message'=>'Text bleibt erlaubt.',
+            'attachment'=>UploadedFile::fake()->create('anlage.pdf',20,'application/pdf'),
+        ])->assertStatus(422);
+
+        $this->actingAs($provider)->post(route('messages.store'),[
+            'order_id'=>$messageOrder->id,
+            'message'=>'Text bleibt erlaubt.',
+        ])->assertRedirect();
+
+        $this->assertDatabaseHas('messages',[
+            'user_id'=>$provider->id,
+            'body'=>'Text bleibt erlaubt.',
+        ]);
+
+        $returnOrder=Order::create([
+            'order_number'=>'20260000311',
+            'user_id'=>$provider->id,
+            'offer_id'=>$offer->id,
+            'status'=>'rejected',
+            'compensation_total'=>40,
+            'final_compensation'=>0,
+            'offer_snapshot'=>['title'=>$offer->title,'duration_days'=>1],
+            'completed_at'=>now(),
+        ]);
+
+        $returnOrder->goodsInspection()->create([
+            'reviewed_by'=>null,
+            'categories'=>[],
+            'base_percentage'=>0,
+            'extra_results'=>[],
+            'calculated_compensation'=>0,
+            'result'=>'rejected',
+            'reason'=>'Testablehnung',
+            'reviewed_at'=>now(),
+        ]);
+
+        $this->actingAs($provider)->post(route('orders.return-request',$returnOrder),[
+            'method'=>'own_label',
+            'return_label'=>UploadedFile::fake()->create('return.pdf',20,'application/pdf'),
+        ])->assertStatus(422);
+
+        $this->assertNull($returnOrder->fresh()->returnRequest);
+
+        $this->actingAs($provider)->post(route('orders.return-request',$returnOrder),[
+            'method'=>'operator_quote',
+        ])->assertRedirect();
+
+        $this->assertDatabaseHas('return_requests',[
+            'order_id'=>$returnOrder->id,
+            'method'=>'operator_quote',
+            'status'=>'awaiting_quote_payment',
+        ]);
+    }
+
+    public function test_third_technical_rejection_waits_for_manual_extra_retry_instead_of_automatic_deadline(): void
+    {
+        Mail::fake();
+
+        $now=CarbonImmutable::parse('2026-09-18 20:00:00','Europe/Berlin');
+        CarbonImmutable::setTestNow($now);
+
+        try{
+            $provider=$this->provider('retry-limit@example.test');
+            $admin=$this->admin('admin-retry-limit@example.test');
+            $category=$this->category();
+            $offer=$this->offer($category,'Retry Limit');
+
+            $requirements=[[
+                'key'=>'morning',
+                'label'=>'Morgennachweis',
+                'start'=>'08:00',
+                'end'=>'10:00',
+                'required_images'=>1,
+            ]];
+
+            $order=Order::create([
+                'order_number'=>'20260000312',
+                'user_id'=>$provider->id,
+                'offer_id'=>$offer->id,
+                'status'=>'active',
+                'compensation_total'=>40,
+                'offer_snapshot'=>[
+                    'title'=>$offer->title,
+                    'duration_days'=>1,
+                    'proof_requirements'=>$requirements,
+                ],
+                'current_requirements'=>[
+                    'proof_requirements'=>$requirements,
+                ],
+                'series_number'=>1,
+            ]);
+
+            $day=OrderDay::create([
+                'order_id'=>$order->id,
+                'day_number'=>1,
+                'series_number'=>1,
+                'date'=>$now->toDateString(),
+                'required_proofs'=>1,
+                'status'=>'open',
+                'counts_toward_series'=>true,
+            ]);
+
+            $proof=ProofSubmission::create([
+                'order_day_id'=>$day->id,
+                'user_id'=>$provider->id,
+                'type'=>'photo',
+                'window_key'=>'morning',
+                'storage_path'=>'retry-2.jpg',
+                'original_name'=>'retry-2.jpg',
+                'mime_type'=>'image/jpeg',
+                'file_size'=>100,
+                'sha256'=>str_repeat('b',64),
+                'retry_number'=>2,
+                'review_status'=>'pending',
+            ]);
+
+            $this->actingAs($admin)->post(route('admin.proofs.review',$proof),[
+                'review_status'=>'rejected',
+                'rejection_kind'=>'technical',
+                'review_comment'=>'Noch einmal technisch unbrauchbar',
+            ])->assertRedirect();
+
+            $proof->refresh();
+            $this->assertSame('rejected',$proof->review_status);
+            $this->assertNull($proof->resubmit_due_at);
+            $this->assertFalse((bool)$proof->extra_retry_granted);
+
+            $this->artisan('orders:deadlines')->assertExitCode(0);
+
+            $this->assertSame('open',$day->fresh()->status);
+            $this->assertTrue((bool)$day->fresh()->counts_toward_series);
+
+            $this->actingAs($admin)->post(route('admin.proofs.extra-retry',$proof))
+                ->assertRedirect();
+
+            $proof->refresh();
+            $this->assertTrue((bool)$proof->extra_retry_granted);
+            $this->assertNotNull($proof->resubmit_due_at);
+            $this->assertEquals(7200,$now->diffInSeconds($proof->resubmit_due_at,false));
+        } finally {
+            CarbonImmutable::setTestNow();
+        }
     }
 
 
