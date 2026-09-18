@@ -1,20 +1,75 @@
 <?php
 namespace App\Services;
+
 use App\Models\Order;
 use App\Models\WalletAccount;
 use Illuminate\Support\Facades\DB;
-class WalletService {
-    public function release(Order $order): void {
-        DB::transaction(function () use ($order) {
-            abort_unless(in_array($order->status, ['received','inspection','accepted'], true), 422, 'Vergütung kann in diesem Status nicht freigegeben werden.');
-            $wallet = WalletAccount::firstOrCreate(['user_id'=>$order->user_id]);
-            $already = $wallet->entries()->where('order_id',$order->id)->where('entry_type','order_released')->exists();
-            if ($already) return;
-            $amount=(float)$order->compensation_total;
-            $wallet->entries()->create(['order_id'=>$order->id,'bucket'=>'pending','entry_type'=>'pending_reversal','amount'=>-$amount,'reference'=>$order->order_number,'description'=>'Vormerkung freigegeben']);
-            $wallet->entries()->create(['order_id'=>$order->id,'bucket'=>'available','entry_type'=>'order_released','amount'=>$amount,'reference'=>$order->order_number,'description'=>'Vergütung nach Prüfung freigegeben']);
-            $order->update(['status'=>'compensation_released']);
-            $order->statusHistory()->create(['changed_by'=>auth()->id(),'from_status'=>'inspection','to_status'=>'compensation_released','reason'=>'Vergütung freigegeben']);
+
+class WalletService
+{
+    public function release(Order $order): void
+    {
+        DB::transaction(function() use($order){
+            $order=Order::with(['goodsInspection','days.proofs','shipment'])->whereKey($order->id)->lockForUpdate()->firstOrFail();
+
+            abort_unless($order->status==='accepted',422,'Vergütung kann erst nach abgeschlossener und angenommener Warenprüfung freigegeben werden.');
+            abort_unless($order->goodsInspection && $order->goodsInspection->result==='accepted',422,'Es fehlt eine erfolgreich abgeschlossene Warenprüfung.');
+
+            $wallet=WalletAccount::where('user_id',$order->user_id)->lockForUpdate()->firstOrCreate(['user_id'=>$order->user_id]);
+            $already=$wallet->entries()
+                ->where('order_id',$order->id)
+                ->where('entry_type','order_released')
+                ->exists();
+
+            abort_if($already,422,'Die Vergütung dieses Auftrags wurde bereits freigegeben.');
+
+            $amount=round((float)($order->final_compensation ?? $order->goodsInspection->calculated_compensation ?? $order->compensation_total),2);
+            abort_if($amount<0,422,'Ungültiger Vergütungsbetrag.');
+
+            if($amount>0){
+                $wallet->entries()->create([
+                    'order_id'=>$order->id,
+                    'bucket'=>'available',
+                    'entry_type'=>'order_released',
+                    'amount'=>$amount,
+                    'reference'=>$order->order_number,
+                    'description'=>'Vergütung nach finaler Warenprüfung freigegeben',
+                    'metadata'=>['goods_inspection_id'=>$order->goodsInspection->id],
+                ]);
+            }
+
+            $order->update([
+                'status'=>'completed',
+                'final_compensation'=>$amount,
+                'completed_at'=>now(),
+            ]);
+
+            $order->statusHistory()->create([
+                'changed_by'=>auth()->id(),
+                'from_status'=>'accepted',
+                'to_status'=>'completed',
+                'reason'=>'Finale Vergütung '.$amount.' EUR freigegeben',
+            ]);
+
+            if($this->isErrorFree($order)){
+                $order->user->restrictions()
+                    ->current()
+                    ->where('successful_count','<',DB::raw('required_successes'))
+                    ->increment('successful_count');
+            }
         });
+    }
+
+    private function isErrorFree(Order $order): bool
+    {
+        if((int)$order->reliability_issue_count>0) return false;
+
+        $proofs=$order->days->flatMap(fn($day)=>$day->proofs);
+        if($proofs->contains(fn($proof)=>(int)$proof->retry_number>0 || $proof->review_status==='rejected')) return false;
+
+        $extras=$order->goodsInspection?->extra_results;
+        if(is_array($extras) && collect($extras)->contains(fn($result)=>!((bool)($result['fulfilled']??false)))) return false;
+
+        return true;
     }
 }
