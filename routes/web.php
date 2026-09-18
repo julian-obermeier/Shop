@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Admin\AdminUserController as AdminTeamController;
 use App\Http\Controllers\Admin\AuditController as AdminAuditController;
 use App\Http\Controllers\Admin\CategoryController as AdminCategoryController;
 use App\Http\Controllers\Admin\ConversationController as AdminConversationController;
@@ -157,6 +158,10 @@ Route::prefix('admin')->name('admin.')->middleware(['auth','active','admin'])->g
     Route::get('/audit', [AdminAuditController::class, 'index'])->middleware('permission:audit.view')->name('audit.index');
 
     Route::middleware('permission:settings.manage')->group(function () {
+        Route::get('/team', [AdminTeamController::class, 'index'])->name('admin-users.index');
+        Route::post('/team', [AdminTeamController::class, 'store'])->name('admin-users.store');
+        Route::put('/team/{adminUser}', [AdminTeamController::class, 'update'])->name('admin-users.update');
+
         Route::get('/einstellungen', [AdminSettingsController::class, 'index'])->name('settings.index');
         Route::put('/einstellungen', [AdminSettingsController::class, 'update'])->name('settings.update');
     });
