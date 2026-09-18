@@ -113,11 +113,28 @@ $pointsAffect=(bool)data_get($inspectionConfig,'points_affect_compensation',fals
 <label>Alternativen Termin vorschlagen<input type="date" name="start_date" min="{{ now('Europe/Berlin')->format('Y-m-d') }}" required></label>
 <button class="btn secondary wide">Termin vorschlagen</button>
 </form>
+<hr>
+<form method="post" action="{{ route('admin.orders.reject-request',$order) }}" class="stack-form">@csrf
+<label>Ablehnungsgrund optional<textarea name="reason" rows="3"></textarea></label>
+<button class="btn secondary wide">Anfrage ablehnen</button>
+</form>
 </div>
 @endif
 
 @if($order->status==='awaiting_date_confirmation')
-<div class="panel"><h2>Warten auf Terminbestätigung</h2><p>Vorgeschlagen: <strong>{{ $order->proposed_start_date?->format('d.m.Y') }}</strong>. Die Anbieterin muss den Termin ausdrücklich bestätigen.</p></div>
+<div class="panel"><h2>Warten auf Terminbestätigung</h2><p>Vorgeschlagen: <strong>{{ $order->proposed_start_date?->format('d.m.Y') }}</strong>. Die Anbieterin muss den Termin ausdrücklich bestätigen.</p>
+<form method="post" action="{{ route('admin.orders.reject-request',$order) }}" class="stack-form">@csrf
+<label>Ablehnungsgrund optional<textarea name="reason" rows="3"></textarea></label>
+<button class="btn secondary wide">Anfrage ablehnen</button>
+</form></div>
+@endif
+
+@if($order->status==='request_rejected')
+<div class="panel">
+<h2>Abgelehnte Anfrage</h2>
+<p>Diese Anfrage ist nicht endgültig abgeschlossen und darf vom Admin wieder geöffnet werden.</p>
+<form method="post" action="{{ route('admin.orders.reopen-request',$order) }}">@csrf<button class="btn primary wide">Anfrage wieder öffnen</button></form>
+</div>
 @endif
 
 @if(in_array($order->status,['shipped','received'],true))
