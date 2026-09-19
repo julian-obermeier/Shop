@@ -17,7 +17,7 @@ class OfferWaitlistController extends Controller
         abort_unless($request->user()->hasVerifiedEmail(),422,'Bitte bestätige zuerst deine E-Mail-Adresse.');
         abort_if($request->user()->effectiveOrderLimit()===0,422,'Neue Wartelistenpositionen sind aufgrund einer aktiven Zuverlässigkeitseinschränkung derzeit gesperrt.');
         abort_if($request->user()->isOfferBlocked($offer->id),422,'Dieses Angebot ist für dein Konto aufgrund einer aktiven Zuverlässigkeitseinschränkung ausgeschlossen.');
-        abort_if($waitlists->availableSlots($offer)>0,422,'Für dieses Angebot ist aktuell ein direkter Platz frei; eine Warteliste ist nicht erforderlich.');
+        abort_if($waitlists->availableDirectSlots($offer)>0,422,'Für dieses Angebot ist aktuell ein direkter Platz frei; eine Warteliste ist nicht erforderlich.');
 
         $data=$request->validate([
             'planned_start_date'=>[$offer->is_sock_wearing?'required':'nullable','date'],
