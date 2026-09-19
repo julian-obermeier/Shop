@@ -30,21 +30,47 @@ class WalletController extends Controller
             'paypal_name'=>['nullable','string','max:255'],
         ]);
 
+        $profile=$user->profile()->firstOrNew([]);
+        $normalized=[
+            'bank_iban'=>($data['bank_iban']??null) !== null ? trim((string)$data['bank_iban']) : null,
+            'bank_account_holder'=>($data['bank_account_holder']??null) !== null ? trim((string)$data['bank_account_holder']) : null,
+            'paypal_email'=>($data['paypal_email']??null) !== null ? trim((string)$data['paypal_email']) : null,
+            'paypal_name'=>($data['paypal_name']??null) !== null ? trim((string)$data['paypal_name']) : null,
+        ];
+
+        foreach($normalized as $key=>$value){
+            if($value==='') $normalized[$key]=null;
+        }
+
+        $changed=collect(array_keys($normalized))
+            ->contains(fn($key)=>(string)($profile->{$key}??'') !== (string)($normalized[$key]??''));
+
+        if(!$changed){
+            return back()->with('success','Auszahlungsdaten sind unverändert. Die bestehende 24-Stunden-Sicherheitsfrist wurde nicht neu gestartet.');
+        }
+
         $fullName=$this->normalizeName($user->first_name.' '.$user->last_name);
-        $bankName=$this->normalizeName($data['bank_account_holder']??'');
-        $paypalName=$this->normalizeName($data['paypal_name']??'');
+        $bankName=$this->normalizeName($normalized['bank_account_holder']??'');
+        $paypalName=$this->normalizeName($normalized['paypal_name']??'');
         $mismatch=($bankName!=='' && $bankName!==$fullName) || ($paypalName!=='' && $paypalName!==$fullName);
 
-        $user->profile()->updateOrCreate([],[
-            'bank_iban'=>$data['bank_iban']??null,
-            'bank_account_holder'=>$data['bank_account_holder']??null,
-            'paypal_email'=>$data['paypal_email']??null,
-            'paypal_name'=>$data['paypal_name']??null,
-            'payout_details_changed_at'=>now(),
-            'payout_name_approved_at'=>$mismatch?null:now(),
-        ]);
+        $recipientNamesChanged=
+            (string)($profile->bank_account_holder??'') !== (string)($normalized['bank_account_holder']??'')
+            || (string)($profile->paypal_name??'') !== (string)($normalized['paypal_name']??'');
 
-        return back()->with('success',$mismatch
+        $approvedAt=$profile->payout_name_approved_at;
+        if($recipientNamesChanged){
+            $approvedAt=$mismatch?null:now();
+        } elseif(!$mismatch){
+            $approvedAt=$approvedAt ?: now();
+        }
+
+        $profile->fill($normalized+[
+            'payout_details_changed_at'=>now(),
+            'payout_name_approved_at'=>$approvedAt,
+        ])->save();
+
+        return back()->with('success',$mismatch && !$approvedAt
             ? 'Auszahlungsdaten gespeichert. Wegen des abweichenden Empfängernamens ist zusätzlich eine Adminfreigabe erforderlich.'
             : 'Auszahlungsdaten gespeichert. Für neue Auszahlungen gilt jetzt die 24-Stunden-Sicherheitssperre.');
     }
