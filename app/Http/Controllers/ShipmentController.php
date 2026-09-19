@@ -3,6 +3,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Order;
 use App\Models\Shipment;
+use App\Services\CameraCaptureService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -10,7 +11,7 @@ use Illuminate\Support\Str;
 
 class ShipmentController extends Controller
 {
-    public function store(Request $request, Order $order)
+    public function store(Request $request, Order $order, CameraCaptureService $captures)
     {
         abort_unless($order->user_id===$request->user()->id,403);
 
@@ -34,6 +35,7 @@ class ShipmentController extends Controller
             'tracking_number'=>[$trackingMode==='required'?'required':'nullable','string','max:150'],
             'package_photo'=>[$packageRequired?'required':'nullable','image','mimes:jpg,jpeg,png,webp','max:10240'],
             'receipt_photo'=>[$receiptRequired?'required':'nullable','image','mimes:jpg,jpeg','max:10240'],
+            'camera_capture_token'=>[$receiptRequired?'required':'nullable','string','max:128'],
         ]);
 
         if($request->hasFile('receipt_photo')){
@@ -42,6 +44,12 @@ class ShipmentController extends Controller
                 str_starts_with(strtolower($receiptOriginal),'live-'),
                 422,
                 'Der Versand-/Annahmebeleg muss direkt über die Live-Kamera der Webanwendung aufgenommen werden.'
+            );
+
+            $captures->consume(
+                $request,
+                (string)$data['camera_capture_token'],
+                'shipment:'.$order->id.':receipt'
             );
         }
 
