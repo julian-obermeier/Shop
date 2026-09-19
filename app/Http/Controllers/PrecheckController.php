@@ -11,7 +11,6 @@ class PrecheckController extends Controller
     public function store(Request $request, Order $order)
     {
         abort_unless($order->user_id===$request->user()->id,403);
-        abort_if($request->user()->hasRestriction('uploads'),422,'Uploads sind für dieses Konto derzeit gesperrt.');
         abort_unless(in_array($order->status,['precheck','precheck_resubmit'],true),422,'Für diesen Auftrag ist aktuell keine Vorprüfung möglich.');
 
         $data=$request->validate([
