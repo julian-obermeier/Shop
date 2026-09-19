@@ -31,6 +31,11 @@ jobs:
       - name: PHP syntax check
         run: find app routes database tests -name '*.php' -print0 | xargs -0 -n1 php -l
 
+      - name: JavaScript syntax check
+        run: |
+          node --check public/assets/js/app.js
+          node --check public/service-worker.js
+
       - name: Install dependencies
         run: composer install --no-interaction --prefer-dist --no-progress
 
