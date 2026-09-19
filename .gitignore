@@ -8,3 +8,7 @@
 /vendor
 .env
 .phpunit.result.cache
+
+.installed
+.installer-tmp/
+.installer-backups/
