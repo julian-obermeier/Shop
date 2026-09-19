@@ -53,7 +53,6 @@ class WalletController extends Controller
     {
         $user=$request->user()->load('profile');
 
-        abort_if($user->hasRestriction('payouts'),422,'Auszahlungen sind für dieses Konto derzeit gesperrt.');
         abort_unless($user->hasVerifiedEmail(),422,'Bitte bestätige vor einer Auszahlung deine E-Mail-Adresse.');
         abort_if(PayoutRequest::where('user_id',$user->id)->whereIn('status',['requested','review','approved','payment_executed','failed'])->exists(),422,'Es kann nur eine offene Auszahlung gleichzeitig bestehen.');
 
