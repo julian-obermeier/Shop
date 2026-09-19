@@ -1789,6 +1789,16 @@ class MasterPromptLifecycleTest extends TestCase
         ]);
 
         $this->actingAs($provider)->post(route('proofs.store',$day),[
+            'proof'=>UploadedFile::fake()->image('live-spoof-without-token.jpg',800,600),
+            'challenge_id'=>$challenge->id,
+            'proof_code'=>'CAM123',
+            'window_key'=>'daily',
+        ])->assertStatus(422);
+
+        $this->assertNull($challenge->fresh()->used_at);
+        $this->assertDatabaseCount('proof_submissions',0);
+
+        $this->actingAs($provider)->post(route('proofs.store',$day),[
             'proof'=>UploadedFile::fake()->image('gallery.jpg',800,600),
             'challenge_id'=>$challenge->id,
             'proof_code'=>'CAM123',
@@ -1823,6 +1833,14 @@ class MasterPromptLifecycleTest extends TestCase
             'execution_completed_at'=>now(),
             'shipping_due_at'=>now()->addHours(24),
         ]);
+
+        $this->actingAs($provider)->post(route('orders.shipment',$shippingOrder),[
+            'carrier'=>'DHL',
+            'package_photo'=>UploadedFile::fake()->image('package.jpg',800,600),
+            'receipt_photo'=>UploadedFile::fake()->image('live-spoof-without-token.jpg',800,600),
+        ])->assertStatus(422);
+
+        $this->assertDatabaseMissing('shipments',['order_id'=>$shippingOrder->id]);
 
         $this->actingAs($provider)->post(route('orders.shipment',$shippingOrder),[
             'carrier'=>'DHL',
