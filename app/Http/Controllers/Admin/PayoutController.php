@@ -21,7 +21,7 @@ class PayoutController extends Controller
     public function update(Request $request, PayoutRequest $payout, AuditService $audit, NotificationService $notifications)
     {
         $data=$request->validate([
-            'status'=>['required','in:requested,review,approved,failed,payment_executed,completed,rejected,cancelled'],
+            'status'=>['required','in:requested,review,approved,failed,payment_executed,rejected,cancelled'],
             'admin_note'=>['nullable','string','max:2000'],
             'rejection_reason'=>['nullable','string','max:2000','required_if:status,rejected'],
         ]);
@@ -33,7 +33,24 @@ class PayoutController extends Controller
             $amount=(float)$payout->amount;
             $wasTerminal=in_array($payout->status,['completed','rejected','cancelled'],true);
 
-            $normalProcessingStatuses=['review','approved','payment_executed','completed'];
+            $allowedTransitions=[
+                'requested'=>['review','rejected','cancelled'],
+                'review'=>['approved','rejected','cancelled'],
+                'approved'=>['payment_executed','failed','rejected','cancelled'],
+                'failed'=>['approved','rejected','cancelled'],
+                'payment_executed'=>[],
+                'completed'=>['requested','review','approved','failed','payment_executed','rejected','cancelled'],
+                'rejected'=>['requested','review','approved','failed','payment_executed','cancelled'],
+                'cancelled'=>['requested','review','approved','failed','payment_executed','rejected'],
+            ];
+
+            abort_unless(
+                in_array($data['status'],$allowedTransitions[$payout->status]??[],true),
+                422,
+                'Dieser Auszahlungsstatus kann aus dem aktuellen Zustand nicht gesetzt werden.'
+            );
+
+            $normalProcessingStatuses=['review','approved','payment_executed'];
             if(
                 !$wasTerminal
                 && in_array($data['status'],$normalProcessingStatuses,true)
@@ -76,19 +93,6 @@ class PayoutController extends Controller
                 $pendingForPayout=$amount;
             }
 
-            if($data['status']==='completed' && !$isPaid){
-                $wallet->entries()->create([
-                    'bucket'=>'payout_pending','entry_type'=>'payout_completed','amount'=>-$pendingForPayout,
-                    'reference'=>$payout->payout_number,'description'=>'Auszahlung abgeschlossen',
-                    'metadata'=>['payout_request_id'=>$payout->id],
-                ]);
-                $wallet->entries()->create([
-                    'bucket'=>'paid','entry_type'=>'payout_paid','amount'=>$amount,
-                    'reference'=>$payout->payout_number,'description'=>'Extern ausgezahlt',
-                    'metadata'=>['payout_request_id'=>$payout->id],
-                ]);
-            }
-
             if(in_array($data['status'],['rejected','cancelled'],true) && !$isPaid){
                 $pendingForPayout=(float)$wallet->entries()
                     ->where('reference',$payout->payout_number)
@@ -123,10 +127,6 @@ class PayoutController extends Controller
 
             if($data['status']==='approved') $updates['approved_at']=now();
             if($data['status']==='payment_executed') $updates['payment_executed_at']=now();
-            if($data['status']==='completed') {
-                $updates['completed_at']=now();
-                $updates['paid_at']=now();
-            }
             if($wasTerminal && $data['status']!==$payout->status) $updates['reopened_at']=now();
 
             $payout->update($updates);
