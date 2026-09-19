@@ -29,8 +29,15 @@ class ShipmentController extends Controller
             'carrier'=>['required','string','max:100'],
             'tracking_number'=>[$trackingMode==='required'?'required':'nullable','string','max:150'],
             'package_photo'=>['required','image','mimes:jpg,jpeg,png,webp','max:10240'],
-            'receipt_photo'=>['required','image','mimes:jpg,jpeg,png,webp','max:10240'],
+            'receipt_photo'=>['required','image','mimes:jpg,jpeg','max:10240'],
         ]);
+
+        $receiptOriginal=(string)$request->file('receipt_photo')->getClientOriginalName();
+        abort_unless(
+            str_starts_with(strtolower($receiptOriginal),'live-'),
+            422,
+            'Der Versand-/Annahmebeleg muss direkt über die Live-Kamera der Webanwendung aufgenommen werden.'
+        );
 
         if($trackingMode==='none') $data['tracking_number']=null;
 
