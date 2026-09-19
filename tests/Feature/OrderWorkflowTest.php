@@ -318,6 +318,36 @@ class OrderWorkflowTest extends TestCase
     }
 
 
+    public function test_unverified_user_can_read_offer_but_cannot_configure_or_join_waitlist_in_ui(): void
+    {
+        [$user,$offer]=$this->makeUserAndOffer(false);
+        $offer->update(['capacity'=>1]);
+
+        \App\Models\Order::create([
+            'order_number'=>'20260000702',
+            'user_id'=>$this->makeUserAndOffer(true)[0]->id,
+            'offer_id'=>$offer->id,
+            'status'=>'approved',
+            'compensation_total'=>40,
+            'offer_snapshot'=>[
+                'title'=>$offer->title,
+                'duration_days'=>2,
+            ],
+            'confirmed_start_date'=>now('Europe/Berlin')->addDay()->toDateString(),
+            'proposed_start_date'=>now('Europe/Berlin')->addDay()->toDateString(),
+        ]);
+
+        $response=$this->actingAs($user)->get(route('offers.show',$offer));
+
+        $response->assertOk();
+        $response->assertSee($offer->title);
+        $response->assertSee('E-Mail-Adresse noch nicht bestätigt.');
+        $response->assertDontSee('name="confirm_summary"',false);
+        $response->assertDontSee('name="planned_start_date"',false);
+        $response->assertDontSee('Auf Warteliste setzen');
+    }
+
+
     private function makeUserAndOffer(bool $emailVerified): array
     {
         $user=User::create([
