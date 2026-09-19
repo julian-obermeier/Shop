@@ -183,8 +183,12 @@ class OfferController extends Controller
         return redirect()->route('admin.offers.edit',$copy)->with('success','Angebot wurde vollständig dupliziert und als inaktiver Entwurf angelegt.');
     }
 
-    public function destroy(Offer $offer, AuditService $audit)
+    public function destroy(Request $request, Offer $offer, AuditService $audit)
     {
+        $request->validate([
+            'confirm_delete'=>['accepted'],
+        ]);
+
         $before=$offer->toArray();
         $audit->log('offer.deleted',$offer,$before,[]);
         $offer->delete();
