@@ -240,6 +240,21 @@ class OrderService
             abort_unless(in_array($order->status,['approved','waiting_start'],true),422,'Der Auftrag kann aktuell nicht aktiviert werden.');
             abort_unless($order->confirmed_start_date,422,'Es fehlt ein bestätigtes Startdatum.');
 
+            if($order->isSockWearing()){
+                $pausedSockExists=Order::where('user_id',$order->user_id)
+                    ->where('id','!=',$order->id)
+                    ->where('status','paused')
+                    ->lockForUpdate()
+                    ->get()
+                    ->contains(fn(Order $candidate)=>$candidate->isSockWearing());
+
+                abort_if(
+                    $pausedSockExists,
+                    422,
+                    'Ein pausierter Socken-Trageauftrag blockiert weiterhin den Socken-Trageplatz. Dieser Auftrag wird erst nach Fortsetzung bzw. Terminverschiebung startbar.'
+                );
+            }
+
             $today=CarbonImmutable::today('Europe/Berlin');
             abort_unless($order->confirmed_start_date->isSameDay($today),422,'Die Aktivierung ist ausschließlich am bestätigten Startdatum möglich.');
 
