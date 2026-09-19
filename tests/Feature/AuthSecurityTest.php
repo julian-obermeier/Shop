@@ -57,6 +57,53 @@ class AuthSecurityTest extends TestCase
         ])->assertRedirect(route('admin.dashboard'));
     }
 
+    public function test_exactly_one_admin_account_is_enforced_by_model(): void
+    {
+        $admin=User::create([
+            'role'=>'admin',
+            'username'=>'single.admin',
+            'first_name'=>'Admin',
+            'last_name'=>'One',
+            'birth_date'=>'1970-01-01',
+            'email'=>'single-admin@example.test',
+            'password'=>'VerySecurePassword123!',
+            'status'=>'active',
+        ]);
+
+        try{
+            User::create([
+                'role'=>'admin',
+                'username'=>'second.admin',
+                'first_name'=>'Admin',
+                'last_name'=>'Two',
+                'birth_date'=>'1970-01-01',
+                'email'=>'second-admin@example.test',
+                'password'=>'VerySecurePassword123!',
+                'status'=>'active',
+            ]);
+            $this->fail('Ein zweites Admin-Konto konnte angelegt werden.');
+        }catch(\LogicException $e){
+            $this->assertStringContainsString('genau ein Admin-Konto',$e->getMessage());
+        }
+
+        try{
+            $admin->update(['role'=>'provider']);
+            $this->fail('Das einzige Admin-Konto konnte in eine andere Rolle umgewandelt werden.');
+        }catch(\LogicException $e){
+            $this->assertStringContainsString('nicht in eine andere Rolle',$e->getMessage());
+        }
+
+        try{
+            $admin->delete();
+            $this->fail('Das einzige Admin-Konto konnte gelöscht werden.');
+        }catch(\LogicException $e){
+            $this->assertStringContainsString('nicht gelöscht',$e->getMessage());
+        }
+
+        $this->assertSame(1,User::where('role','admin')->count());
+    }
+
+
     public function test_adult_registration_creates_unverified_email_account(): void
     {
         Notification::fake();
