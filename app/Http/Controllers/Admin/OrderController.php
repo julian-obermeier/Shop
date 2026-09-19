@@ -130,6 +130,11 @@ class OrderController extends Controller
     public function status(Request $request, Order $order, AuditService $audit, NotificationService $notifications)
     {
         abort_if($order->isTerminal(),422,'Ein endgültig beendeter Auftrag kann über diese Aktion nicht wieder geöffnet oder verändert werden.');
+        abort_if(
+            in_array($order->status,['requested','awaiting_date_confirmation'],true),
+            422,
+            'Noch nicht bestätigte Auftragsanfragen müssen über den Anfrage-Ablehnungsprozess bearbeitet werden.'
+        );
 
         $data=$request->validate([
             'status'=>['required','in:paused,cancelled,rejected'],
