@@ -457,6 +457,71 @@ class MasterPromptCoreTest extends TestCase
     }
 
 
+    public function test_selected_order_options_and_field_values_are_snapshot_immutable_with_controlled_privacy_anonymization(): void
+    {
+        [$provider,$category]=$this->providerAndCategory('immutable-order-selections@example.test');
+        $offer=$this->offer($category,'Immutable Selections');
+
+        $order=$this->makeOrder($provider,$offer,'requested','20260000251');
+
+        $option=$order->options()->create([
+            'offer_option_id'=>null,
+            'name'=>'Sport',
+            'price_delta'=>7.50,
+            'snapshot'=>[
+                'name'=>'Sport',
+                'price_delta'=>7.50,
+            ],
+        ]);
+
+        $field=$order->fieldValues()->create([
+            'offer_field_id'=>null,
+            'key'=>'groesse',
+            'value'=>'39',
+            'field_snapshot'=>[
+                'label'=>'Größe',
+                'type'=>'number',
+            ],
+        ]);
+
+        try{
+            $option->update(['name'=>'Manipuliert']);
+            $this->fail('Gewählte Auftragsoption konnte verändert werden.');
+        }catch(\LogicException $e){
+            $this->assertStringContainsString('unveränderlichen Auftragssnapshots',$e->getMessage());
+        }
+
+        try{
+            $option->delete();
+            $this->fail('Gewählte Auftragsoption konnte gelöscht werden.');
+        }catch(\LogicException $e){
+            $this->assertStringContainsString('nicht aus einem bestehenden Auftrag gelöscht',$e->getMessage());
+        }
+
+        try{
+            $field->update(['value'=>'40']);
+            $this->fail('Auftragsspezifischer Eingabewert konnte verändert werden.');
+        }catch(\LogicException $e){
+            $this->assertStringContainsString('unveränderlich',$e->getMessage());
+        }
+
+        try{
+            $field->delete();
+            $this->fail('Auftragsspezifischer Eingabewert konnte gelöscht werden.');
+        }catch(\LogicException $e){
+            $this->assertStringContainsString('nicht gelöscht',$e->getMessage());
+        }
+
+        $field->anonymizeForDeletedUser();
+
+        $this->assertNull($field->fresh()->value);
+        $this->assertSame('groesse',$field->fresh()->key);
+        $this->assertSame('Größe',data_get($field->fresh()->field_snapshot,'label'));
+        $this->assertSame('Sport',$option->fresh()->name);
+        $this->assertEquals(7.50,(float)$option->fresh()->price_delta);
+    }
+
+
     private function providerAndCategory(string $email): array
     {
         $provider=User::create([
