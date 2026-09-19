@@ -13,7 +13,6 @@ class ShipmentController extends Controller
     public function store(Request $request, Order $order)
     {
         abort_unless($order->user_id===$request->user()->id,403);
-        abort_if($request->user()->hasRestriction('uploads'),422,'Datei-Uploads sind für dieses Konto derzeit gesperrt.');
 
         $existing=$order->shipment;
         $isResubmission=$existing && $existing->review_status==='rejected' && $existing->resubmit_due_at?->isFuture();
