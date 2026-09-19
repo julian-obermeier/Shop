@@ -315,7 +315,7 @@ class MasterPromptRemainingCriticalTest extends TestCase
             'carrier'=>'DHL',
             'tracking_number'=>'TRACK-505',
             'package_photo'=>UploadedFile::fake()->image('package.jpg',800,600),
-            'receipt_photo'=>UploadedFile::fake()->image('receipt.jpg',800,600),
+            'receipt_photo'=>UploadedFile::fake()->image('live-receipt.jpg',800,600),
         ])->assertRedirect();
 
         $shipment=$order->fresh()->shipment()->firstOrFail();
