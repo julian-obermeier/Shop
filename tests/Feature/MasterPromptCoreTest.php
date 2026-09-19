@@ -10,6 +10,7 @@ use App\Models\PayoutRequest;
 use App\Models\User;
 use App\Models\WalletAccount;
 use App\Services\ReliabilityService;
+use App\Services\OrderService;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
@@ -520,6 +521,55 @@ class MasterPromptCoreTest extends TestCase
         $this->assertSame('Größe',data_get($field->fresh()->field_snapshot,'label'));
         $this->assertSame('Sport',$option->fresh()->name);
         $this->assertEquals(7.50,(float)$option->fresh()->price_delta);
+    }
+
+
+    public function test_sixth_confirmed_order_is_blocked_by_personal_limit(): void
+    {
+        [$provider,$category]=$this->providerAndCategory('five-limit@example.test');
+
+        $admin=User::create([
+            'role'=>'admin',
+            'username'=>'five.limit.admin',
+            'first_name'=>'Admin',
+            'last_name'=>'Limit',
+            'birth_date'=>'1970-01-01',
+            'email'=>'five-limit-admin@example.test',
+            'password'=>Hash::make('VerySecurePassword123!'),
+            'status'=>'active',
+        ]);
+        $admin->forceFill(['email_verified_at'=>now()])->save();
+
+        $offer=$this->offer($category,'Five Limit');
+
+        for($i=1;$i<=5;$i++){
+            $this->makeOrder($provider,$offer,'approved','2026000070'.$i,[
+                'confirmed_start_date'=>now('Europe/Berlin')->addDays($i)->toDateString(),
+                'proposed_start_date'=>now('Europe/Berlin')->addDays($i)->toDateString(),
+            ]);
+        }
+
+        $sixth=$this->makeOrder($provider,$offer,'requested','20260000706',[
+            'proposed_start_date'=>now('Europe/Berlin')->addDays(10)->toDateString(),
+        ]);
+
+        try{
+            app(OrderService::class)->approve(
+                $sixth,
+                $admin,
+                now('Europe/Berlin')->addDays(10)->toDateString()
+            );
+            $this->fail('Ein sechster bestätigter Auftrag wurde trotz persönlichem Limit zugelassen.');
+        }catch(\Symfony\Component\HttpKernel\Exception\HttpException $e){
+            $this->assertSame(422,$e->getStatusCode());
+            $this->assertStringContainsString('Auftragslimit',$e->getMessage());
+        }
+
+        $this->assertSame('requested',$sixth->fresh()->status);
+        $this->assertSame(
+            5,
+            Order::where('user_id',$provider->id)->countsAgainstPersonalLimit()->count()
+        );
     }
 
 
