@@ -25,6 +25,7 @@ use App\Http\Controllers\Auth\EmailVerificationController;
 use App\Http\Controllers\Auth\PasswordResetController;
 use App\Http\Controllers\AccountSecurityController;
 use App\Http\Controllers\ConversationController;
+use App\Http\Controllers\CameraCaptureController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\MessageFileController;
@@ -57,6 +58,7 @@ Route::middleware('guest')->group(function () {
 
 Route::middleware(['auth','active'])->group(function () {
     Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
+    Route::post('/kamera/capture-token', [CameraCaptureController::class, 'issue'])->middleware('throttle:30,1')->name('camera.capture-token');
     Route::get('/dashboard', DashboardController::class)->name('dashboard');
 
     Route::get('/email-bestaetigen', [EmailVerificationController::class, 'notice'])->name('verification.notice');
