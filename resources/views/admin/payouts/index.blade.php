@@ -31,9 +31,10 @@ $transitionLabels=[
 ];
 $allowedTargets=match($payout->status){
     'requested'=>['review','rejected','cancelled'],
-    'review'=>['approved','rejected','cancelled'],
-    'approved'=>['payment_executed','failed','rejected','cancelled'],
-    'failed'=>['approved','rejected','cancelled'],
+    'review'=>['requested','approved','rejected','cancelled'],
+    'approved'=>['requested','review','payment_executed','failed','rejected','cancelled'],
+    'failed'=>['requested','review','approved','rejected','cancelled'],
+    'payment_executed'=>['requested','review','approved','failed','rejected','cancelled'],
     'completed'=>['requested','review','approved','failed','payment_executed','rejected','cancelled'],
     'rejected'=>['requested','review','approved','failed','payment_executed','cancelled'],
     'cancelled'=>['requested','review','approved','failed','payment_executed','rejected'],
@@ -41,8 +42,9 @@ $allowedTargets=match($payout->status){
 };
 @endphp
 @if($payout->status==='payment_executed')
-<div class="notice">Der Abschluss erfolgt automatisch 24 Stunden nach „Zahlung ausgeführt“.</div>
-@elseif($allowedTargets)
+<div class="notice">Der Abschluss erfolgt automatisch 24 Stunden nach „Zahlung ausgeführt“. Eine administrative Rücksetzung bleibt gemäß Masterprompt möglich.</div>
+@endif
+@if($allowedTargets)
 <form method="post" action="{{ route('admin.payouts.update',$payout) }}" class="stack-form">@csrf
 <select name="status" required>
 <option value="">Nächsten Status wählen</option>
