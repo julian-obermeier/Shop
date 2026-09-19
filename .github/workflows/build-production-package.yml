@@ -85,4 +85,5 @@ jobs:
           name: shop-production-${{ steps.revision.outputs.ref }}
           path: build/shop-production/
           if-no-files-found: error
+          include-hidden-files: true
           retention-days: 14
