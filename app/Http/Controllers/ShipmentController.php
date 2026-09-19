@@ -35,7 +35,7 @@ class ShipmentController extends Controller
             'tracking_number'=>[$trackingMode==='required'?'required':'nullable','string','max:150'],
             'package_photo'=>[$packageRequired?'required':'nullable','image','mimes:jpg,jpeg,png,webp','max:10240'],
             'receipt_photo'=>[$receiptRequired?'required':'nullable','image','mimes:jpg,jpeg','max:10240'],
-            'camera_capture_token'=>[$receiptRequired?'required':'nullable','string','max:128'],
+            'camera_capture_token'=>['nullable','string','max:128'],
         ]);
 
         if($request->hasFile('receipt_photo')){
