@@ -6,7 +6,7 @@ $currentSeries=(int)$order->series_number;
 $currentDays=$order->days->where('series_number',$currentSeries);
 $acceptedDays=$currentDays->where('day_number','>',0)->where('counts_toward_series',true)->where('status','accepted')->count();
 $requiredDays=(int)data_get($order->offer_snapshot,'duration_days',1);
-$canComplete=$order->status==='active' && $acceptedDays >= $requiredDays;
+$canComplete=$order->status==='active' && $order->executionProofsAccepted();
 $trackingMode=(string)data_get($order->offer_snapshot,'tracking_mode','optional');
 @endphp
 
@@ -303,7 +303,7 @@ $canSubmit=$isCurrent
 @if(in_array($order->status,['precheck','precheck_resubmit','approved','waiting_start','active','paused'],true))
 <div class="panel danger-zone">
 <h3>Auftrag freiwillig abbrechen</h3>
-<p>Ein freiwilliger Abbruch wird mit 0 € vergütet und in der Zuverlässigkeit berücksichtigt.</p>
+<p>Ein freiwilliger Abbruch wird mit 0 € vergütet und in der Zuverlässigkeit berücksichtigt. Bereits für diesen Auftrag verwendete Ware darf danach nicht für einen anderen Auftrag erneut verwendet werden.</p>
 <form method="post" action="{{ route('orders.abort',$order) }}" class="stack-form">@csrf
 <label>Grund<textarea name="reason" rows="4" required></textarea></label>
 <button class="btn secondary">Auftrag abbrechen</button>
