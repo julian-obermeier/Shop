@@ -38,6 +38,9 @@ class PrecheckController extends Controller
 
     public function review(Request $request, OrderPrecheck $precheck, AuditService $audit, NotificationService $notifications)
     {
+        abort_unless($precheck->status==='submitted',422,'Diese Vorprüfung wurde bereits bewertet.');
+        abort_unless($precheck->order->status==='precheck',422,'Der zugehörige Auftrag befindet sich nicht mehr in der Vorprüfungsphase.');
+
         $data=$request->validate(['status'=>['required','in:accepted,resubmit,rejected'],'admin_comment'=>['nullable','string','max:2000']]);
         $before=$precheck->toArray();
 
