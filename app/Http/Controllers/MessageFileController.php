@@ -13,7 +13,7 @@ class MessageFileController extends Controller
         $user=request()->user();
 
         $allowed=$message->conversation->user_id===$user->id
-            || ($user->isAdmin() && $user->hasPermission('messages.manage'));
+            || $user->isAdmin();
 
         abort_unless($allowed,403);
         abort_unless($message->attachment_path,404);
