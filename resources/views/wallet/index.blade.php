@@ -42,7 +42,19 @@
 <button class="btn secondary wide">Auszahlungsdaten speichern</button>
 </form>
 @if($user->profile?->payout_details_changed_at)
-<p class="muted">Letzte Änderung: {{ $user->profile->payout_details_changed_at->format('d.m.Y H:i') }}. Neue Daten sind nach 24 Stunden nutzbar.</p>
+@php
+$payoutDetailsUsableAt=$user->profile->payout_details_changed_at->copy()->addHours(24);
+$payoutDetailsLocked=now('Europe/Berlin')->lt($payoutDetailsUsableAt);
+@endphp
+<p class="muted">
+Letzte tatsächliche Änderung: {{ $user->profile->payout_details_changed_at->timezone('Europe/Berlin')->format('d.m.Y H:i') }} Uhr.
+@if($payoutDetailsLocked)
+<strong>Noch gesperrt bis {{ $payoutDetailsUsableAt->timezone('Europe/Berlin')->format('d.m.Y H:i') }} Uhr.</strong>
+@else
+<strong>Die gespeicherten Daten sind für neue Auszahlungen nutzbar.</strong>
+@endif
+<br>Unverändertes erneutes Speichern startet die 24-Stunden-Sicherheitsfrist nicht neu.
+</p>
 @endif
 @if($user->profile && !$user->profile->payout_name_approved_at && (($user->profile->bank_account_holder && mb_strtolower(trim($user->profile->bank_account_holder))!==mb_strtolower(trim($user->first_name.' '.$user->last_name))) || ($user->profile->paypal_name && mb_strtolower(trim($user->profile->paypal_name))!==mb_strtolower(trim($user->first_name.' '.$user->last_name)))))
 <div class="notice">Ein abweichender Empfängername wartet auf Adminfreigabe.</div>
