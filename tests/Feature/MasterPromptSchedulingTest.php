@@ -152,6 +152,76 @@ class MasterPromptSchedulingTest extends TestCase
         }
     }
 
+    public function test_direct_request_cannot_bypass_eligible_fifo_waitlist_claim_or_reservation(): void
+    {
+        Mail::fake();
+
+        $now=CarbonImmutable::parse('2026-09-18 12:00:00','Europe/Berlin');
+        CarbonImmutable::setTestNow($now);
+
+        try{
+            $category=$this->category();
+            $offer=$this->sockOffer($category,'FIFO Direct Guard',2);
+            $offer->update(['capacity'=>1]);
+
+            $first=$this->provider('fifo-guard-first@example.test');
+            $outsider=$this->provider('fifo-guard-outsider@example.test');
+
+            $entry=OfferWaitlistEntry::create([
+                'offer_id'=>$offer->id,
+                'user_id'=>$first->id,
+                'status'=>'waiting',
+                'planned_start_date'=>'2026-10-01',
+            ]);
+
+            $this->assertSame(0,app(WaitlistService::class)->availableDirectSlots($offer));
+
+            try{
+                app(OrderService::class)->create(
+                    $outsider,
+                    $offer,
+                    [],
+                    [],
+                    '2026-10-01'
+                );
+                $this->fail('Direktanfrage hat eine berechtigte FIFO-Wartelistenposition umgangen.');
+            }catch(\Symfony\Component\HttpKernel\Exception\HttpException $e){
+                $this->assertSame(422,$e->getStatusCode());
+                $this->assertStringContainsString('FIFO-Wartelistenpositionen',$e->getMessage());
+            }
+
+            $reserved=app(WaitlistService::class)->allocateNext($offer->fresh(),app(NotificationService::class));
+            $this->assertSame($entry->id,$reserved?->id);
+
+            try{
+                app(OrderService::class)->create(
+                    $outsider,
+                    $offer->fresh(),
+                    [],
+                    [],
+                    '2026-10-02'
+                );
+                $this->fail('Direktanfrage hat eine aktive Wartelistenreservierung umgangen.');
+            }catch(\Symfony\Component\HttpKernel\Exception\HttpException $e){
+                $this->assertSame(422,$e->getStatusCode());
+            }
+
+            $order=app(OrderService::class)->create(
+                $first,
+                $offer->fresh(),
+                [],
+                [],
+                '2026-10-01'
+            );
+
+            $this->assertSame('requested',$order->status);
+            $this->assertSame('used',$entry->fresh()->status);
+        } finally {
+            CarbonImmutable::setTestNow();
+        }
+    }
+
+
     public function test_first_invalid_day_appends_replacement_and_second_interruption_restarts_full_series(): void
     {
         Mail::fake();
