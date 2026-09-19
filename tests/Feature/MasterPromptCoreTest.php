@@ -359,6 +359,104 @@ class MasterPromptCoreTest extends TestCase
     }
 
 
+    public function test_original_order_and_payout_snapshots_are_immutable_while_status_fields_remain_editable(): void
+    {
+        [$provider,$category]=$this->providerAndCategory('immutable-snapshots@example.test');
+        $offer=$this->offer($category,'Immutable Snapshot');
+
+        $order=$this->makeOrder($provider,$offer,'requested','20260000250');
+
+        $order->update([
+            'status'=>'approved',
+            'current_requirements'=>['admin_addition'=>['text'=>'Aktuelle Fassung']],
+            'compensation_total'=>45,
+        ]);
+
+        $this->assertSame('approved',$order->fresh()->status);
+        $this->assertEquals(45.0,(float)$order->fresh()->compensation_total);
+
+        try{
+            $order->update(['offer_snapshot'=>['title'=>'Manipuliert']]);
+            $this->fail('Der ursprüngliche Auftragssnapshot konnte verändert werden.');
+        }catch(\LogicException $e){
+            $this->assertStringContainsString('unveränderlich',$e->getMessage());
+        }
+
+        try{
+            $order->delete();
+            $this->fail('Der Auftrag konnte gelöscht werden.');
+        }catch(\LogicException $e){
+            $this->assertStringContainsString('nicht gelöscht',$e->getMessage());
+        }
+
+        $wallet=$provider->walletAccount()->firstOrFail();
+        $wallet->entries()->create([
+            'bucket'=>'available',
+            'entry_type'=>'test_credit',
+            'amount'=>30,
+            'description'=>'Testguthaben',
+        ]);
+        $wallet->entries()->create([
+            'bucket'=>'available',
+            'entry_type'=>'payout_reserved',
+            'amount'=>-10,
+            'reference'=>'P-SNAPSHOT',
+            'description'=>'Reserviert',
+        ]);
+        $wallet->entries()->create([
+            'bucket'=>'payout_pending',
+            'entry_type'=>'payout_requested',
+            'amount'=>10,
+            'reference'=>'P-SNAPSHOT',
+            'description'=>'Beantragt',
+        ]);
+
+        $payout=PayoutRequest::create([
+            'payout_number'=>'P-SNAPSHOT',
+            'user_id'=>$provider->id,
+            'amount'=>10,
+            'status'=>'requested',
+            'method'=>'bank_transfer',
+            'destination'=>[
+                'iban'=>'DE89370400440532013000',
+                'account_holder'=>'Anna Beispiel',
+            ],
+            'processing_date'=>'2026-09-25',
+        ]);
+
+        $payout->update(['status'=>'review','admin_note'=>'Prüfung begonnen']);
+        $this->assertSame('review',$payout->fresh()->status);
+
+        try{
+            $payout->update(['amount'=>99]);
+            $this->fail('Der Auszahlungsbetrag konnte nachträglich verändert werden.');
+        }catch(\LogicException $e){
+            $this->assertStringContainsString('unveränderlicher Snapshot',$e->getMessage());
+        }
+
+        try{
+            $payout->update(['destination'=>[
+                'iban'=>'DE00000000000000000000',
+                'account_holder'=>'Manipuliert',
+            ]]);
+            $this->fail('Das Auszahlungsziel konnte nachträglich verändert werden.');
+        }catch(\LogicException $e){
+            $this->assertStringContainsString('unveränderlicher Snapshot',$e->getMessage());
+        }
+
+        try{
+            $payout->delete();
+            $this->fail('Der Auszahlungsantrag konnte gelöscht werden.');
+        }catch(\LogicException $e){
+            $this->assertStringContainsString('nicht gelöscht',$e->getMessage());
+        }
+
+        $payout->refresh();
+        $this->assertEquals(10.0,(float)$payout->amount);
+        $this->assertSame('DE89370400440532013000',$payout->destination['iban']);
+    }
+
+
     private function providerAndCategory(string $email): array
     {
         $provider=User::create([
