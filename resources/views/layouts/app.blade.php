@@ -8,7 +8,9 @@
 <script defer src="{{ asset('assets/js/app.js') }}"></script>
 </head>
 <body>
-@php($unread=auth()->user()->userNotifications()->whereNull('read_at')->count())
+@php
+$unread=auth()->user()->userNotifications()->whereNull('read_at')->count();
+@endphp
 <div class="app-shell">
 <aside class="sidebar">
     <a href="{{ route('dashboard') }}" class="brand"><span class="brand-mark">♥</span><span><strong>Wear&Earn</strong><small>Deine Sachen. Unser Interesse.</small></span></a>
@@ -18,7 +20,11 @@
         <a class="{{ request()->routeIs('orders.*')?'active':'' }}" href="{{ route('orders.index') }}">☷ <span>Meine Aufträge</span></a>
         <a class="{{ request()->routeIs('wallet.*')?'active':'' }}" href="{{ route('wallet.index') }}">◫ <span>Wallet</span></a>
         <a class="{{ request()->routeIs('messages.*')?'active':'' }}" href="{{ route('messages.index') }}">✉ <span>Nachrichten</span></a>
-        <a class="{{ request()->routeIs('notifications.*')?'active':'' }}" href="{{ route('notifications.index') }}">◉ <span>Benachrichtigungen@if($unread) ({{ $unread }})@endif</span></a>
+        <a class="{{ request()->routeIs('notifications.*')?'active':'' }}" href="{{ route('notifications.index') }}">◉ <span>Benachrichtigungen
+        @if($unread > 0)
+        ({{ $unread }})
+        @endif
+        </span></a>
         <a class="{{ request()->routeIs('profile.*')?'active':'' }}" href="{{ route('profile.edit') }}">♙ <span>Profil</span></a>
         <a class="{{ request()->routeIs('documents.*')?'active':'' }}" href="{{ route('documents.index') }}">▤ <span>Dokumente</span></a>
         <a class="{{ request()->routeIs('privacy.*')?'active':'' }}" href="{{ route('privacy.index') }}">◈ <span>Datenschutz</span></a>
@@ -51,8 +57,19 @@
     <div class="top-user"><div class="avatar">{{ strtoupper(substr(auth()->user()->first_name,0,1)) }}{{ strtoupper(substr(auth()->user()->last_name,0,1)) }}</div><div><strong>Hallo, {{ auth()->user()->first_name }}</strong><small>{{ auth()->user()->role === 'provider' ? 'Anbieterin' : 'Admin' }} · {{ auth()->user()->hasVerifiedEmail() ? 'E-Mail bestätigt' : 'E-Mail offen' }}</small></div></div>
 </header>
 <div class="content">
-@if(session('success'))<div class="flash success">{{ session('success') }}</div>@endif
-@if($errors->any())<div class="flash error"><strong>Bitte prüfen:</strong><ul>@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>@endif
+@if(session('success'))
+<div class="flash success">{{ session('success') }}</div>
+@endif
+@if($errors->any())
+<div class="flash error">
+<strong>Bitte prüfen:</strong>
+<ul>
+@foreach($errors->all() as $error)
+<li>{{ $error }}</li>
+@endforeach
+</ul>
+</div>
+@endif
 @yield('content')
 </div>
 </main>
