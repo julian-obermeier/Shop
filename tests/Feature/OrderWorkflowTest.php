@@ -76,6 +76,7 @@ class OrderWorkflowTest extends TestCase
         [$user,$offer]=$this->makeUserAndOffer(true);
 
         $offer->update([
+            'minimum_minutes_per_day'=>90,
             'inspection_config'=>[
                 'categories'=>[
                     'appearance'=>['label'=>'Aussehen','ko'=>true],
@@ -131,6 +132,8 @@ class OrderWorkflowTest extends TestCase
         $response->assertSee('35–44 Punkte');
         $response->assertSee('80,00 %');
         $response->assertSee('Gesicht muss sichtbar sein');
+        $response->assertSee('90 min');
+        $response->assertSee('Mindestnutzung/Tag');
         $response->assertSee('Benötigt:');
         $response->assertSee('Sport');
         $response->assertSee('Mindestdauer:');
