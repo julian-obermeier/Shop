@@ -27,6 +27,7 @@ class PrecheckController extends Controller
             if($precheck->photo_path){
                 $answers['photo_history'][]=[
                     'path'=>$precheck->photo_path,
+                    'sha256'=>$answers['current_photo_sha256']??null,
                     'replaced_at'=>now()->toIso8601String(),
                 ];
             }
