@@ -73,7 +73,7 @@ class ProofController extends Controller
             'text_value'=>['nullable','string','max:2000'],
             'proof_data'=>['nullable','array'],
             'proof_data.*'=>['nullable','string','max:1000'],
-            'camera_capture_token'=>['required','string','max:128'],
+            'camera_capture_token'=>['nullable','string','max:128'],
         ]);
 
         $originalProofName=(string)$data['proof']->getClientOriginalName();
