@@ -19,16 +19,42 @@ Bank<br><small>{{ data_get($payout->destination,'iban') }} · {{ data_get($payou
 @endif
 </td>
 <td>
+@php
+$transitionLabels=[
+    'requested'=>'Beantragt',
+    'review'=>'In Prüfung',
+    'approved'=>'Freigegeben',
+    'failed'=>'Zahlung fehlgeschlagen',
+    'payment_executed'=>'Zahlung ausgeführt',
+    'rejected'=>'Abgelehnt',
+    'cancelled'=>'Beendet/Storniert',
+];
+$allowedTargets=match($payout->status){
+    'requested'=>['review','rejected','cancelled'],
+    'review'=>['approved','rejected','cancelled'],
+    'approved'=>['payment_executed','failed','rejected','cancelled'],
+    'failed'=>['approved','rejected','cancelled'],
+    'completed'=>['requested','review','approved','failed','payment_executed','rejected','cancelled'],
+    'rejected'=>['requested','review','approved','failed','payment_executed','cancelled'],
+    'cancelled'=>['requested','review','approved','failed','payment_executed','rejected'],
+    default=>[],
+};
+@endphp
+@if($payout->status==='payment_executed')
+<div class="notice">Der Abschluss erfolgt automatisch 24 Stunden nach „Zahlung ausgeführt“.</div>
+@elseif($allowedTargets)
 <form method="post" action="{{ route('admin.payouts.update',$payout) }}" class="stack-form">@csrf
-<select name="status">
-@foreach(['requested'=>'Beantragt','review'=>'In Prüfung','approved'=>'Freigegeben','failed'=>'Zahlung fehlgeschlagen','payment_executed'=>'Zahlung ausgeführt','completed'=>'Abgeschlossen','rejected'=>'Abgelehnt','cancelled'=>'Beendet/Storniert'] as $value=>$label)
-<option value="{{ $value }}" @selected($payout->status===$value)>{{ $label }}</option>
+<select name="status" required>
+<option value="">Nächsten Status wählen</option>
+@foreach($allowedTargets as $value)
+<option value="{{ $value }}">{{ $transitionLabels[$value]??strtoupper($value) }}</option>
 @endforeach
 </select>
 <textarea name="admin_note" rows="2" placeholder="Interner/verfahrensbezogener Hinweis">{{ $payout->admin_note }}</textarea>
 <textarea name="rejection_reason" rows="2" placeholder="Ablehnungsgrund – bei Ablehnung Pflicht">{{ $payout->rejection_reason }}</textarea>
 <button class="btn primary">Status speichern</button>
 </form>
+@endif
 </td>
 </tr>
 @endforeach
