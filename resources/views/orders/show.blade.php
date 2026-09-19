@@ -92,7 +92,7 @@ $startChallenge=$startDay ? $order->proofChallenges->first(fn($c)=>$c->order_day
 <input type="hidden" name="challenge_id" value="{{ $startChallenge->id }}">
 <input type="hidden" name="proof_code" value="{{ $startChallenge->code }}">
 <input type="hidden" name="window_key" value="start">
-<label>Live-Kamera<input type="file" name="proof" accept="image/jpeg" required data-proof-file data-live-camera></label>
+<label>Live-Kamera<input type="file" name="proof" accept="image/jpeg" required data-proof-file data-live-camera hidden></label>
 <label class="check"><input type="checkbox" data-overlay-code><span>Code automatisch sichtbar in das aufgenommene Bild einblenden</span></label>
 <button class="btn primary">Startfoto einreichen</button>
 </form>
@@ -122,8 +122,8 @@ $startChallenge=$startDay ? $order->proofChallenges->first(fn($c)=>$c->order_day
 @if($trackingMode!=='none')
 <label>Trackingnummer<input name="tracking_number" value="{{ old('tracking_number',$order->shipment?->tracking_number) }}" @required($trackingMode==='required')><small>{{ $trackingMode==='required'?'Pflicht':'optional' }}</small></label>
 @endif
-<label class="full">Paketfoto über Live-Kamera<input type="file" name="package_photo" accept="image/jpeg" required data-live-camera></label>
-<label class="full">Versand-/Annahmebeleg über Live-Kamera<input type="file" name="receipt_photo" accept="image/jpeg" required data-live-camera><small>Versanddatum und Versanddienstleister müssen eindeutig lesbar sein.</small></label>
+<label class="full">Paketfoto<input type="file" name="package_photo" accept="image/*" required><small>Foto des fertig verpackten Pakets; Galerie-/Dateiauswahl ist hierfür zulässig.</small></label>
+<label class="full">Versand-/Annahmebeleg über Live-Kamera<input type="file" name="receipt_photo" accept="image/jpeg" required data-live-camera hidden><small>Versanddatum und Versanddienstleister müssen eindeutig lesbar sein. Galerie-/Dateiauswahl ist für diesen Beleg nicht zulässig.</small></label>
 <div class="notice full">
 <strong>Verbindliche Verpackungs- und Versandregeln</strong><br>
 Die Ware muss sicher, vor Feuchtigkeit und Transportschäden geschützt sowie innerhalb des Pakets getrennt bzw. geeignet verpackt werden.
@@ -260,7 +260,7 @@ $canSubmit=$isCurrent
 @foreach(($window['required_fields']??[]) as $requiredField)
 <label>{{ $requiredField['label']??'Pflichtangabe' }}<input name="proof_data[{{ $requiredField['key'] }}]" required maxlength="1000"></label>
 @endforeach
-<label>Live-Kamera<input type="file" name="proof" accept="image/jpeg" required data-proof-file data-live-camera></label>
+<label>Live-Kamera<input type="file" name="proof" accept="image/jpeg" required data-proof-file data-live-camera hidden></label>
 <label class="check"><input type="checkbox" data-overlay-code><span>Code automatisch sichtbar in das aufgenommene Bild einblenden</span></label>
 <button class="btn secondary">Nachweis einreichen</button>
 </form>
