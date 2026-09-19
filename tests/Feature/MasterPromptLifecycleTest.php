@@ -1085,6 +1085,102 @@ class MasterPromptLifecycleTest extends TestCase
     }
 
 
+    public function test_submitted_proof_and_shipment_evidence_files_are_immutable_but_review_state_remains_editable(): void
+    {
+        $provider=$this->provider('immutable-evidence@example.test');
+        $category=$this->category();
+        $offer=$this->offer($category,'Immutable Evidence');
+
+        $order=Order::create([
+            'order_number'=>'20260000317',
+            'user_id'=>$provider->id,
+            'offer_id'=>$offer->id,
+            'status'=>'active',
+            'compensation_total'=>40,
+            'offer_snapshot'=>['title'=>$offer->title,'duration_days'=>1],
+            'series_number'=>1,
+        ]);
+
+        $day=OrderDay::create([
+            'order_id'=>$order->id,
+            'day_number'=>1,
+            'series_number'=>1,
+            'date'=>now('Europe/Berlin')->toDateString(),
+            'required_proofs'=>1,
+            'status'=>'open',
+            'counts_toward_series'=>true,
+        ]);
+
+        $proof=ProofSubmission::create([
+            'order_day_id'=>$day->id,
+            'user_id'=>$provider->id,
+            'type'=>'photo',
+            'window_key'=>'daily',
+            'storage_path'=>'proof/original.jpg',
+            'original_name'=>'original.jpg',
+            'mime_type'=>'image/jpeg',
+            'file_size'=>123,
+            'sha256'=>str_repeat('c',64),
+            'retry_number'=>0,
+            'review_status'=>'pending',
+        ]);
+
+        $proof->update([
+            'review_status'=>'accepted',
+            'review_comment'=>'Inhalt geprüft',
+            'reviewed_at'=>now(),
+        ]);
+        $this->assertSame('accepted',$proof->fresh()->review_status);
+
+        try{
+            $proof->update(['storage_path'=>'proof/manipulated.jpg']);
+            $this->fail('Manipulation der Nachweisdatei wurde nicht blockiert.');
+        }catch(\LogicException $e){
+            $this->assertStringContainsString('unveränderlich',$e->getMessage());
+        }
+
+        try{
+            $proof->delete();
+            $this->fail('Löschen eines eingereichten Nachweises wurde nicht blockiert.');
+        }catch(\LogicException $e){
+            $this->assertStringContainsString('nicht gelöscht',$e->getMessage());
+        }
+
+        $shipment=$order->shipment()->create([
+            'carrier'=>'DHL',
+            'status'=>'shipped',
+            'review_status'=>'pending',
+            'shipped_at'=>now(),
+            'ownership_transferred_at'=>now(),
+        ]);
+
+        $evidence=$shipment->evidences()->create([
+            'user_id'=>$provider->id,
+            'type'=>'package',
+            'storage_path'=>'shipment/package.jpg',
+            'original_name'=>'package.jpg',
+            'mime_type'=>'image/jpeg',
+            'file_size'=>456,
+            'sha256'=>str_repeat('d',64),
+            'attempt'=>0,
+        ]);
+
+        try{
+            $evidence->update(['sha256'=>str_repeat('e',64)]);
+            $this->fail('Manipulation des Versandnachweis-Hashes wurde nicht blockiert.');
+        }catch(\LogicException $e){
+            $this->assertStringContainsString('unveränderlich',$e->getMessage());
+        }
+
+        try{
+            $evidence->delete();
+            $this->fail('Löschen eines eingereichten Versandnachweises wurde nicht blockiert.');
+        }catch(\LogicException $e){
+            $this->assertStringContainsString('nicht gelöscht',$e->getMessage());
+        }
+    }
+
+
     private function provider(string $email): User
     {
         $user=User::create([
