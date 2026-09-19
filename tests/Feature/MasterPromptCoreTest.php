@@ -573,6 +573,51 @@ class MasterPromptCoreTest extends TestCase
     }
 
 
+    public function test_same_offer_is_blocked_while_open_but_reusable_after_completion(): void
+    {
+        [$provider,$category]=$this->providerAndCategory('same-offer@example.test');
+        $offer=$this->offer($category,'Same Offer');
+
+        $first=app(OrderService::class)->create(
+            $provider,
+            $offer,
+            [],
+            [],
+            now('Europe/Berlin')->addDays(2)->toDateString()
+        );
+
+        try{
+            app(OrderService::class)->create(
+                $provider,
+                $offer,
+                [],
+                [],
+                now('Europe/Berlin')->addDays(3)->toDateString()
+            );
+            $this->fail('Dasselbe Angebot konnte gleichzeitig erneut angefragt werden.');
+        }catch(\Symfony\Component\HttpKernel\Exception\HttpException $e){
+            $this->assertSame(422,$e->getStatusCode());
+        }
+
+        $first->update([
+            'status'=>'completed',
+            'final_compensation'=>0,
+            'completed_at'=>now(),
+        ]);
+
+        $second=app(OrderService::class)->create(
+            $provider,
+            $offer,
+            [],
+            [],
+            now('Europe/Berlin')->addDays(4)->toDateString()
+        );
+
+        $this->assertSame('requested',$second->status);
+        $this->assertNotSame($first->id,$second->id);
+    }
+
+
     private function providerAndCategory(string $email): array
     {
         $provider=User::create([
