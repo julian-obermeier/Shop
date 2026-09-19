@@ -240,6 +240,106 @@ class MasterPromptSchedulingTest extends TestCase
     }
 
 
+    public function test_invalid_start_photo_restarts_today_and_shifts_following_sock_schedule(): void
+    {
+        Mail::fake();
+
+        $now=CarbonImmutable::parse('2026-09-23 12:00:00','Europe/Berlin');
+        CarbonImmutable::setTestNow($now);
+
+        try{
+            $provider=$this->provider('invalid-start-sock@example.test');
+            $category=$this->category();
+            $currentOffer=$this->sockOffer($category,'Invalid Start Sock',3);
+            $followerOffer=$this->sockOffer($category,'Follower Sock',2);
+
+            $order=$this->order($provider,$currentOffer,'active','20260000411',[
+                'confirmed_start_date'=>'2026-09-19',
+                'proposed_start_date'=>'2026-09-19',
+                'activation_date'=>'2026-09-19',
+                'start_date'=>'2026-09-20',
+                'end_date'=>'2026-09-22',
+                'series_number'=>1,
+                'series_interruptions'=>0,
+            ]);
+
+            $startDay=OrderDay::create([
+                'order_id'=>$order->id,
+                'day_number'=>0,
+                'series_number'=>1,
+                'date'=>'2026-09-19',
+                'required_proofs'=>1,
+                'status'=>'activation',
+                'counts_toward_series'=>true,
+            ]);
+
+            OrderDay::create([
+                'order_id'=>$order->id,
+                'day_number'=>1,
+                'series_number'=>1,
+                'date'=>'2026-09-20',
+                'required_proofs'=>1,
+                'status'=>'accepted',
+                'counts_toward_series'=>true,
+            ]);
+
+            $follower=$this->order($provider,$followerOffer,'approved','20260000412',[
+                'confirmed_start_date'=>'2026-09-24',
+                'proposed_start_date'=>'2026-09-24',
+                'series_number'=>1,
+            ]);
+
+            app(OrderService::class)->invalidateDay($startDay,'Startfoto endgültig ungültig');
+
+            $order->refresh();
+            $follower->refresh();
+
+            $this->assertSame('waiting_start',$order->status);
+            $this->assertSame(2,(int)$order->series_number);
+            $this->assertSame('2026-09-23',$order->confirmed_start_date?->toDateString());
+            $this->assertSame('2026-09-23',$order->proposed_start_date?->toDateString());
+            $this->assertNull($order->activation_date);
+            $this->assertNull($order->start_date);
+            $this->assertNull($order->end_date);
+
+            $this->assertTrue(
+                $order->days()
+                    ->where('series_number',1)
+                    ->get()
+                    ->every(fn($day)=>!$day->counts_toward_series)
+            );
+
+            $newStart=$order->days()
+                ->where('series_number',2)
+                ->where('day_number',0)
+                ->firstOrFail();
+
+            $this->assertSame('2026-09-23',$newStart->date->toDateString());
+            $this->assertSame('activation',$newStart->status);
+            $this->assertTrue((bool)$newStart->counts_toward_series);
+
+            $this->assertSame('2026-09-27',$follower->confirmed_start_date?->toDateString());
+            $this->assertSame('2026-09-27',$follower->proposed_start_date?->toDateString());
+
+            $this->actingAs($provider)->post(route('proofs.challenge',$newStart),[
+                'window_key'=>'start',
+            ])->assertRedirect();
+
+            $challenge=$order->proofChallenges()
+                ->where('order_day_id',$newStart->id)
+                ->where('window_key','start')
+                ->latest('id')
+                ->firstOrFail();
+
+            $this->assertTrue($challenge->expires_at->isFuture());
+            $this->assertNull($challenge->used_at);
+            $this->assertNull($challenge->expired_at);
+        } finally {
+            CarbonImmutable::setTestNow();
+        }
+    }
+
+
     private function provider(string $email): User
     {
         $user=User::create([
