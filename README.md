@@ -64,9 +64,13 @@ GitHub Actions führt bei Änderungen aus:
 1. Composer-Manifestprüfung
 2. PHP-Syntaxprüfung
 3. Dependency-Installation
-4. Laravel-Feature-/Regressionstests
+4. frische Migrationen und Seeder als Installations-Smoke-Test
+5. Route- und Scheduler-Smoke-Test
+6. vollständige Blade-Kompilierung per `view:cache`
+7. JavaScript-Syntaxprüfung für Anwendung und Service Worker
+8. Laravel-Feature-/Regressionstests
 
-Die Tests decken neben Authentifizierung, Datenschutz, Deadlines und Wallet insbesondere zentrale Masterprompt-Invarianten ab, z. B. Auftragssnapshots nach Angebotslöschung, gezählte Auftragsphasen, Zuverlässigkeitsbewährung und wiederöffnete Auszahlungen.
+Die Tests decken neben Authentifizierung, Datenschutz, Deadlines und Wallet insbesondere zentrale Masterprompt-Invarianten ab, z. B. Auftragssnapshots nach Angebotslöschung, ausdrückliche serverseitige Löschbestätigung, Live-Kamera-Pfade, FIFO-/Reservierungslogik, kaskadierende Socken-Terminverschiebungen inklusive reservierter Wartelistenplätze, Zuverlässigkeitsbewährung und wiederöffnete Auszahlungen.
 
 Die vereinbarte Arbeitsweise bleibt: **keine manuellen Zwischen-Endtests durch den Auftraggeber**. Der gemeinsame manuelle Endtest erfolgt erst, wenn der vereinbarte Funktionsumfang als Ganzes bereit ist.
 
