@@ -1612,6 +1612,124 @@ class MasterPromptLifecycleTest extends TestCase
     }
 
 
+    public function test_server_rejects_gallery_proof_and_shipping_receipt_but_accepts_live_camera_files(): void
+    {
+        Storage::fake('proofs');
+        Storage::fake('shipments');
+
+        $provider=$this->provider('camera-guard@example.test');
+        $category=$this->category();
+        $offer=$this->offer($category,'Camera Guard');
+
+        $requirements=[[
+            'key'=>'daily',
+            'label'=>'Tagesnachweis',
+            'start'=>'00:00',
+            'end'=>'23:59',
+            'required_images'=>1,
+        ]];
+
+        $order=Order::create([
+            'order_number'=>'20260000321',
+            'user_id'=>$provider->id,
+            'offer_id'=>$offer->id,
+            'status'=>'active',
+            'compensation_total'=>40,
+            'offer_snapshot'=>[
+                'title'=>$offer->title,
+                'duration_days'=>1,
+                'proof_requirements'=>$requirements,
+            ],
+            'current_requirements'=>[
+                'proof_requirements'=>$requirements,
+            ],
+            'series_number'=>1,
+        ]);
+
+        $day=OrderDay::create([
+            'order_id'=>$order->id,
+            'day_number'=>1,
+            'series_number'=>1,
+            'date'=>now('Europe/Berlin')->toDateString(),
+            'required_proofs'=>1,
+            'status'=>'open',
+            'counts_toward_series'=>true,
+        ]);
+
+        $challenge=ProofChallenge::create([
+            'order_id'=>$order->id,
+            'order_day_id'=>$day->id,
+            'user_id'=>$provider->id,
+            'purpose'=>'daily',
+            'window_key'=>'daily',
+            'code'=>'CAM123',
+            'expires_at'=>now()->addMinutes(10),
+        ]);
+
+        $this->actingAs($provider)->post(route('proofs.store',$day),[
+            'proof'=>UploadedFile::fake()->image('gallery.jpg',800,600),
+            'challenge_id'=>$challenge->id,
+            'proof_code'=>'CAM123',
+            'window_key'=>'daily',
+        ])->assertStatus(422);
+
+        $this->assertNull($challenge->fresh()->used_at);
+        $this->assertDatabaseCount('proof_submissions',0);
+
+        $this->actingAs($provider)->post(route('proofs.store',$day),[
+            'proof'=>UploadedFile::fake()->image('live-camera.jpg',800,600),
+            'challenge_id'=>$challenge->id,
+            'proof_code'=>'CAM123',
+            'window_key'=>'daily',
+        ])->assertRedirect();
+
+        $this->assertDatabaseCount('proof_submissions',1);
+
+        $shippingOrder=Order::create([
+            'order_number'=>'20260000322',
+            'user_id'=>$provider->id,
+            'offer_id'=>$offer->id,
+            'status'=>'waiting_shipping',
+            'compensation_total'=>40,
+            'offer_snapshot'=>[
+                'title'=>$offer->title,
+                'duration_days'=>1,
+                'tracking_mode'=>'optional',
+            ],
+            'execution_completed_at'=>now(),
+            'shipping_due_at'=>now()->addHours(24),
+        ]);
+
+        $this->actingAs($provider)->post(route('orders.shipment',$shippingOrder),[
+            'carrier'=>'DHL',
+            'package_photo'=>UploadedFile::fake()->image('package.jpg',800,600),
+            'receipt_photo'=>UploadedFile::fake()->image('receipt-gallery.jpg',800,600),
+        ])->assertStatus(422);
+
+        $this->assertDatabaseMissing('shipments',['order_id'=>$shippingOrder->id]);
+
+        $this->actingAs($provider)->post(route('orders.shipment',$shippingOrder),[
+            'carrier'=>'DHL',
+            'package_photo'=>UploadedFile::fake()->image('package.jpg',800,600),
+            'receipt_photo'=>UploadedFile::fake()->image('live-receipt.jpg',800,600),
+        ])->assertRedirect();
+
+        $shipment=$shippingOrder->fresh()->shipment()->firstOrFail();
+        $this->assertSame('pending',$shipment->review_status);
+        $this->assertSame(2,$shipment->evidences()->count());
+        $this->assertDatabaseHas('shipment_evidences',[
+            'shipment_id'=>$shipment->id,
+            'type'=>'package',
+            'original_name'=>'package.jpg',
+        ]);
+        $this->assertDatabaseHas('shipment_evidences',[
+            'shipment_id'=>$shipment->id,
+            'type'=>'receipt',
+            'original_name'=>'live-receipt.jpg',
+        ]);
+    }
+
+
     private function provider(string $email): User
     {
         $user=User::create([
