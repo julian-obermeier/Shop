@@ -428,6 +428,7 @@ class MasterPromptLifecycleTest extends TestCase
             'challenge_id'=>$challenge->id,
             'proof_code'=>'ABC123',
             'window_key'=>'evening',
+            'camera_capture_token'=>$this->cameraToken($provider,'proof:'.$day->id.':'.$challenge->id.':evening'),
             'proof_data'=>[
                 'aktivitaet'=>'Spaziergang',
                 'umgebung'=>'Draußen',
