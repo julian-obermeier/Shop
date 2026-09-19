@@ -32,6 +32,22 @@ class Order extends Model
         ];
     }
 
+
+    protected static function booted(): void
+    {
+        static::updating(function(self $order){
+            foreach(['order_number','user_id','offer_snapshot'] as $attribute){
+                if($order->isDirty($attribute)){
+                    throw new \LogicException('Der ursprüngliche Auftragssnapshot ist unveränderlich.');
+                }
+            }
+        });
+
+        static::deleting(function(){
+            throw new \LogicException('Aufträge dürfen nicht gelöscht werden.');
+        });
+    }
+
     public function user(): BelongsTo { return $this->belongsTo(User::class); }
     public function offer(): BelongsTo { return $this->belongsTo(Offer::class); }
     public function options(): HasMany { return $this->hasMany(OrderOption::class); }
