@@ -97,15 +97,10 @@ $openOrders=$user->orders->whereNotIn('status',['completed','cancelled','rejecte
 
 <aside>
 <div class="panel">
-<h2>Regelbasierte Einschränkung</h2>
+<h2>Zuverlässigkeitseinschränkung</h2>
 <form method="post" action="{{ route('admin.users.restriction',$user) }}" class="stack-form">@csrf
-<label>Typ<select name="type">
-<option value="reliability">Zuverlässigkeit / Auftragslimit</option>
-<option value="payouts">Auszahlungen sperren</option>
-<option value="uploads">Uploads sperren</option>
-</select></label>
 <label>Grund<textarea name="reason" rows="4" required></textarea></label>
-<label>Max. bestätigte/aktive Aufträge<input type="number" name="max_active_orders" min="0" max="5" placeholder="nur bei Zuverlässigkeit"></label>
+<label>Max. bestätigte/aktive Aufträge<input type="number" name="max_active_orders" min="0" max="5" placeholder="0–5; 0 sperrt neue/weitere Aufträge"></label>
 <label>Bestimmte Angebote ausschließen
 <select name="blocked_offer_ids[]" multiple size="6">
 @foreach($offers as $offer)<option value="{{ $offer->id }}">{{ $offer->title }}</option>@endforeach
