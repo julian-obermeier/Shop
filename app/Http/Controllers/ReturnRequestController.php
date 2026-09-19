@@ -26,11 +26,6 @@ class ReturnRequestController extends Controller
 
         $path=null;
         if($data['method']==='own_label'){
-            abort_if(
-                $request->user()->hasRestriction('uploads'),
-                422,
-                'Datei-Uploads sind für dieses Konto derzeit gesperrt. Du kannst stattdessen die Rücksendevariante mit separat mitgeteilten Versandkosten wählen.'
-            );
             $file=$data['return_label'];
             $extension=strtolower($file->getClientOriginalExtension() ?: 'pdf');
             $path=$file->storeAs($order->order_number,Str::uuid().'.'.$extension,'returns');
