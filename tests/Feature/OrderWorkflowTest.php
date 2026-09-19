@@ -215,8 +215,15 @@ class OrderWorkflowTest extends TestCase
         $this->assertSame($alternate,$order->proposed_start_date?->toDateString());
         $this->assertNull($order->confirmed_start_date);
 
+        $this->actingAs($admin)->post(route('admin.orders.approve',$order),[
+            'start_date'=>$alternate,
+        ])->assertStatus(422);
+
+        $this->assertSame('awaiting_date_confirmation',$order->fresh()->status);
+        $this->assertNull($order->fresh()->confirmed_start_date);
+
         $this->actingAs($user)
-            ->post(route('orders.accept-date',$order))
+            ->post(route('orders.accept-date',$order->fresh()))
             ->assertRedirect();
 
         $order->refresh();
