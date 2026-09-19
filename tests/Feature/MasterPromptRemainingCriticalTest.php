@@ -316,6 +316,7 @@ class MasterPromptRemainingCriticalTest extends TestCase
             'tracking_number'=>'TRACK-505',
             'package_photo'=>UploadedFile::fake()->image('package.jpg',800,600),
             'receipt_photo'=>UploadedFile::fake()->image('live-receipt.jpg',800,600),
+            'camera_capture_token'=>$this->cameraToken($provider,'shipment:'.$order->id.':receipt'),
         ])->assertRedirect();
 
         $shipment=$order->fresh()->shipment()->firstOrFail();
@@ -378,6 +379,18 @@ class MasterPromptRemainingCriticalTest extends TestCase
         $shipment->refresh();
         $this->assertSame('UNASSIGNED-1',$shipment->tracking_number);
         $this->assertSame('unassigned',$shipment->status);
+    }
+
+
+    private function cameraToken(User $user, string $context): string
+    {
+        $response=$this->actingAs($user)->postJson(route('camera.capture-token'),[
+            'context'=>$context,
+        ]);
+
+        $response->assertOk();
+
+        return (string)$response->json('token');
     }
 
 
