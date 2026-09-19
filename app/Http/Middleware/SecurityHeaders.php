@@ -27,10 +27,12 @@ class SecurityHeaders
             "object-src 'none'; ".
             "frame-ancestors 'none'; ".
             "form-action 'self'; ".
-            "img-src 'self' data:; ".
+            "img-src 'self' data: blob:; ".
+            "media-src 'self' blob:; ".
             "font-src 'self'; ".
             "style-src 'self' 'unsafe-inline'; ".
             "script-src 'self'; ".
+            "worker-src 'self'; ".
             "connect-src 'self'"
         );
 
