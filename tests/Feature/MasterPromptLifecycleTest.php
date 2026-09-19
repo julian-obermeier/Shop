@@ -1243,6 +1243,69 @@ class MasterPromptLifecycleTest extends TestCase
     }
 
 
+    public function test_precheck_replacement_keeps_previous_image_history_and_record_cannot_be_deleted(): void
+    {
+        Storage::fake('prechecks');
+
+        $provider=$this->provider('precheck-history@example.test');
+        $category=$this->category();
+        $offer=$this->offer($category,'Precheck History');
+        $offer->update(['requires_precheck'=>true]);
+
+        $order=Order::create([
+            'order_number'=>'20260000319',
+            'user_id'=>$provider->id,
+            'offer_id'=>$offer->id,
+            'status'=>'precheck',
+            'compensation_total'=>40,
+            'offer_snapshot'=>[
+                'title'=>$offer->title,
+                'duration_days'=>1,
+                'requires_precheck'=>true,
+            ],
+        ]);
+
+        $this->actingAs($provider)->post(route('orders.precheck',$order),[
+            'item_description'=>'Erste Beschreibung',
+            'item_size'=>'39',
+            'item_type'=>'Socken',
+            'photo'=>UploadedFile::fake()->image('first.jpg',800,600),
+        ])->assertRedirect();
+
+        $precheck=$order->fresh()->precheck()->firstOrFail();
+        $firstPath=$precheck->photo_path;
+        Storage::disk('prechecks')->assertExists($firstPath);
+
+        $order->update(['status'=>'precheck_resubmit']);
+
+        $this->actingAs($provider)->post(route('orders.precheck',$order->fresh()),[
+            'item_description'=>'Zweite Beschreibung',
+            'item_size'=>'39',
+            'item_type'=>'Socken',
+            'existing_photo'=>$firstPath,
+            'photo'=>UploadedFile::fake()->image('second.jpg',800,600),
+        ])->assertRedirect();
+
+        $precheck->refresh();
+        $this->assertNotSame($firstPath,$precheck->photo_path);
+        Storage::disk('prechecks')->assertExists($firstPath);
+        Storage::disk('prechecks')->assertExists($precheck->photo_path);
+        $this->assertSame(
+            $firstPath,
+            data_get($precheck->answers,'photo_history.0.path')
+        );
+
+        try{
+            $precheck->delete();
+            $this->fail('Vorprüfungsdatensatz konnte gelöscht werden.');
+        }catch(\LogicException $e){
+            $this->assertStringContainsString('nicht gelöscht',$e->getMessage());
+        }
+
+        $this->assertDatabaseHas('order_prechecks',['id'=>$precheck->id]);
+    }
+
+
     private function provider(string $email): User
     {
         $user=User::create([
