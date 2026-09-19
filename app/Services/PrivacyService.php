@@ -141,7 +141,7 @@ class PrivacyService
             // wird stattdessen durch Anonymisierung der Stammdaten entpersonalisiert.
             foreach($user->orders as $order){
                 foreach($order->fieldValues as $field){
-                    $field->update(['value'=>null]);
+                    $field->anonymizeForDeletedUser();
                 }
             }
 
