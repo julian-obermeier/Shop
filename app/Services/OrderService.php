@@ -12,7 +12,7 @@ use Illuminate\Support\Str;
 
 class OrderService
 {
-    public function __construct(private OfferPricingService $pricing, private ReliabilityService $reliability, private NotificationService $notifications) {}
+    public function __construct(private OfferPricingService $pricing, private ReliabilityService $reliability, private NotificationService $notifications, private WaitlistService $waitlists) {}
 
     public function create(User $user, Offer $offer, array $optionIds, array $fieldValues, string $proposedStartDate): Order
     {
@@ -32,23 +32,31 @@ class OrderService
             }
 
             if($lockedOffer->capacity){
-                $used=Order::where('offer_id',$lockedOffer->id)
-                    ->whereNotIn('status',['completed','cancelled','rejected','request_rejected','not_started'])
-                    ->lockForUpdate()
-                    ->count();
+                if($reservation){
+                    $used=Order::where('offer_id',$lockedOffer->id)
+                        ->whereNotIn('status',['completed','cancelled','rejected','request_rejected','not_started'])
+                        ->lockForUpdate()
+                        ->count();
 
-                $reservedByOthers=OfferWaitlistEntry::where('offer_id',$lockedOffer->id)
-                    ->where('status','reserved')
-                    ->where('reservation_expires_at','>',now())
-                    ->when($reservation,fn($q)=>$q->where('id','!=',$reservation->id))
-                    ->lockForUpdate()
-                    ->count();
+                    $reservedByOthers=OfferWaitlistEntry::where('offer_id',$lockedOffer->id)
+                        ->where('status','reserved')
+                        ->where('reservation_expires_at','>',now())
+                        ->where('id','!=',$reservation->id)
+                        ->lockForUpdate()
+                        ->count();
 
-                abort_if(
-                    $used+$reservedByOthers >= (int)$lockedOffer->capacity,
-                    422,
-                    'Dieses Angebot ist derzeit vollständig belegt oder für eine Person auf der Warteliste reserviert.'
-                );
+                    abort_if(
+                        $used+$reservedByOthers >= (int)$lockedOffer->capacity,
+                        422,
+                        'Dieses Angebot ist derzeit vollständig belegt oder für eine andere Person auf der Warteliste reserviert.'
+                    );
+                } else {
+                    abort_if(
+                        $this->waitlists->availableDirectSlots($lockedOffer)<=0,
+                        422,
+                        'Freie Kapazität ist derzeit vollständig durch berechtigte FIFO-Wartelistenpositionen oder Reservierungen gebunden.'
+                    );
+                }
             }
 
             abort_if(
