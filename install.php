@@ -446,14 +446,14 @@ Options -Indexes
     RewriteRule ^install/?$ install.php [L,QSA]
     RewriteRule ^install\.php$ - [L]
 
-    RewriteRule ^(?:app|bootstrap|config|database|resources|routes|storage|tests|vendor|\.git|\.github|\.installer-backups|\.installer-tmp)(?:/|$) - [R=404,L,NC]
-    RewriteRule ^(?:\.env(?:\..*)?|\.installed|artisan|composer\.(?:json|lock)|phpunit\.xml|package(?:-lock)?\.json)$ - [R=404,L,NC]
-
     RewriteCond %{DOCUMENT_ROOT}/public/$1 -f
     RewriteRule ^(.+)$ public/$1 [L]
 
     RewriteCond %{DOCUMENT_ROOT}/public/$1 -d
     RewriteRule ^(.+)$ public/$1 [L]
+
+    RewriteRule ^(?:app|bootstrap|config|database|resources|routes|storage|tests|vendor|\.git|\.github|\.installer-backups|\.installer-tmp)(?:/|$) - [R=404,L,NC]
+    RewriteRule ^(?:\.env(?:\..*)?|\.installed|artisan|composer\.(?:json|lock)|phpunit\.xml|package(?:-lock)?\.json)$ - [R=404,L,NC]
 
     RewriteRule ^ public/index.php [L]
 </IfModule>
