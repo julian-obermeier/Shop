@@ -28,6 +28,7 @@ class ShipmentController extends Controller
         $data=$request->validate([
             'review_status'=>['required','in:accepted,rejected'],
             'review_comment'=>['nullable','string','max:1000','required_if:review_status,rejected'],
+            'resubmit_scope'=>['nullable','in:package,receipt,both','required_if:review_status,rejected'],
         ]);
 
         $before=$shipment->toArray();
@@ -35,6 +36,7 @@ class ShipmentController extends Controller
         $shipment->update([
             'review_status'=>$data['review_status'],
             'review_comment'=>$data['review_comment']??null,
+            'resubmit_scope'=>$data['review_status']==='rejected'?($data['resubmit_scope']??'both'):null,
             'resubmit_due_at'=>$data['review_status']==='rejected'?now()->addHours(2):null,
         ]);
 
@@ -61,7 +63,7 @@ class ShipmentController extends Controller
             $data['review_status']==='accepted'?'Versandnachweis akzeptiert':'Versandnachweis erneut erforderlich',
             $data['review_status']==='accepted'
                 ? 'Die Versandnachweise zu Auftrag #'.$shipment->order->order_number.' wurden akzeptiert.'
-                : $data['review_comment'].' Bitte reiche die beanstandeten Versandnachweise innerhalb von 2 Stunden erneut ein. Der Versand-/Annahmebeleg muss dabei erneut über die Live-Kamera aufgenommen werden; das Paketfoto darf normal hochgeladen werden.',
+                : $data['review_comment'].' Bitte reiche innerhalb von 2 Stunden '.match($data['resubmit_scope']??'both'){'receipt'=>'einen neuen Versand-/Annahmebeleg per Live-Kamera','package'=>'ein neues Paketfoto','both'=>'ein neues Paketfoto und einen neuen Versand-/Annahmebeleg per Live-Kamera'}. ' ein.',
             route('orders.show',$shipment->order),
             ['order_id'=>$shipment->order_id,'shipment_id'=>$shipment->id]
         );
