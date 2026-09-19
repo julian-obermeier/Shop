@@ -328,7 +328,7 @@ class WalletPayoutTest extends TestCase
 
             $this->actingAs($admin)->post(route('admin.payouts.update',$payout->fresh()),[
                 'status'=>'completed',
-            ])->assertStatus(422);
+            ])->assertSessionHasErrors('status');
 
             $this->assertSame('requested',$payout->fresh()->status);
 
