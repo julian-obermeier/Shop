@@ -369,6 +369,9 @@ $canSubmit=$isCurrent
 <dl class="meta-list">
 <div><dt>Aktivierung</dt><dd>{{ $order->confirmed_start_date?->format('d.m.Y') ?: 'noch offen' }}</dd></div>
 <div><dt>Dauer</dt><dd>{{ data_get($order->offer_snapshot,'duration_days') }} gültige Tage</dd></div>
+@if((int)data_get($order->offer_snapshot,'minimum_minutes_per_day',0)>0)
+<div><dt>Mindestnutzung/Tag</dt><dd>{{ (int)data_get($order->offer_snapshot,'minimum_minutes_per_day') }} Minuten</dd></div>
+@endif
 <div><dt>Serie</dt><dd>{{ $order->series_number }}</dd></div>
 <div><dt>Unterbrechungen</dt><dd>{{ $order->series_interruptions }}/1 vor Neustart</dd></div>
 <div><dt>Tracking</dt><dd>{{ ['required'=>'Pflicht','optional'=>'optional','none'=>'nicht vorgesehen'][$trackingMode] }}</dd></div>
