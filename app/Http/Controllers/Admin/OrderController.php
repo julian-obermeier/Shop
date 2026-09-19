@@ -391,8 +391,9 @@ class OrderController extends Controller
             ->where('day_number','>',0)
             ->where('counts_toward_series',true)
             ->whereDate('date','>=',$now->toDateString())
-            ->orderBy('date')
             ->get();
+
+        $candidates=collect();
 
         foreach($days as $day){
             foreach(is_array($requirements)?$requirements:[] as $window){
@@ -400,11 +401,20 @@ class OrderController extends Controller
                     $day->date->format('Y-m-d').' '.($window['start']??'00:00'),
                     'Europe/Berlin'
                 );
-                if($at->greaterThan($now)) return $at;
+
+                if($at->greaterThan($now)) $candidates->push($at);
             }
         }
 
-        return $now;
+        $next=$candidates->sortBy(fn($at)=>$at->getTimestamp())->first();
+
+        abort_unless(
+            $next instanceof \Carbon\CarbonImmutable,
+            422,
+            'Für diesen Auftrag existiert kein zukünftiges Nachweisfenster mehr.'
+        );
+
+        return $next;
     }
 
 }
