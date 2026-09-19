@@ -151,6 +151,94 @@ class MasterPromptSchedulingTest extends TestCase
         }
     }
 
+    public function test_first_invalid_day_appends_replacement_and_second_interruption_restarts_full_series(): void
+    {
+        Mail::fake();
+
+        $provider=$this->provider('series-reset@example.test');
+        $category=$this->category();
+        $offer=$this->sockOffer($category,'Series Reset',3);
+
+        $order=$this->order($provider,$offer,'active','20260000410',[
+            'confirmed_start_date'=>'2026-09-19',
+            'activation_date'=>'2026-09-19',
+            'start_date'=>'2026-09-20',
+            'end_date'=>'2026-09-22',
+            'series_number'=>1,
+            'series_interruptions'=>0,
+        ]);
+
+        $day1=OrderDay::create([
+            'order_id'=>$order->id,
+            'day_number'=>1,
+            'series_number'=>1,
+            'date'=>'2026-09-20',
+            'required_proofs'=>1,
+            'status'=>'accepted',
+            'counts_toward_series'=>true,
+        ]);
+        $day2=OrderDay::create([
+            'order_id'=>$order->id,
+            'day_number'=>2,
+            'series_number'=>1,
+            'date'=>'2026-09-21',
+            'required_proofs'=>1,
+            'status'=>'open',
+            'counts_toward_series'=>true,
+        ]);
+        OrderDay::create([
+            'order_id'=>$order->id,
+            'day_number'=>3,
+            'series_number'=>1,
+            'date'=>'2026-09-22',
+            'required_proofs'=>1,
+            'status'=>'open',
+            'counts_toward_series'=>true,
+        ]);
+
+        app(OrderService::class)->invalidateDay($day2,'Erste Unterbrechung');
+
+        $order->refresh();
+        $this->assertSame(1,(int)$order->series_number);
+        $this->assertSame(1,(int)$order->series_interruptions);
+        $this->assertSame('accepted',$day1->fresh()->status);
+        $this->assertTrue((bool)$day1->fresh()->counts_toward_series);
+        $this->assertSame('2026-09-23',$order->end_date?->toDateString());
+
+        $replacement=$order->days()
+            ->where('series_number',1)
+            ->where('day_number',4)
+            ->firstOrFail();
+
+        $this->assertSame('2026-09-23',$replacement->date->toDateString());
+        $this->assertTrue((bool)$replacement->counts_toward_series);
+
+        app(OrderService::class)->invalidateDay($replacement,'Zweite Unterbrechung');
+
+        $order->refresh();
+        $this->assertSame(2,(int)$order->series_number);
+        $this->assertSame(0,(int)$order->series_interruptions);
+        $this->assertSame('2026-09-24',$order->start_date?->toDateString());
+        $this->assertSame('2026-09-26',$order->end_date?->toDateString());
+
+        $oldSeries=$order->days()->where('series_number',1)->get();
+        $this->assertTrue($oldSeries->every(fn($day)=>!$day->counts_toward_series));
+
+        $newSeries=$order->days()
+            ->where('series_number',2)
+            ->orderBy('day_number')
+            ->get();
+
+        $this->assertCount(3,$newSeries);
+        $this->assertSame([1,2,3],$newSeries->pluck('day_number')->map(fn($n)=>(int)$n)->all());
+        $this->assertSame(
+            ['2026-09-24','2026-09-25','2026-09-26'],
+            $newSeries->pluck('date')->map(fn($date)=>$date->toDateString())->all()
+        );
+        $this->assertTrue($newSeries->every(fn($day)=>$day->counts_toward_series));
+    }
+
+
     private function provider(string $email): User
     {
         $user=User::create([
