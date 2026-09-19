@@ -7,14 +7,17 @@ use App\Models\Offer;
 use App\Models\OfferWaitlistEntry;
 use App\Models\Order;
 use App\Models\OrderDay;
+use App\Models\UnassignedShipment;
 use App\Models\User;
 use App\Models\WalletAccount;
 use App\Services\NotificationService;
 use App\Services\WaitlistService;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class MasterPromptRemainingCriticalTest extends TestCase
@@ -277,6 +280,106 @@ class MasterPromptRemainingCriticalTest extends TestCase
             CarbonImmutable::setTestNow();
         }
     }
+
+    public function test_ownership_transfers_on_shipment_but_transport_risk_only_on_complete_goods_receipt(): void
+    {
+        Mail::fake();
+        Storage::fake('shipments');
+
+        $provider=$this->provider('ownership-risk@example.test');
+        $admin=$this->admin('ownership-risk-admin@example.test');
+        $category=$this->category();
+        $offer=$this->offer($category,'Ownership Risk');
+
+        $order=Order::create([
+            'order_number'=>'20260000505',
+            'user_id'=>$provider->id,
+            'offer_id'=>$offer->id,
+            'status'=>'waiting_shipping',
+            'compensation_total'=>40,
+            'offer_snapshot'=>[
+                'title'=>$offer->title,
+                'duration_days'=>1,
+                'tracking_mode'=>'optional',
+            ],
+            'current_requirements'=>[
+                'title'=>$offer->title,
+                'duration_days'=>1,
+                'tracking_mode'=>'optional',
+            ],
+            'execution_completed_at'=>now()->subHour(),
+            'shipping_due_at'=>now()->addHours(23),
+        ]);
+
+        $this->actingAs($provider)->post(route('orders.shipment',$order),[
+            'carrier'=>'DHL',
+            'tracking_number'=>'TRACK-505',
+            'package_photo'=>UploadedFile::fake()->image('package.jpg',800,600),
+            'receipt_photo'=>UploadedFile::fake()->image('receipt.jpg',800,600),
+        ])->assertRedirect();
+
+        $shipment=$order->fresh()->shipment()->firstOrFail();
+
+        $this->assertNotNull($shipment->ownership_transferred_at);
+        $this->assertNull($shipment->risk_transferred_at);
+        $this->assertSame('shipped',$order->fresh()->status);
+
+        $this->actingAs($admin)->post(route('admin.orders.goods-receipt',$order->fresh()),[
+            'complete'=>'0',
+            'note'=>'Sendung noch nicht vollständig geprüft.',
+        ])->assertRedirect();
+
+        $shipment->refresh();
+        $this->assertNull($shipment->risk_transferred_at);
+        $this->assertSame('received',$order->fresh()->status);
+
+        $this->actingAs($admin)->post(route('admin.orders.goods-receipt',$order->fresh()),[
+            'complete'=>'1',
+            'note'=>'Sendung vollständig eingegangen.',
+        ])->assertRedirect();
+
+        $shipment->refresh();
+        $this->assertNotNull($shipment->risk_transferred_at);
+        $this->assertNotNull($shipment->delivered_at);
+        $this->assertSame('inspection',$order->fresh()->status);
+    }
+
+    public function test_unassigned_shipment_record_is_final_and_immutable(): void
+    {
+        $admin=$this->admin('unassigned-admin@example.test');
+
+        $shipment=UnassignedShipment::create([
+            'sender_name'=>'Unbekannte Absenderin',
+            'sender_address'=>'Unbekannt',
+            'carrier'=>'DHL',
+            'tracking_number'=>'UNASSIGNED-1',
+            'shipping_date'=>'2026-09-18',
+            'received_at'=>'2026-09-19 12:00:00',
+            'matching_attempt'=>'Absender, Tracking und offene Aufträge geprüft; keine eindeutige Zuordnung möglich.',
+            'notes'=>'Endgültig als nicht zuordenbar dokumentiert.',
+            'recorded_by'=>$admin->id,
+            'status'=>'unassigned',
+        ]);
+
+        try{
+            $shipment->update(['tracking_number'=>'MANIPULATED']);
+            $this->fail('Nicht zuordenbare Sendung konnte nachträglich verändert werden.');
+        }catch(\LogicException $e){
+            $this->assertStringContainsString('unveränderlich',$e->getMessage());
+        }
+
+        try{
+            $shipment->delete();
+            $this->fail('Nicht zuordenbare Sendung konnte gelöscht werden.');
+        }catch(\LogicException $e){
+            $this->assertStringContainsString('nicht gelöscht',$e->getMessage());
+        }
+
+        $shipment->refresh();
+        $this->assertSame('UNASSIGNED-1',$shipment->tracking_number);
+        $this->assertSame('unassigned',$shipment->status);
+    }
+
 
     private function provider(string $email): User
     {
