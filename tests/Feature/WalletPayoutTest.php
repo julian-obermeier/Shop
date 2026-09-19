@@ -374,6 +374,89 @@ class WalletPayoutTest extends TestCase
     }
 
 
+    public function test_unchanged_payout_details_do_not_restart_security_delay(): void
+    {
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-19 12:00:00','Europe/Berlin'));
+
+        try{
+            $user=$this->makeVerifiedUser('unchanged-details@example.test');
+            $profile=$user->profile()->firstOrFail();
+            $changedAt=$profile->payout_details_changed_at->copy();
+            $approvedAt=$profile->payout_name_approved_at->copy();
+
+            $this->actingAs($user)->put(route('wallet.payout-details'),[
+                'bank_iban'=>'DE89370400440532013000',
+                'bank_account_holder'=>'Anna Beispiel',
+                'paypal_email'=>null,
+                'paypal_name'=>null,
+            ])->assertRedirect();
+
+            $profile->refresh();
+            $this->assertTrue($profile->payout_details_changed_at->equalTo($changedAt));
+            $this->assertTrue($profile->payout_name_approved_at->equalTo($approvedAt));
+        } finally {
+            CarbonImmutable::setTestNow();
+        }
+    }
+
+    public function test_changing_only_iban_keeps_existing_approval_for_same_mismatched_holder(): void
+    {
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-19 12:00:00','Europe/Berlin'));
+
+        try{
+            $user=$this->makeVerifiedUser('iban-only@example.test');
+            $profile=$user->profile()->firstOrFail();
+            $oldApproval=CarbonImmutable::parse('2026-09-17 08:00:00','Europe/Berlin');
+
+            $profile->update([
+                'bank_account_holder'=>'Freigegebene Dritte Person',
+                'payout_name_approved_at'=>$oldApproval,
+                'payout_details_changed_at'=>now()->subHours(30),
+            ]);
+
+            $this->actingAs($user)->put(route('wallet.payout-details'),[
+                'bank_iban'=>'DE12345678901234567890',
+                'bank_account_holder'=>'Freigegebene Dritte Person',
+                'paypal_email'=>null,
+                'paypal_name'=>null,
+            ])->assertRedirect();
+
+            $profile->refresh();
+            $this->assertSame('DE12345678901234567890',$profile->bank_iban);
+            $this->assertTrue($profile->payout_details_changed_at->equalTo(now()));
+            $this->assertTrue($profile->payout_name_approved_at->equalTo($oldApproval));
+        } finally {
+            CarbonImmutable::setTestNow();
+        }
+    }
+
+    public function test_changing_to_new_mismatched_payout_holder_resets_admin_approval(): void
+    {
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-19 12:00:00','Europe/Berlin'));
+
+        try{
+            $user=$this->makeVerifiedUser('holder-change@example.test');
+            $profile=$user->profile()->firstOrFail();
+
+            $this->assertNotNull($profile->payout_name_approved_at);
+
+            $this->actingAs($user)->put(route('wallet.payout-details'),[
+                'bank_iban'=>'DE89370400440532013000',
+                'bank_account_holder'=>'Neue Dritte Person',
+                'paypal_email'=>null,
+                'paypal_name'=>null,
+            ])->assertRedirect();
+
+            $profile->refresh();
+            $this->assertSame('Neue Dritte Person',$profile->bank_account_holder);
+            $this->assertNull($profile->payout_name_approved_at);
+            $this->assertTrue($profile->payout_details_changed_at->equalTo(now()));
+        } finally {
+            CarbonImmutable::setTestNow();
+        }
+    }
+
+
     private function makeVerifiedUser(string $email): User
     {
         $user=User::create([
