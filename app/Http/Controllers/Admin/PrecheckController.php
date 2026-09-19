@@ -67,7 +67,7 @@ class PrecheckController extends Controller
             $order->user,
             'precheck_'.$data['status'],
             'Vorprüfung '.strtoupper($data['status']),
-            $data['admin_comment'] ?: 'Die Vorprüfung zu Auftrag #'.$order->order_number.' wurde bearbeitet.',
+            ($data['admin_comment']??null) ?: 'Die Vorprüfung zu Auftrag #'.$order->order_number.' wurde bearbeitet.',
             route('orders.show',$order)
         );
 
