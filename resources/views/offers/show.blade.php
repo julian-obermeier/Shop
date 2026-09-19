@@ -5,6 +5,9 @@
 $canRequest=!$offerBlocked && ($availableSlots>0 || $waitlistEntry?->status==='reserved');
 $proofWindows=$offer->proof_requirements ?: [];
 $inspection=$offer->inspection_config ?: [];
+$inspectionCategories=collect(data_get($inspection,'categories',[]));
+$scoreBands=collect(data_get($inspection,'score_bands',[]));
+$activeOptions=$offer->options->where('active',true)->keyBy('id');
 @endphp
 <div class="offer-detail-grid" data-offer-configurator data-base="{{ $offer->base_compensation }}">
 <section>
@@ -61,6 +64,42 @@ Dieses Angebot ist derzeit voll.
 <p>Versand innerhalb von 24 Stunden nach Ende der Erfüllungsphase auf eigene Kosten. Paketfoto und Versandbeleg sind Pflicht.</p>
 <p><strong>Tracking:</strong> {{ ['required'=>'verpflichtend','optional'=>'optional','none'=>'nicht vorgesehen'][$offer->tracking_mode??'optional'] }}</p>
 <p>Die finale Warenprüfung bewertet Aussehen, Geruch, Geschmack, Nachweise und Extras jeweils mit bestanden/nicht bestanden und 0–10 Punkten. Extras werden separat als erfüllt oder nicht erfüllt vergütet.</p>
+
+@if($inspectionCategories->isNotEmpty())
+<h4>Prüfkategorien & KO-Regeln</h4>
+<ul>
+@foreach($inspectionCategories as $key=>$config)
+<li>
+<strong>{{ $config['label']??ucfirst((string)$key) }}</strong>
+· 0–10 Punkte
+@if($config['ko']??false) · <strong>KO-Kriterium</strong>@else · kein KO-Kriterium@endif
+</li>
+@endforeach
+</ul>
+@endif
+
+@if(data_get($inspection,'points_affect_compensation',false))
+<p><strong>Die Gesamtpunktzahl beeinflusst die Grundvergütung.</strong></p>
+@if($scoreBands->isNotEmpty())
+<div class="table-card">
+<table>
+<thead><tr><th>Punktzahl</th><th>Anteil Grundvergütung</th></tr></thead>
+<tbody>
+@foreach($scoreBands->sortByDesc('min') as $band)
+<tr>
+<td>{{ (int)($band['min']??0) }}–{{ (int)($band['max']??0) }} Punkte</td>
+<td>{{ number_format((float)($band['percentage']??0),2,',','.') }} %</td>
+</tr>
+@endforeach
+</tbody>
+</table>
+</div>
+@endif
+@else
+<p><strong>Die Punkte verändern die Grundvergütung bei diesem Angebot nicht.</strong></p>
+@endif
+
+<p class="muted">Scheitert ein als KO markiertes Kriterium, kann die Vergütung unabhängig von der Gesamtpunktzahl vollständig entfallen. Erfüllte Extras werden mit 100 % ihrer vereinbarten Extra-Vergütung berücksichtigt; nicht erfüllte Extras mit 0 %.</p>
 </div>
 
 @if($offer->rules)
@@ -125,7 +164,20 @@ Dieses Angebot ist derzeit voll.
 @php($rules=$option->rules?:[])
 <label class="option">
 <input type="checkbox" name="options[]" value="{{ $option->id }}" data-price="{{ $option->price_delta }}" data-requires='@json($rules["requires_ids"]??[])' data-excludes='@json($rules["excludes_ids"]??[])' @checked($option->required || in_array($option->id,old('options',[]))) @if($option->required) required @endif>
-<span><strong>{{ $option->name }} @if($option->required)<small style="display:inline;color:var(--pink)">Pflicht</small>@endif</strong><small>{{ $option->description }}</small></span>
+<span>
+<strong>{{ $option->name }} @if($option->required)<small style="display:inline;color:var(--pink)">Pflicht</small>@endif</strong>
+<small>{{ $option->description }}</small>
+@php
+$requires=collect($rules['requires_ids']??[])->map(fn($id)=>$activeOptions->get((int)$id)?->name)->filter();
+$excludes=collect($rules['excludes_ids']??[])->map(fn($id)=>$activeOptions->get((int)$id)?->name)->filter();
+$minDuration=(int)($rules['min_duration_days']??0);
+@endphp
+@if($requires->isNotEmpty())<small><strong>Benötigt:</strong> {{ $requires->implode(', ') }}</small>@endif
+@if($excludes->isNotEmpty())<small><strong>Nicht kombinierbar mit:</strong> {{ $excludes->implode(', ') }}</small>@endif
+@if($minDuration>0)<small><strong>Mindestdauer:</strong> {{ $minDuration }} Tage</small>@endif
+@if((int)$option->extra_duration_days>0)<small><strong>Zusatzdauer:</strong> +{{ (int)$option->extra_duration_days }} Tag(e)</small>@endif
+@if((int)$option->extra_proofs_per_day>0)<small><strong>Zusatznachweise:</strong> +{{ (int)$option->extra_proofs_per_day }} pro Tag</small>@endif
+</span>
 <b>+{{ number_format($option->price_delta,2,',','.') }} €</b>
 </label>
 @endforeach
@@ -139,7 +191,7 @@ Dieses Angebot ist derzeit voll.
 
 <div class="notice">Vor dem Absenden: Grundvergütung, Extras, Startdatum, Nachweisfenster, Versandregeln und die oben aufgeführten Bedingungen bilden die Auftragsanfrage. Der Admin muss Auftrag und Startdatum anschließend bestätigen.</div>
 <label class="check"><input type="checkbox" name="confirm_summary" value="1" required><span>Ich habe die vollständige Auftragszusammenfassung geprüft und bestätige sie.</span></label>
-<button class="btn primary wide" @disabled(!auth()->user()->hasVerifiedEmail() || auth()->user()->hasRestriction('offers'))>Auftrag anfragen</button>
+<button class="btn primary wide" @disabled(!auth()->user()->hasVerifiedEmail() || $offerBlocked)>Auftrag anfragen</button>
 @if(!auth()->user()->hasVerifiedEmail())<p class="muted">Vor einer Auftragsanfrage muss deine E-Mail-Adresse bestätigt sein.</p>@endif
 </form>
 @endif
