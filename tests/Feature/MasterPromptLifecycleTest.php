@@ -410,7 +410,7 @@ class MasterPromptLifecycleTest extends TestCase
         ]);
 
         $this->actingAs($provider)->post(route('proofs.store',$day),[
-            'proof'=>UploadedFile::fake()->image('proof.jpg',800,600),
+            'proof'=>UploadedFile::fake()->image('live-proof.jpg',800,600),
             'challenge_id'=>$challenge->id,
             'proof_code'=>'ABC123',
             'window_key'=>'evening',
@@ -423,7 +423,7 @@ class MasterPromptLifecycleTest extends TestCase
         $this->assertNull($challenge->fresh()->used_at);
 
         $this->actingAs($provider)->post(route('proofs.store',$day),[
-            'proof'=>UploadedFile::fake()->image('proof.jpg',800,600),
+            'proof'=>UploadedFile::fake()->image('live-proof.jpg',800,600),
             'challenge_id'=>$challenge->id,
             'proof_code'=>'ABC123',
             'window_key'=>'evening',
@@ -509,7 +509,7 @@ class MasterPromptLifecycleTest extends TestCase
             $this->assertTrue($challenge->expires_at->isFuture());
 
             $this->actingAs($provider)->post(route('proofs.store',$startDay),[
-                'proof'=>UploadedFile::fake()->image('start-new.jpg',800,600),
+                'proof'=>UploadedFile::fake()->image('live-start-new.jpg',800,600),
                 'challenge_id'=>$challenge->id,
                 'proof_code'=>$challenge->code,
                 'window_key'=>'start',
@@ -623,7 +623,7 @@ class MasterPromptLifecycleTest extends TestCase
             'carrier'=>'DHL',
             'tracking_number'=>'TRACK-1',
             'package_photo'=>UploadedFile::fake()->image('package.jpg',800,600),
-            'receipt_photo'=>UploadedFile::fake()->image('receipt.jpg',800,600),
+            'receipt_photo'=>UploadedFile::fake()->image('live-receipt.jpg',800,600),
         ])->assertRedirect();
 
         $this->assertDatabaseHas('shipments',[
@@ -1042,7 +1042,7 @@ class MasterPromptLifecycleTest extends TestCase
             ]);
 
             $this->actingAs($provider)->post(route('proofs.store',$day),[
-                'proof'=>UploadedFile::fake()->image('expired.jpg',800,600),
+                'proof'=>UploadedFile::fake()->image('live-expired.jpg',800,600),
                 'challenge_id'=>$expired->id,
                 'proof_code'=>'OLD123',
                 'window_key'=>'daily',
