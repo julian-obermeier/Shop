@@ -51,7 +51,9 @@ class User extends Authenticatable implements MustVerifyEmailContract
         });
 
         static::deleting(function(self $user){
-            if($user->role==='admin'){
+            $persistedRole=(string)$user->getOriginal('role');
+
+            if($persistedRole==='admin' || $user->role==='admin'){
                 throw new \LogicException('Das einzige Admin-Konto darf nicht gelöscht werden.');
             }
         });
