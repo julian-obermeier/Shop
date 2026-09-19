@@ -117,8 +117,9 @@ $pointsAffect=(bool)data_get($inspectionConfig,'points_affect_compensation',fals
 @if($order->status==='requested')
 <div class="panel"><h2>Anfrage entscheiden</h2>
 <form method="post" action="{{ route('admin.orders.approve',$order) }}" class="stack-form">@csrf
-<label>Aktivierungstag<input type="date" name="start_date" value="{{ $order->proposed_start_date?->format('Y-m-d') }}" min="{{ now('Europe/Berlin')->format('Y-m-d') }}"></label>
-<button class="btn primary wide">Auftrag + Termin bestätigen</button>
+<input type="hidden" name="start_date" value="{{ $order->proposed_start_date?->format('Y-m-d') }}">
+<div class="notice">Wunschdatum der Anbieterin: <strong>{{ $order->proposed_start_date?->format('d.m.Y') }}</strong>. Dieses Formular bestätigt exakt dieses Datum. Für ein anderes Datum nutze den Gegenvorschlag darunter.</div>
+<button class="btn primary wide">Auftrag + Wunschdatum bestätigen</button>
 </form>
 <hr>
 <form method="post" action="{{ route('admin.orders.propose-date',$order) }}" class="stack-form">@csrf
