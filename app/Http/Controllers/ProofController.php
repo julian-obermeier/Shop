@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 use App\Models\OrderDay;
 use App\Models\ProofChallenge;
 use App\Services\OrderService;
+use App\Services\CameraCaptureService;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -56,7 +57,7 @@ class ProofController extends Controller
         });
     }
 
-    public function store(Request $request, OrderDay $day, OrderService $orders)
+    public function store(Request $request, OrderDay $day, OrderService $orders, CameraCaptureService $captures)
     {
         $day->load('order');
         $order=$day->order;
@@ -72,6 +73,7 @@ class ProofController extends Controller
             'text_value'=>['nullable','string','max:2000'],
             'proof_data'=>['nullable','array'],
             'proof_data.*'=>['nullable','string','max:1000'],
+            'camera_capture_token'=>['required','string','max:128'],
         ]);
 
         $originalProofName=(string)$data['proof']->getClientOriginalName();
@@ -136,6 +138,12 @@ class ProofController extends Controller
             $latest=$rejected->first();
             abort_if($latest?->resubmit_due_at && $latest->resubmit_due_at->isPast(),422,'Die Nachreichfrist ist bereits abgelaufen.');
         }
+
+        $captures->consume(
+            $request,
+            (string)$data['camera_capture_token'],
+            'proof:'.$day->id.':'.$challenge->id.':'.$window['key']
+        );
 
         $file=$data['proof'];
         $extension=strtolower($file->getClientOriginalExtension() ?: 'jpg');
