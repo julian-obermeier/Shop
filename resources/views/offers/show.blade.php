@@ -26,6 +26,9 @@ $activeOptions=$offer->options->where('active',true)->keyBy('id');
 
 <div class="rule-grid">
 <div><strong>{{ $offer->duration_days }}</strong><span>gültige Kalendertage</span></div>
+@if((int)$offer->minimum_minutes_per_day>0)
+<div><strong>{{ $offer->minimum_minutes_per_day }} min</strong><span>Mindestnutzung/Tag</span></div>
+@endif
 <div><strong>{{ $offer->proofs_per_day }}</strong><span>Pflichtbilder/Tag</span></div>
 <div><strong>24h</strong><span>Versandfrist</span></div>
 <div><strong>{{ $offer->is_sock_wearing?'1':'5' }}</strong><span>{{ $offer->is_sock_wearing?'aktiver Sockenauftrag':'allg. Auftragslimit' }}</span></div>
