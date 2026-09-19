@@ -1453,6 +1453,165 @@ class MasterPromptLifecycleTest extends TestCase
     }
 
 
+    public function test_proof_challenge_is_blocked_outside_configured_window(): void
+    {
+        $now=CarbonImmutable::parse('2026-09-19 12:00:00','Europe/Berlin');
+        CarbonImmutable::setTestNow($now);
+
+        try{
+            $provider=$this->provider('window-guard@example.test');
+            $category=$this->category();
+            $offer=$this->offer($category,'Window Guard');
+
+            $requirements=[[
+                'key'=>'evening',
+                'label'=>'Abendnachweis',
+                'start'=>'18:00',
+                'end'=>'20:00',
+                'required_images'=>1,
+            ]];
+
+            $order=Order::create([
+                'order_number'=>'20260000710',
+                'user_id'=>$provider->id,
+                'offer_id'=>$offer->id,
+                'status'=>'active',
+                'compensation_total'=>40,
+                'offer_snapshot'=>[
+                    'title'=>$offer->title,
+                    'duration_days'=>1,
+                    'proof_requirements'=>$requirements,
+                ],
+                'current_requirements'=>[
+                    'proof_requirements'=>$requirements,
+                ],
+                'series_number'=>1,
+            ]);
+
+            $day=OrderDay::create([
+                'order_id'=>$order->id,
+                'day_number'=>1,
+                'series_number'=>1,
+                'date'=>$now->toDateString(),
+                'required_proofs'=>1,
+                'status'=>'open',
+                'counts_toward_series'=>true,
+            ]);
+
+            $this->actingAs($provider)->post(route('proofs.challenge',$day),[
+                'window_key'=>'evening',
+            ])->assertStatus(422);
+
+            $this->assertDatabaseCount('proof_challenges',0);
+
+            CarbonImmutable::setTestNow($now->setTime(18,30));
+
+            $this->actingAs($provider)->post(route('proofs.challenge',$day),[
+                'window_key'=>'evening',
+            ])->assertRedirect();
+
+            $this->assertDatabaseHas('proof_challenges',[
+                'order_day_id'=>$day->id,
+                'window_key'=>'evening',
+            ]);
+        } finally {
+            CarbonImmutable::setTestNow();
+        }
+    }
+
+    public function test_admin_can_grant_multiple_extra_retries_sequentially(): void
+    {
+        Mail::fake();
+
+        $now=CarbonImmutable::parse('2026-09-19 12:00:00','Europe/Berlin');
+        CarbonImmutable::setTestNow($now);
+
+        try{
+            $provider=$this->provider('multi-extra-retry@example.test');
+            $admin=$this->admin('admin-multi-extra-retry@example.test');
+            $category=$this->category();
+            $offer=$this->offer($category,'Multiple Extra Retry');
+
+            $order=Order::create([
+                'order_number'=>'20260000711',
+                'user_id'=>$provider->id,
+                'offer_id'=>$offer->id,
+                'status'=>'active',
+                'compensation_total'=>40,
+                'offer_snapshot'=>['title'=>$offer->title,'duration_days'=>1],
+                'series_number'=>1,
+            ]);
+
+            $day=OrderDay::create([
+                'order_id'=>$order->id,
+                'day_number'=>1,
+                'series_number'=>1,
+                'date'=>$now->toDateString(),
+                'required_proofs'=>1,
+                'status'=>'open',
+                'counts_toward_series'=>true,
+            ]);
+
+            $firstRejected=ProofSubmission::create([
+                'order_day_id'=>$day->id,
+                'user_id'=>$provider->id,
+                'type'=>'photo',
+                'window_key'=>'daily',
+                'storage_path'=>'extra-retry-2.jpg',
+                'original_name'=>'extra-retry-2.jpg',
+                'mime_type'=>'image/jpeg',
+                'file_size'=>100,
+                'sha256'=>str_repeat('f',64),
+                'retry_number'=>2,
+                'review_status'=>'rejected',
+                'rejection_kind'=>'technical',
+                'review_comment'=>'Technischer Fehler',
+                'reviewed_at'=>$now,
+            ]);
+
+            $this->actingAs($admin)
+                ->post(route('admin.proofs.extra-retry',$firstRejected))
+                ->assertRedirect();
+
+            $firstRejected->refresh();
+            $this->assertTrue((bool)$firstRejected->extra_retry_granted);
+            $this->assertEquals(7200,$now->diffInSeconds($firstRejected->resubmit_due_at,false));
+
+            $firstRejected->update([
+                'extra_retry_granted'=>false,
+                'resubmit_due_at'=>null,
+            ]);
+
+            $secondRejected=ProofSubmission::create([
+                'order_day_id'=>$day->id,
+                'user_id'=>$provider->id,
+                'type'=>'photo',
+                'window_key'=>'daily',
+                'storage_path'=>'extra-retry-3.jpg',
+                'original_name'=>'extra-retry-3.jpg',
+                'mime_type'=>'image/jpeg',
+                'file_size'=>100,
+                'sha256'=>str_repeat('a',64),
+                'retry_number'=>3,
+                'review_status'=>'rejected',
+                'rejection_kind'=>'technical',
+                'review_comment'=>'Noch ein technischer Fehler',
+                'reviewed_at'=>$now,
+            ]);
+
+            $this->actingAs($admin)
+                ->post(route('admin.proofs.extra-retry',$secondRejected))
+                ->assertRedirect();
+
+            $secondRejected->refresh();
+            $this->assertTrue((bool)$secondRejected->extra_retry_granted);
+            $this->assertEquals(7200,$now->diffInSeconds($secondRejected->resubmit_due_at,false));
+        } finally {
+            CarbonImmutable::setTestNow();
+        }
+    }
+
+
     private function provider(string $email): User
     {
         $user=User::create([
