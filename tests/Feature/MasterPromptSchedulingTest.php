@@ -222,6 +222,46 @@ class MasterPromptSchedulingTest extends TestCase
     }
 
 
+    public function test_successful_direct_request_consumes_existing_waiting_position_when_surplus_capacity_exists(): void
+    {
+        Mail::fake();
+
+        $now=CarbonImmutable::parse('2026-09-18 13:00:00','Europe/Berlin');
+        CarbonImmutable::setTestNow($now);
+
+        try{
+            $category=$this->category();
+            $offer=$this->sockOffer($category,'FIFO Surplus Direct',2);
+            $offer->update(['capacity'=>2]);
+
+            $provider=$this->provider('fifo-surplus@example.test');
+
+            $entry=OfferWaitlistEntry::create([
+                'offer_id'=>$offer->id,
+                'user_id'=>$provider->id,
+                'status'=>'waiting',
+                'planned_start_date'=>'2026-10-05',
+            ]);
+
+            $this->assertSame(1,app(WaitlistService::class)->availableDirectSlots($offer));
+
+            $order=app(OrderService::class)->create(
+                $provider,
+                $offer,
+                [],
+                [],
+                '2026-10-05'
+            );
+
+            $this->assertSame('requested',$order->status);
+            $this->assertSame('used',$entry->fresh()->status);
+            $this->assertNull($entry->fresh()->reservation_expires_at);
+        } finally {
+            CarbonImmutable::setTestNow();
+        }
+    }
+
+
     public function test_first_invalid_day_appends_replacement_and_second_interruption_restarts_full_series(): void
     {
         Mail::fake();
