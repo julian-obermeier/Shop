@@ -1,0 +1,150 @@
+name: Deploy ALL-INKL
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-allinkl-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SSH_HOST: ${{ secrets.ALLINKL_SSH_HOST }}
+      SSH_PORT: ${{ secrets.ALLINKL_SSH_PORT }}
+      SSH_USER: ${{ secrets.ALLINKL_SSH_USER }}
+      SSH_PASSWORD: ${{ secrets.ALLINKL_SSH_PASSWORD }}
+      APP_DIR: ${{ secrets.ALLINKL_APP_DIR }}
+      ENV_B64: ${{ secrets.ALLINKL_ENV_B64 }}
+
+    steps:
+      - name: Check deployment connection
+        id: guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in SSH_HOST SSH_USER SSH_PASSWORD APP_DIR; do
+            if [ -z "${!name:-}" ]; then
+              echo "::warning::Missing required repository secret for $name; production deployment is skipped."
+              missing=1
+            fi
+          done
+          if [ -z "${SSH_PORT:-}" ]; then
+            echo "SSH_PORT=22" >> "$GITHUB_ENV"
+          fi
+          if [ "$missing" -eq 1 ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Resolve revision
+        if: steps.guard.outputs.ready == 'true'
+        id: revision
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            echo "ref=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=main" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        if: steps.guard.outputs.ready == 'true'
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.revision.outputs.ref }}
+
+      - name: Setup PHP
+        if: steps.guard.outputs.ready == 'true'
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, fileinfo, pdo_mysql, gd
+          coverage: none
+
+      - name: Build production dependencies
+        if: steps.guard.outputs.ready == 'true'
+        run: composer install --no-dev --no-interaction --prefer-dist --no-progress --optimize-autoloader
+
+      - name: Prepare SSH transport
+        if: steps.guard.outputs.ready == 'true'
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass rsync
+          mkdir -p ~/.ssh
+          ssh-keyscan -p "$SSH_PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Ensure remote application directory
+        if: steps.guard.outputs.ready == 'true'
+        shell: bash
+        run: |
+          sshpass -p "$SSH_PASSWORD" ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST"             "mkdir -p '$APP_DIR' '$APP_DIR/storage/framework/cache' '$APP_DIR/storage/framework/sessions' '$APP_DIR/storage/framework/views' '$APP_DIR/storage/logs' '$APP_DIR/bootstrap/cache'"
+
+      - name: Upload optional production environment
+        if: steps.guard.outputs.ready == 'true' && env.ENV_B64 != ''
+        shell: bash
+        run: |
+          printf '%s' "$ENV_B64" | base64 --decode > /tmp/shop-production.env
+          sshpass -p "$SSH_PASSWORD" scp -P "$SSH_PORT" /tmp/shop-production.env "$SSH_USER@$SSH_HOST:$APP_DIR/.env.deploy"
+          sshpass -p "$SSH_PASSWORD" ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST"             "mv '$APP_DIR/.env.deploy' '$APP_DIR/.env' && chmod 600 '$APP_DIR/.env'"
+
+      - name: Upload application
+        if: steps.guard.outputs.ready == 'true'
+        shell: bash
+        run: |
+          sshpass -p "$SSH_PASSWORD" rsync -az --delete             -e "ssh -p $SSH_PORT"             --exclude='.git/'             --exclude='.github/'             --exclude='.env'             --exclude='storage/'             --exclude='public/storage'             --exclude='tests/'             ./ "$SSH_USER@$SSH_HOST:$APP_DIR/"
+
+      - name: Activate release
+        if: steps.guard.outputs.ready == 'true'
+        shell: bash
+        run: |
+          sshpass -p "$SSH_PASSWORD" ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "APP_DIR='$APP_DIR' bash -s" <<'REMOTE'
+          set -euo pipefail
+          cd "$APP_DIR"
+
+          if [ ! -f .env ]; then
+            echo "ERROR: $APP_DIR/.env is missing. Set ALLINKL_ENV_B64 or create the production .env on the server." >&2
+            exit 42
+          fi
+
+          PHP_BIN=php83
+          if ! command -v "$PHP_BIN" >/dev/null 2>&1; then
+            PHP_BIN=php
+          fi
+
+          "$PHP_BIN" artisan down || true
+          trap '"$PHP_BIN" artisan up || true' EXIT
+
+          "$PHP_BIN" artisan migrate --force
+          "$PHP_BIN" artisan optimize:clear
+          "$PHP_BIN" artisan storage:link || true
+          "$PHP_BIN" artisan config:cache
+          "$PHP_BIN" artisan route:cache
+          "$PHP_BIN" artisan view:cache
+
+          chmod -R u+rwX storage bootstrap/cache
+
+          "$PHP_BIN" artisan up
+          trap - EXIT
+          REMOTE
+
+      - name: Deployment summary
+        if: steps.guard.outputs.ready == 'true'
+        run: |
+          echo "Production files deployed."
+          echo "ALL-INKL domain target must point to: $APP_DIR/public"
+          echo "APP_URL must be: https://shop.fetisch-game.com"
+          echo "Laravel scheduler must be configured in KAS."
