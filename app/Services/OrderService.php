@@ -192,6 +192,13 @@ class OrderService
             $start=CarbonImmutable::parse($date ?: $order->proposed_start_date,'Europe/Berlin')->startOfDay();
             abort_if($start->lt(CarbonImmutable::today('Europe/Berlin')),422,'Der bestätigte Start darf nicht in der Vergangenheit liegen.');
 
+            $proposed=CarbonImmutable::parse($order->proposed_start_date,'Europe/Berlin')->startOfDay();
+            abort_if(
+                !$start->isSameDay($proposed),
+                422,
+                'Ein vom bisherigen Startwunsch abweichender Termin muss zuerst als Gegenvorschlag an die Anbieterin gesendet und von ihr aktiv bestätigt werden.'
+            );
+
             $count=Order::where('user_id',$order->user_id)
                 ->where('id','!=',$order->id)
                 ->countsAgainstPersonalLimit()
