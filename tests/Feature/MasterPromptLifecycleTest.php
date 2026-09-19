@@ -1181,6 +1181,68 @@ class MasterPromptLifecycleTest extends TestCase
     }
 
 
+    public function test_requirement_change_audit_does_not_retain_reconstructable_old_or_new_requirement_text(): void
+    {
+        Mail::fake();
+
+        $provider=$this->provider('requirements-audit@example.test');
+        $admin=$this->admin('admin-requirements-audit@example.test');
+        $category=$this->category();
+        $offer=$this->offer($category,'Requirement Audit');
+
+        $oldText='Alter vertraulicher Anforderungstext';
+        $newText='Neuer verbindlicher Anforderungstext';
+
+        $snapshot=[
+            'title'=>$offer->title,
+            'duration_days'=>1,
+            'proof_requirements'=>$offer->proof_requirements,
+            'inspection_config'=>$offer->inspection_config,
+            'admin_addition'=>[
+                'text'=>$oldText,
+                'effective_mode'=>'immediately',
+                'effective_at'=>now()->subDay()->toIso8601String(),
+                'additional_compensation'=>0,
+            ],
+        ];
+
+        $order=Order::create([
+            'order_number'=>'20260000318',
+            'user_id'=>$provider->id,
+            'offer_id'=>$offer->id,
+            'status'=>'approved',
+            'compensation_total'=>40,
+            'offer_snapshot'=>$snapshot,
+            'current_requirements'=>$snapshot,
+            'confirmed_start_date'=>now('Europe/Berlin')->addDay()->toDateString(),
+            'proposed_start_date'=>now('Europe/Berlin')->addDay()->toDateString(),
+        ]);
+
+        $this->actingAs($admin)->post(route('admin.orders.requirements',$order),[
+            'requirement_text'=>$newText,
+            'effective_mode'=>'immediately',
+            'additional_compensation'=>5,
+        ])->assertRedirect();
+
+        $order->refresh();
+        $this->assertSame($newText,data_get($order->current_requirements,'admin_addition.text'));
+        $this->assertEquals(45.0,(float)$order->compensation_total);
+
+        $audit=\App\Models\AuditLog::where('action','order.requirements.changed')
+            ->where('auditable_id',$order->id)
+            ->latest('id')
+            ->firstOrFail();
+
+        $serialized=json_encode([$audit->before,$audit->after],JSON_UNESCAPED_UNICODE);
+        $this->assertStringNotContainsString($oldText,$serialized);
+        $this->assertStringNotContainsString($newText,$serialized);
+        $this->assertStringNotContainsString('current_requirements',$serialized);
+        $this->assertStringNotContainsString('offer_snapshot',$serialized);
+        $this->assertTrue((bool)($audit->after['change_recorded']??false));
+        $this->assertEquals(5.0,(float)($audit->after['additional_compensation']??0));
+    }
+
+
     private function provider(string $email): User
     {
         $user=User::create([
