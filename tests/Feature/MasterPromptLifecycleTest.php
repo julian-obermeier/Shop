@@ -581,25 +581,27 @@ class MasterPromptLifecycleTest extends TestCase
     }
 
 
-    public function test_upload_restriction_blocks_provider_files_but_keeps_text_and_non_upload_return_path_available(): void
+    public function test_reliability_restriction_does_not_block_required_existing_order_file_workflows(): void
     {
         Mail::fake();
         Storage::fake('shipments');
         Storage::fake('messages');
         Storage::fake('returns');
 
-        $provider=$this->provider('upload-restricted@example.test');
+        $provider=$this->provider('reliability-files@example.test');
         $category=$this->category();
-        $offer=$this->offer($category,'Upload Restriction');
+        $offer=$this->offer($category,'Reliability File Workflows');
 
         $provider->restrictions()->create([
             'issued_by'=>null,
-            'type'=>'uploads',
-            'reason'=>'Testweise Uploads gesperrt',
+            'type'=>'reliability',
+            'reason'=>'Neue Aufträge eingeschränkt, bestehende Pflichten bleiben erfüllbar.',
             'starts_at'=>now()->subMinute(),
             'active'=>true,
-            'required_successes'=>0,
+            'required_successes'=>5,
             'successful_count'=>0,
+            'max_active_orders'=>0,
+            'blocked_offer_ids'=>[$offer->id],
         ]);
 
         $shippingOrder=Order::create([
@@ -622,9 +624,12 @@ class MasterPromptLifecycleTest extends TestCase
             'tracking_number'=>'TRACK-1',
             'package_photo'=>UploadedFile::fake()->image('package.jpg',800,600),
             'receipt_photo'=>UploadedFile::fake()->image('receipt.jpg',800,600),
-        ])->assertStatus(422);
+        ])->assertRedirect();
 
-        $this->assertDatabaseMissing('shipments',['order_id'=>$shippingOrder->id]);
+        $this->assertDatabaseHas('shipments',[
+            'order_id'=>$shippingOrder->id,
+            'carrier'=>'DHL',
+        ]);
 
         $messageOrder=Order::create([
             'order_number'=>'20260000310',
@@ -637,19 +642,19 @@ class MasterPromptLifecycleTest extends TestCase
 
         $this->actingAs($provider)->post(route('messages.store'),[
             'order_id'=>$messageOrder->id,
-            'message'=>'Text bleibt erlaubt.',
+            'message'=>'Anhang zu bestehendem Auftrag.',
             'attachment'=>UploadedFile::fake()->create('anlage.pdf',20,'application/pdf'),
-        ])->assertStatus(422);
-
-        $this->actingAs($provider)->post(route('messages.store'),[
-            'order_id'=>$messageOrder->id,
-            'message'=>'Text bleibt erlaubt.',
         ])->assertRedirect();
 
-        $this->assertDatabaseHas('messages',[
-            'user_id'=>$provider->id,
-            'body'=>'Text bleibt erlaubt.',
-        ]);
+        $message=$provider->conversations()
+            ->where('order_id',$messageOrder->id)
+            ->firstOrFail()
+            ->messages()
+            ->firstOrFail();
+
+        $this->assertSame('Anhang zu bestehendem Auftrag.',$message->body);
+        $this->assertNotNull($message->attachment_path);
+        Storage::disk('messages')->assertExists($message->attachment_path);
 
         $returnOrder=Order::create([
             'order_number'=>'20260000311',
@@ -676,20 +681,15 @@ class MasterPromptLifecycleTest extends TestCase
         $this->actingAs($provider)->post(route('orders.return-request',$returnOrder),[
             'method'=>'own_label',
             'return_label'=>UploadedFile::fake()->create('return.pdf',20,'application/pdf'),
-        ])->assertStatus(422);
-
-        $this->assertNull($returnOrder->fresh()->returnRequest);
-
-        $this->actingAs($provider)->post(route('orders.return-request',$returnOrder),[
-            'method'=>'operator_quote',
         ])->assertRedirect();
 
-        $this->assertDatabaseHas('return_requests',[
-            'order_id'=>$returnOrder->id,
-            'method'=>'operator_quote',
-            'status'=>'awaiting_quote_payment',
-        ]);
+        $return=$returnOrder->fresh()->returnRequest()->firstOrFail();
+        $this->assertSame('own_label',$return->method);
+        $this->assertSame('ready',$return->status);
+        $this->assertNotNull($return->return_label_path);
+        Storage::disk('returns')->assertExists($return->return_label_path);
     }
+
 
     public function test_third_technical_rejection_waits_for_manual_extra_retry_instead_of_automatic_deadline(): void
     {
