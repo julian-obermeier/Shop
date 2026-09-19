@@ -22,12 +22,6 @@ class MessageService
         ];
 
         if($attachment){
-            abort_if(
-                $sender->role==='provider' && $sender->hasRestriction('uploads'),
-                422,
-                'Datei-Uploads sind für dieses Konto derzeit gesperrt. Textnachrichten bleiben möglich.'
-            );
-
             $original=$attachment->getClientOriginalName();
             $mime=$attachment->getMimeType() ?: 'application/octet-stream';
             abort_unless(str_starts_with($mime,'image/') || $mime==='application/pdf',422,'Als Anhang sind nur Bilder oder PDF-Dateien erlaubt.');
