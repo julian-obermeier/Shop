@@ -36,7 +36,17 @@ class Order extends Model
     protected static function booted(): void
     {
         static::updating(function(self $order){
-            foreach(['order_number','user_id','offer_snapshot'] as $attribute){
+            if($order->isDirty('order_number')){
+                $oldNumber=(string)$order->getOriginal('order_number');
+                $newNumber=(string)$order->order_number;
+                $initialFinalization=str_starts_with($oldNumber,'TMP-') && !str_starts_with($newNumber,'TMP-');
+
+                if(!$initialFinalization){
+                    throw new \LogicException('Die endgültige Auftragsnummer ist unveränderlich.');
+                }
+            }
+
+            foreach(['user_id','offer_snapshot'] as $attribute){
                 if($order->isDirty($attribute)){
                     throw new \LogicException('Der ursprüngliche Auftragssnapshot ist unveränderlich.');
                 }
