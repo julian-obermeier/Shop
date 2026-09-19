@@ -15,7 +15,7 @@ class OfferController extends Controller
     public function index()
     {
         $offers=Offer::with('category')->withCount([
-            'orders as active_orders_count'=>fn($q)=>$q->whereNotIn('status',['completed','cancelled','rejected','not_started'])
+            'orders as active_orders_count'=>fn($q)=>$q->whereNotIn('status',['completed','cancelled','rejected','request_rejected','not_started'])
         ])->latest()->paginate(30);
 
         return view('admin.offers.index',compact('offers'));
