@@ -340,6 +340,64 @@ class MasterPromptSchedulingTest extends TestCase
     }
 
 
+    public function test_sock_extension_shifts_reserved_waitlist_slot_after_confirmed_followers_and_restarts_24_hour_window(): void
+    {
+        Mail::fake();
+
+        $now=CarbonImmutable::parse('2026-09-25 12:00:00','Europe/Berlin');
+        CarbonImmutable::setTestNow($now);
+
+        try{
+            $provider=$this->provider('reserved-sock-shift@example.test');
+            $category=$this->category();
+
+            $runningOffer=$this->sockOffer($category,'Running Sock Reservation Shift',3);
+            $confirmedOffer=$this->sockOffer($category,'Confirmed Sock Reservation Shift',2);
+            $waitlistOffer=$this->sockOffer($category,'Reserved Sock Reservation Shift',2);
+            $waitlistOffer->update(['capacity'=>1]);
+
+            $running=$this->order($provider,$runningOffer,'active','20260000430',[
+                'confirmed_start_date'=>'2026-09-24',
+                'proposed_start_date'=>'2026-09-24',
+                'activation_date'=>'2026-09-24',
+                'start_date'=>'2026-09-25',
+                'end_date'=>'2026-09-28',
+                'series_number'=>1,
+            ]);
+
+            $this->order($provider,$confirmedOffer,'approved','20260000431',[
+                'confirmed_start_date'=>'2026-09-29',
+                'proposed_start_date'=>'2026-09-29',
+                'series_number'=>1,
+            ]);
+
+            $reservation=OfferWaitlistEntry::create([
+                'offer_id'=>$waitlistOffer->id,
+                'user_id'=>$provider->id,
+                'status'=>'reserved',
+                'planned_start_date'=>'2026-09-30',
+                'reserved_at'=>$now->subHours(2),
+                'reservation_expires_at'=>$now->addHours(22),
+            ]);
+
+            app(OrderService::class)->shiftSockFollowers($running);
+
+            $reservation->refresh();
+
+            $this->assertSame('2026-10-02',$reservation->planned_start_date?->toDateString());
+            $this->assertTrue($reservation->reserved_at->equalTo($now));
+            $this->assertTrue($reservation->reservation_expires_at->equalTo($now->addHours(24)));
+            $this->assertNull($reservation->reservation_remaining_seconds);
+            $this->assertDatabaseHas('user_notifications',[
+                'user_id'=>$provider->id,
+                'type'=>'sock_waitlist_reservation_shifted',
+            ]);
+        } finally {
+            CarbonImmutable::setTestNow();
+        }
+    }
+
+
     public function test_paused_sock_order_blocks_activation_of_another_sock_order(): void
     {
         Mail::fake();
