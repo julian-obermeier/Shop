@@ -5,10 +5,10 @@ use App\Http\Controllers\Controller;
 use App\Models\Category;
 use App\Models\Offer;
 use App\Services\AuditService;
-use App\Services\ImageSanitizer;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 
 class OfferController extends Controller
 {
@@ -37,13 +37,13 @@ class OfferController extends Controller
         ]);
     }
 
-    public function store(Request $request, AuditService $audit, ImageSanitizer $images)
+    public function store(Request $request, AuditService $audit)
     {
         $offer=Offer::create($this->validated($request)+[
             'slug'=>Str::slug($request->title).'-'.Str::lower(Str::random(5)),
         ]);
 
-        $this->handleImage($request,$offer,$images);
+        $this->handleImage($request,$offer);
         $this->syncOptions($request,$offer);
         $this->syncFields($request,$offer);
 
@@ -87,7 +87,7 @@ class OfferController extends Controller
         return view('admin.offers.form',compact('offer','categories','optionRows','fieldRows','proofRows','inspectionConfig'));
     }
 
-    public function update(Request $request, Offer $offer, AuditService $audit, ImageSanitizer $images)
+    public function update(Request $request, Offer $offer, AuditService $audit)
     {
         $before=$offer->toArray();
         $wasActive=(bool)$offer->active;
@@ -125,7 +125,7 @@ class OfferController extends Controller
             }
         });
 
-        $this->handleImage($request,$offer,$images);
+        $this->handleImage($request,$offer);
         $this->syncOptions($request,$offer);
         $this->syncFields($request,$offer);
 
@@ -299,12 +299,15 @@ class OfferController extends Controller
         return $data;
     }
 
-    private function handleImage(Request $request, Offer $offer, ImageSanitizer $images): void
+    private function handleImage(Request $request, Offer $offer): void
     {
         if(!$request->hasFile('image')) return;
 
-        $stored=$images->store($request->file('image'),'public','offers',1800,1200);
-        $offer->update(['image_path'=>$stored['path']]);
+        $file=$request->file('image');
+        $extension=strtolower($file->getClientOriginalExtension() ?: 'jpg');
+        $path=$file->storeAs('offers',Str::uuid().'.'.$extension,'public');
+
+        $offer->update(['image_path'=>$path]);
     }
 
     private function syncFields(Request $request, Offer $offer): void
