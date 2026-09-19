@@ -328,7 +328,12 @@ class OrderController extends Controller
             'custom'=>\Carbon\CarbonImmutable::parse($data['effective_at'],'Europe/Berlin'),
         };
 
-        $before=$order->toArray();
+        $auditBefore=[
+            'status'=>$order->status,
+            'compensation_total'=>(float)$order->compensation_total,
+            'requirements_effective_at'=>$order->requirements_effective_at?->toIso8601String(),
+        ];
+
         $requirements=$order->current_requirements ?: $order->offer_snapshot;
         $requirements['admin_addition']=[
             'text'=>$data['requirement_text'],
@@ -343,7 +348,16 @@ class OrderController extends Controller
             'compensation_total'=>(float)$order->compensation_total+(float)($data['additional_compensation']??0),
         ]);
 
-        $audit->log('order.requirements.changed',$order,$before,$order->fresh()->toArray());
+        $fresh=$order->fresh();
+
+        $audit->log('order.requirements.changed',$order,$auditBefore,[
+            'status'=>$fresh->status,
+            'compensation_total'=>(float)$fresh->compensation_total,
+            'requirements_effective_at'=>$fresh->requirements_effective_at?->toIso8601String(),
+            'effective_mode'=>$data['effective_mode'],
+            'additional_compensation'=>(float)($data['additional_compensation']??0),
+            'change_recorded'=>true,
+        ]);
         $notifications->send(
             $order->user,
             'order_requirements_changed',
