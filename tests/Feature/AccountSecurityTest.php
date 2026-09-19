@@ -91,6 +91,11 @@ class AccountSecurityTest extends TestCase
         $this->assertStringContainsString('geolocation=()',$policy);
         $this->assertStringContainsString('payment=()',$policy);
         $this->assertStringNotContainsString('camera=()',$policy);
+
+        $csp=(string)$response->headers->get('Content-Security-Policy');
+        $this->assertStringContainsString("img-src 'self' data: blob:",$csp);
+        $this->assertStringContainsString("media-src 'self' blob:",$csp);
+        $this->assertStringContainsString("worker-src 'self'",$csp);
     }
 
 
