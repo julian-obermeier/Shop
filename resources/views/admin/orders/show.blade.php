@@ -37,7 +37,17 @@ $pointsAffect=(bool)data_get($inspectionConfig,'points_affect_compensation',fals
 <div class="panel"><h2>Vorprüfung</h2>
 <dl class="meta-list"><div><dt>Status</dt><dd>{{ strtoupper($order->precheck->status) }}</dd></div><div><dt>Artikel</dt><dd>{{ $order->precheck->item_type ?: '–' }}</dd></div><div><dt>Größe</dt><dd>{{ $order->precheck->item_size ?: '–' }}</dd></div></dl>
 <p>{{ $order->precheck->item_description }}</p>
-@if($order->precheck->photo_path)<a class="btn secondary" href="{{ route('admin.prechecks.file',$order->precheck) }}">Prüffoto öffnen</a>@endif
+@if($order->precheck->photo_path)<a class="btn secondary" href="{{ route('admin.prechecks.file',$order->precheck) }}">Aktuelles Prüffoto öffnen</a>@endif
+@php($precheckHistory=(array)data_get($order->precheck->answers,'photo_history',[]))
+@if(count($precheckHistory))
+<div class="notice" style="margin-top:10px">
+<strong>Frühere Prüffotos</strong>
+@foreach($precheckHistory as $index=>$entry)
+<br><a href="{{ route('admin.prechecks.history-file',[$order->precheck,$index]) }}">Version {{ $index+1 }}</a>
+@if(!empty($entry['sha256'])) · <small>SHA-256 {{ $entry['sha256'] }}</small>@endif
+@endforeach
+</div>
+@endif
 </div>
 @endif
 
