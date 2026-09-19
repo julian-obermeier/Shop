@@ -77,6 +77,7 @@ class OrderWorkflowTest extends TestCase
 
         $offer->update([
             'minimum_minutes_per_day'=>90,
+            'requires_precheck'=>true,
             'inspection_config'=>[
                 'categories'=>[
                     'appearance'=>['label'=>'Aussehen','ko'=>true],
@@ -134,6 +135,10 @@ class OrderWorkflowTest extends TestCase
         $response->assertSee('Gesicht muss sichtbar sein');
         $response->assertSee('90 min');
         $response->assertSee('Mindestnutzung/Tag');
+        $response->assertSee('Vorprüfung erforderlich.');
+        $response->assertSee('Live-Kamera der Webanwendung');
+        $response->assertSee('Auftragsnummer im Paket beilegen');
+        $response->assertSee('Versandrisiko bleibt bis zum bestätigten vollständigen Wareneingang');
         $response->assertSee('Benötigt:');
         $response->assertSee('Sport');
         $response->assertSee('Mindestdauer:');
