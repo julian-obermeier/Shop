@@ -174,7 +174,6 @@ class UserController extends Controller
     public function restriction(Request $request, User $user, AuditService $audit, NotificationService $notifications)
     {
         $data=$request->validate([
-            'type'=>['required','in:reliability,payouts,uploads'],
             'reason'=>['required','string','max:1000'],
             'max_active_orders'=>['nullable','integer','min:0','max:5'],
             'blocked_offer_ids'=>['nullable','array'],
@@ -183,14 +182,14 @@ class UserController extends Controller
 
         $restriction=$user->restrictions()->create([
             'issued_by'=>$request->user()->id,
-            'type'=>$data['type'],
+            'type'=>'reliability',
             'reason'=>$data['reason'],
             'starts_at'=>now(),
             'active'=>true,
-            'required_successes'=>$data['type']==='reliability'?5:0,
+            'required_successes'=>5,
             'successful_count'=>0,
-            'max_active_orders'=>$data['type']==='reliability'?($data['max_active_orders']??null):null,
-            'blocked_offer_ids'=>$data['type']==='reliability'?($data['blocked_offer_ids']??null):null,
+            'max_active_orders'=>$data['max_active_orders']??null,
+            'blocked_offer_ids'=>$data['blocked_offer_ids']??null,
         ]);
 
         $audit->log('user.restriction.created',$restriction,[],$restriction->toArray());
@@ -199,7 +198,7 @@ class UserController extends Controller
             $user,
             'restriction',
             'Kontoeinschränkung',
-            $data['reason'].($data['type']==='reliability'?' Bewährung: 0 von 5 fehlerfreien Aufträgen.':''),
+            $data['reason'].' Bewährung: 0 von 5 fehlerfreien Aufträgen.',
             route('profile.edit')
         );
 
