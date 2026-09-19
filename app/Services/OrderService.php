@@ -180,14 +180,18 @@ class OrderService
         });
     }
 
-    public function approve(Order $order, User $admin, ?string $date=null): void
+    public function approve(Order $order, User $admin, ?string $date=null, bool $providerAcceptedAlternate=false): void
     {
-        DB::transaction(function() use($order,$admin,$date){
+        DB::transaction(function() use($order,$admin,$date,$providerAcceptedAlternate){
             $order=Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
             $lockedUser=User::whereKey($order->user_id)->lockForUpdate()->firstOrFail();
             $order->setRelation('user',$lockedUser);
 
-            abort_unless(in_array($order->status,['requested','awaiting_date_confirmation'],true),422,'Dieser Antrag kann nicht bestätigt werden.');
+            abort_unless(
+                $order->status==='requested' || ($providerAcceptedAlternate && $order->status==='awaiting_date_confirmation'),
+                422,
+                'Dieser Antrag kann nicht bestätigt werden. Ein Gegenvorschlag muss von der Anbieterin selbst angenommen werden.'
+            );
 
             $start=CarbonImmutable::parse($date ?: $order->proposed_start_date,'Europe/Berlin')->startOfDay();
             abort_if($start->lt(CarbonImmutable::today('Europe/Berlin')),422,'Der bestätigte Start darf nicht in der Vergangenheit liegen.');
@@ -252,7 +256,7 @@ class OrderService
         abort_unless($order->status==='awaiting_date_confirmation',422,'Es liegt kein offener Terminvorschlag vor.');
 
         $admin=User::where('role','admin')->where('status','active')->firstOrFail();
-        $this->approve($order,$admin,(string)$order->proposed_start_date?->toDateString());
+        $this->approve($order,$admin,(string)$order->proposed_start_date?->toDateString(),true);
     }
 
     public function prepareStart(Order $order, User $user): OrderDay
