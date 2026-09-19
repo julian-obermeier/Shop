@@ -26,6 +26,32 @@ class WaitlistService
         return max(0,(int)$offer->capacity-$activeOrders-$reservations);
     }
 
+    public function availableDirectSlots(Offer $offer): int
+    {
+        if(!$offer->capacity) return PHP_INT_MAX;
+
+        $free=$this->availableSlots($offer);
+        if($free<=0) return 0;
+
+        $priorityClaims=0;
+
+        $entries=OfferWaitlistEntry::with('user')
+            ->where('offer_id',$offer->id)
+            ->where('status','waiting')
+            ->orderBy('created_at')
+            ->orderBy('id')
+            ->get();
+
+        foreach($entries as $entry){
+            if(!$this->canReceiveReservation($entry->user,$offer)) continue;
+
+            $priorityClaims++;
+            if($priorityClaims >= $free) break;
+        }
+
+        return max(0,$free-$priorityClaims);
+    }
+
     public function allocateNext(Offer $offer, NotificationService $notifications): ?OfferWaitlistEntry
     {
         if(!$offer->active || $this->availableSlots($offer)<=0) return null;
@@ -43,21 +69,7 @@ class WaitlistService
 
             foreach($entries as $entry){
                 $user=$entry->user;
-                if(!$user || $user->status!=='active') continue;
-                if($user->effectiveOrderLimit()===0 || $user->isOfferBlocked($lockedOffer->id)) continue;
-
-                $activeCount=Order::where('user_id',$user->id)
-                    ->countsAgainstPersonalLimit()
-                    ->count();
-
-                if($activeCount >= $user->effectiveOrderLimit()) continue;
-
-                if(Order::where('user_id',$user->id)
-                    ->where('offer_id',$lockedOffer->id)
-                    ->whereNotIn('status',['completed','cancelled','rejected','request_rejected','not_started'])
-                    ->exists()){
-                    continue;
-                }
+                if(!$this->canReceiveReservation($user,$lockedOffer)) continue;
 
                 if($lockedOffer->is_sock_wearing && $entry->planned_start_date){
                     $entry->planned_start_date=$this->nextSockDate($user,$lockedOffer,$entry->planned_start_date,$entry->id);
@@ -159,6 +171,23 @@ class WaitlistService
             $otherEnd=$otherStart->addDays((int)$entry->offer->duration_days);
             abort_if($planned->lte($otherEnd) && $end->gte($otherStart),422,'Der geplante Zeitraum überschneidet sich mit einer bestehenden Socken-Wartelistenplanung.');
         }
+    }
+
+    private function canReceiveReservation(?User $user, Offer $offer): bool
+    {
+        if(!$user || $user->status!=='active' || !$user->hasVerifiedEmail()) return false;
+        if($user->effectiveOrderLimit()===0 || $user->isOfferBlocked($offer->id)) return false;
+
+        $activeCount=Order::where('user_id',$user->id)
+            ->countsAgainstPersonalLimit()
+            ->count();
+
+        if($activeCount >= $user->effectiveOrderLimit()) return false;
+
+        return !Order::where('user_id',$user->id)
+            ->where('offer_id',$offer->id)
+            ->whereNotIn('status',['completed','cancelled','rejected','request_rejected','not_started'])
+            ->exists();
     }
 
     private function nextSockDate(User $user, Offer $offer, $plannedStart, int $ignoreEntryId): string
