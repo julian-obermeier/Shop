@@ -31,6 +31,9 @@ class ProofController extends Controller
 
     public function review(Request $request, ProofSubmission $proof, AuditService $audit, NotificationService $notifications, OrderService $orders, ReliabilityService $reliability)
     {
+        abort_unless($proof->review_status==='pending',422,'Dieser Nachweis wurde bereits bewertet.');
+        abort_if($proof->orderDay->order->isTerminal(),422,'Ein endgültig beendeter Auftrag kann nicht nachträglich durch eine Nachweisprüfung verändert werden.');
+
         $data=$request->validate([
             'review_status'=>['required','in:accepted,rejected'],
             'review_comment'=>['nullable','string','max:1000','required_if:review_status,rejected'],
