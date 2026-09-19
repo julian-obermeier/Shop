@@ -360,22 +360,66 @@ document.addEventListener('DOMContentLoaded',()=>{
       const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',0.95));
       if(!blob) return;
 
-      const file=new File([blob],`live-${Date.now()}.jpg`,{type:'image/jpeg',lastModified:Date.now()});
-      const transfer=new DataTransfer();
-      transfer.items.add(file);
-      input.files=transfer.files;
+      const context=input.dataset.cameraContext || '';
+      if(!context){
+        status.textContent='Die Live-Kamera konnte diesem Formular nicht sicher zugeordnet werden. Bitte lade die Seite neu.';
+        stop();
+        start.hidden=false;
+        return;
+      }
 
-      preview.src=URL.createObjectURL(blob);
-      preview.hidden=false;
-      retake.hidden=false;
-      start.hidden=true;
-      stop();
-      status.textContent='Live-Aufnahme gespeichert. Du kannst sie jetzt einreichen oder neu aufnehmen.';
+      try{
+        const csrf=document.querySelector('meta[name="csrf-token"]')?.content || '';
+        const response=await fetch('/kamera/capture-token',{
+          method:'POST',
+          credentials:'same-origin',
+          headers:{
+            'Accept':'application/json',
+            'Content-Type':'application/json',
+            'X-CSRF-TOKEN':csrf,
+          },
+          body:JSON.stringify({context}),
+        });
+
+        if(!response.ok) throw new Error('capture token request failed');
+        const issued=await response.json();
+        if(!issued?.token) throw new Error('capture token missing');
+
+        let tokenInput=input.form?.querySelector('input[name="camera_capture_token"]');
+        if(!tokenInput && input.form){
+          tokenInput=document.createElement('input');
+          tokenInput.type='hidden';
+          tokenInput.name='camera_capture_token';
+          input.form.appendChild(tokenInput);
+        }
+        if(tokenInput) tokenInput.value=issued.token;
+
+        const file=new File([blob],`live-${Date.now()}.jpg`,{type:'image/jpeg',lastModified:Date.now()});
+        const transfer=new DataTransfer();
+        transfer.items.add(file);
+        input.files=transfer.files;
+
+        preview.src=URL.createObjectURL(blob);
+        preview.hidden=false;
+        retake.hidden=false;
+        start.hidden=true;
+        stop();
+        status.textContent='Live-Aufnahme sicher bestätigt. Du kannst sie jetzt einreichen oder neu aufnehmen.';
+      }catch(error){
+        stop();
+        input.value='';
+        start.hidden=false;
+        preview.hidden=true;
+        retake.hidden=true;
+        status.textContent='Die Live-Aufnahme konnte serverseitig nicht bestätigt werden. Bitte nimm das Foto erneut auf.';
+      }
     });
 
     input.form?.addEventListener('reset',()=>{
       stop();
       input.value='';
+      const tokenInput=input.form?.querySelector('input[name="camera_capture_token"]');
+      if(tokenInput) tokenInput.value='';
       preview.hidden=true;
       retake.hidden=true;
       start.hidden=false;
