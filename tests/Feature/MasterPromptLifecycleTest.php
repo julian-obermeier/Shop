@@ -982,6 +982,109 @@ class MasterPromptLifecycleTest extends TestCase
     }
 
 
+    public function test_expired_proof_challenges_are_persistently_logged_and_new_code_can_be_generated(): void
+    {
+        Storage::fake('proofs');
+
+        $now=CarbonImmutable::parse('2026-09-19 12:00:00','Europe/Berlin');
+        CarbonImmutable::setTestNow($now);
+
+        try{
+            $provider=$this->provider('expired-code@example.test');
+            $category=$this->category();
+            $offer=$this->offer($category,'Expired Code');
+
+            $requirements=[[
+                'key'=>'daily',
+                'label'=>'Tagesnachweis',
+                'start'=>'00:00',
+                'end'=>'23:59',
+                'required_images'=>1,
+                'text_required'=>false,
+                'face_required'=>false,
+            ]];
+
+            $order=Order::create([
+                'order_number'=>'20260000316',
+                'user_id'=>$provider->id,
+                'offer_id'=>$offer->id,
+                'status'=>'active',
+                'compensation_total'=>40,
+                'offer_snapshot'=>[
+                    'title'=>$offer->title,
+                    'duration_days'=>1,
+                    'proof_requirements'=>$requirements,
+                ],
+                'current_requirements'=>[
+                    'proof_requirements'=>$requirements,
+                ],
+                'series_number'=>1,
+            ]);
+
+            $day=OrderDay::create([
+                'order_id'=>$order->id,
+                'day_number'=>1,
+                'series_number'=>1,
+                'date'=>$now->toDateString(),
+                'required_proofs'=>1,
+                'status'=>'open',
+                'counts_toward_series'=>true,
+            ]);
+
+            $expired=ProofChallenge::create([
+                'order_id'=>$order->id,
+                'order_day_id'=>$day->id,
+                'user_id'=>$provider->id,
+                'purpose'=>'daily',
+                'window_key'=>'daily',
+                'code'=>'OLD123',
+                'expires_at'=>$now->subMinute(),
+            ]);
+
+            $this->actingAs($provider)->post(route('proofs.store',$day),[
+                'proof'=>UploadedFile::fake()->image('expired.jpg',800,600),
+                'challenge_id'=>$expired->id,
+                'proof_code'=>'OLD123',
+                'window_key'=>'daily',
+            ])->assertStatus(422);
+
+            $expired->refresh();
+            $this->assertNotNull($expired->expired_at);
+            $this->assertNull($expired->used_at);
+            $this->assertDatabaseCount('proof_submissions',0);
+
+            $stale=ProofChallenge::create([
+                'order_id'=>$order->id,
+                'order_day_id'=>$day->id,
+                'user_id'=>$provider->id,
+                'purpose'=>'daily',
+                'window_key'=>'daily',
+                'code'=>'OLD456',
+                'expires_at'=>$now->subSeconds(30),
+            ]);
+
+            $this->actingAs($provider)->post(route('proofs.challenge',$day),[
+                'window_key'=>'daily',
+            ])->assertRedirect();
+
+            $stale->refresh();
+            $this->assertNotNull($stale->expired_at);
+            $this->assertNull($stale->used_at);
+
+            $newChallenge=ProofChallenge::where('order_day_id',$day->id)
+                ->whereNull('used_at')
+                ->whereNull('expired_at')
+                ->latest('id')
+                ->firstOrFail();
+
+            $this->assertTrue($newChallenge->expires_at->isFuture());
+            $this->assertSame('daily',$newChallenge->window_key);
+        } finally {
+            CarbonImmutable::setTestNow();
+        }
+    }
+
+
     private function provider(string $email): User
     {
         $user=User::create([
