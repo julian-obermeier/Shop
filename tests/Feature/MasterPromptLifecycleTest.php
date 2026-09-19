@@ -414,6 +414,7 @@ class MasterPromptLifecycleTest extends TestCase
             'challenge_id'=>$challenge->id,
             'proof_code'=>'ABC123',
             'window_key'=>'evening',
+            'camera_capture_token'=>$this->cameraToken($provider,'proof:'.$day->id.':'.$challenge->id.':evening'),
             'proof_data'=>[
                 'aktivitaet'=>'Spaziergang',
             ],
@@ -513,6 +514,7 @@ class MasterPromptLifecycleTest extends TestCase
                 'challenge_id'=>$challenge->id,
                 'proof_code'=>$challenge->code,
                 'window_key'=>'start',
+                'camera_capture_token'=>$this->cameraToken($provider,'proof:'.$startDay->id.':'.$challenge->id.':start'),
             ])->assertRedirect();
 
             $order->refresh();
@@ -624,6 +626,7 @@ class MasterPromptLifecycleTest extends TestCase
             'tracking_number'=>'TRACK-1',
             'package_photo'=>UploadedFile::fake()->image('package.jpg',800,600),
             'receipt_photo'=>UploadedFile::fake()->image('live-receipt.jpg',800,600),
+            'camera_capture_token'=>$this->cameraToken($provider,'shipment:'.$shippingOrder->id.':receipt'),
         ])->assertRedirect();
 
         $this->assertDatabaseHas('shipments',[
@@ -1046,6 +1049,7 @@ class MasterPromptLifecycleTest extends TestCase
                 'challenge_id'=>$expired->id,
                 'proof_code'=>'OLD123',
                 'window_key'=>'daily',
+                'camera_capture_token'=>$this->cameraToken($provider,'proof:'.$day->id.':'.$expired->id.':daily'),
             ])->assertStatus(422);
 
             $expired->refresh();
@@ -1789,6 +1793,7 @@ class MasterPromptLifecycleTest extends TestCase
             'challenge_id'=>$challenge->id,
             'proof_code'=>'CAM123',
             'window_key'=>'daily',
+            'camera_capture_token'=>$this->cameraToken($provider,'proof:'.$day->id.':'.$challenge->id.':daily'),
         ])->assertStatus(422);
 
         $this->assertNull($challenge->fresh()->used_at);
@@ -1799,6 +1804,7 @@ class MasterPromptLifecycleTest extends TestCase
             'challenge_id'=>$challenge->id,
             'proof_code'=>'CAM123',
             'window_key'=>'daily',
+            'camera_capture_token'=>$this->cameraToken($provider,'proof:'.$day->id.':'.$challenge->id.':daily'),
         ])->assertRedirect();
 
         $this->assertDatabaseCount('proof_submissions',1);
@@ -1822,6 +1828,7 @@ class MasterPromptLifecycleTest extends TestCase
             'carrier'=>'DHL',
             'package_photo'=>UploadedFile::fake()->image('package.jpg',800,600),
             'receipt_photo'=>UploadedFile::fake()->image('receipt-gallery.jpg',800,600),
+            'camera_capture_token'=>$this->cameraToken($provider,'shipment:'.$shippingOrder->id.':receipt'),
         ])->assertStatus(422);
 
         $this->assertDatabaseMissing('shipments',['order_id'=>$shippingOrder->id]);
@@ -1830,6 +1837,7 @@ class MasterPromptLifecycleTest extends TestCase
             'carrier'=>'DHL',
             'package_photo'=>UploadedFile::fake()->image('package.jpg',800,600),
             'receipt_photo'=>UploadedFile::fake()->image('live-receipt.jpg',800,600),
+            'camera_capture_token'=>$this->cameraToken($provider,'shipment:'.$shippingOrder->id.':receipt'),
         ])->assertRedirect();
 
         $shipment=$shippingOrder->fresh()->shipment()->firstOrFail();
@@ -1868,6 +1876,7 @@ class MasterPromptLifecycleTest extends TestCase
         $this->actingAs($provider)->post(route('orders.shipment',$shippingOrder->fresh()),[
             'carrier'=>'DHL',
             'receipt_photo'=>UploadedFile::fake()->image('live-receipt-retry.jpg',800,600),
+            'camera_capture_token'=>$this->cameraToken($provider,'shipment:'.$shippingOrder->id.':receipt'),
         ])->assertRedirect();
 
         $shipment->refresh();
@@ -1883,6 +1892,18 @@ class MasterPromptLifecycleTest extends TestCase
             'attempt'=>1,
             'original_name'=>'live-receipt-retry.jpg',
         ]);
+    }
+
+
+    private function cameraToken(User $user, string $context): string
+    {
+        $response=$this->actingAs($user)->postJson(route('camera.capture-token'),[
+            'context'=>$context,
+        ]);
+
+        $response->assertOk();
+
+        return (string)$response->json('token');
     }
 
 
