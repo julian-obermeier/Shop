@@ -47,6 +47,37 @@ class MasterPromptCoreTest extends TestCase
         $this->assertDatabaseHas('orders',['id'=>$order->id]);
     }
 
+    public function test_admin_offer_deletion_requires_explicit_confirmation(): void
+    {
+        [, $category]=$this->providerAndCategory('delete-confirm-provider@example.test');
+        $offer=$this->offer($category,'Delete Confirmation');
+
+        $admin=User::create([
+            'role'=>'admin',
+            'username'=>'delete.confirm.admin',
+            'first_name'=>'Admin',
+            'last_name'=>'Delete',
+            'birth_date'=>'1970-01-01',
+            'email'=>'delete-confirm-admin@example.test',
+            'password'=>Hash::make('VerySecurePassword123!'),
+            'status'=>'active',
+        ]);
+        $admin->forceFill(['email_verified_at'=>now()])->save();
+
+        $this->actingAs($admin)
+            ->delete(route('admin.offers.destroy',$offer))
+            ->assertSessionHasErrors('confirm_delete');
+
+        $this->assertDatabaseHas('offers',['id'=>$offer->id]);
+
+        $this->actingAs($admin)
+            ->delete(route('admin.offers.destroy',$offer),['confirm_delete'=>'1'])
+            ->assertRedirect(route('admin.offers.index'));
+
+        $this->assertDatabaseMissing('offers',['id'=>$offer->id]);
+    }
+
+
     public function test_only_execution_phases_count_against_personal_order_limit(): void
     {
         [$provider,$category]=$this->providerAndCategory('limit@example.test');
