@@ -520,56 +520,122 @@ class OrderService
         } else {
             return;
         }
-        $followers=Order::with('user')->where('user_id',$order->user_id)
+
+        $followers=Order::with('user')
+            ->where('user_id',$order->user_id)
             ->where('id','!=',$order->id)
             ->whereIn('status',['precheck','precheck_resubmit','approved','waiting_start'])
             ->whereNotNull('confirmed_start_date')
-            ->orderBy('confirmed_start_date')
             ->get()
             ->filter(fn(Order $candidate)=>$candidate->isSockWearing());
 
+        $reservations=OfferWaitlistEntry::with(['offer','user'])
+            ->where('user_id',$order->user_id)
+            ->where('status','reserved')
+            ->whereNotNull('planned_start_date')
+            ->get()
+            ->filter(fn(OfferWaitlistEntry $entry)=>(bool)$entry->offer?->is_sock_wearing);
+
+        $timeline=collect();
+
         foreach($followers as $follower){
-            $activation=CarbonImmutable::parse($follower->confirmed_start_date,'Europe/Berlin');
-            if($activation->lte($cursorEnd)){
-                $old=$activation;
-                $activation=$cursorEnd->addDay();
-                $follower->update([
-                    'confirmed_start_date'=>$activation->toDateString(),
-                    'proposed_start_date'=>$activation->toDateString(),
-                ]);
-                $reason='Automatisch von '.$old->format('d.m.Y').' auf '.$activation->format('d.m.Y').' verschoben, da ein vorheriger Socken-Trageauftrag verlängert wurde';
+            $timeline->push([
+                'kind'=>'order',
+                'record'=>$follower,
+                'start'=>CarbonImmutable::parse($follower->confirmed_start_date,'Europe/Berlin'),
+                'duration'=>(int)data_get($follower->offer_snapshot,'duration_days',1),
+            ]);
+        }
 
-                $follower->statusHistory()->create([
-                    'changed_by'=>null,
-                    'from_status'=>$follower->status,
-                    'to_status'=>$follower->status,
-                    'reason'=>$reason,
-                ]);
+        foreach($reservations as $reservation){
+            $timeline->push([
+                'kind'=>'reservation',
+                'record'=>$reservation,
+                'start'=>CarbonImmutable::parse($reservation->planned_start_date,'Europe/Berlin'),
+                'duration'=>(int)$reservation->offer->duration_days,
+            ]);
+        }
 
-                $this->notifications->send(
-                    $follower->user,
-                    'sock_schedule_shifted',
-                    'Sockenauftrag automatisch verschoben',
-                    'Auftrag #'.$follower->order_number.' wurde wegen der Verlängerung eines vorherigen Sockenauftrags automatisch auf den '.$activation->format('d.m.Y').' verschoben. Eine erneute Bestätigung ist nicht erforderlich.',
-                    route('orders.show',$follower),
-                    ['order_id'=>$follower->id,'old_date'=>$old->toDateString(),'new_date'=>$activation->toDateString()]
-                );
+        $timeline=$timeline->sort(function(array $a,array $b){
+            $cmp=$a['start']->getTimestamp()<=>$b['start']->getTimestamp();
+            if($cmp!==0) return $cmp;
 
-                $admin=User::where('role','admin')->where('status','active')->first();
-                if($admin){
+            if($a['kind']!==$b['kind']) return $a['kind']==='order'?-1:1;
+
+            return (int)$a['record']->id<=>(int)$b['record']->id;
+        })->values();
+
+        foreach($timeline as $item){
+            $activation=$item['start'];
+            $old=$activation;
+            $shifted=$activation->lte($cursorEnd);
+
+            if($shifted) $activation=$cursorEnd->addDay();
+
+            if($item['kind']==='order'){
+                /** @var Order $follower */
+                $follower=$item['record'];
+
+                if($shifted){
+                    $follower->update([
+                        'confirmed_start_date'=>$activation->toDateString(),
+                        'proposed_start_date'=>$activation->toDateString(),
+                    ]);
+
+                    $reason='Automatisch von '.$old->format('d.m.Y').' auf '.$activation->format('d.m.Y').' verschoben, da ein vorheriger Socken-Trageauftrag verlängert wurde';
+
+                    $follower->statusHistory()->create([
+                        'changed_by'=>null,
+                        'from_status'=>$follower->status,
+                        'to_status'=>$follower->status,
+                        'reason'=>$reason,
+                    ]);
+
                     $this->notifications->send(
-                        $admin,
-                        'sock_schedule_shifted_admin',
-                        'Socken-Terminverschiebung',
-                        'Auftrag #'.$follower->order_number.' von '.$follower->user->first_name.' '.$follower->user->last_name.' wurde automatisch auf den '.$activation->format('d.m.Y').' verschoben.',
-                        route('admin.orders.show',$follower),
+                        $follower->user,
+                        'sock_schedule_shifted',
+                        'Sockenauftrag automatisch verschoben',
+                        'Auftrag #'.$follower->order_number.' wurde wegen der Verlängerung eines vorherigen Sockenauftrags automatisch auf den '.$activation->format('d.m.Y').' verschoben. Eine erneute Bestätigung ist nicht erforderlich.',
+                        route('orders.show',$follower),
                         ['order_id'=>$follower->id,'old_date'=>$old->toDateString(),'new_date'=>$activation->toDateString()]
+                    );
+
+                    $admin=User::where('role','admin')->where('status','active')->first();
+                    if($admin){
+                        $this->notifications->send(
+                            $admin,
+                            'sock_schedule_shifted_admin',
+                            'Socken-Terminverschiebung',
+                            'Auftrag #'.$follower->order_number.' von '.$follower->user->first_name.' '.$follower->user->last_name.' wurde automatisch auf den '.$activation->format('d.m.Y').' verschoben.',
+                            route('admin.orders.show',$follower),
+                            ['order_id'=>$follower->id,'old_date'=>$old->toDateString(),'new_date'=>$activation->toDateString()]
+                        );
+                    }
+                }
+            } else {
+                /** @var OfferWaitlistEntry $reservation */
+                $reservation=$item['record'];
+
+                if($shifted){
+                    $reservation->update([
+                        'planned_start_date'=>$activation->toDateString(),
+                        'reserved_at'=>now(),
+                        'reservation_expires_at'=>now()->addHours(24),
+                        'reservation_remaining_seconds'=>null,
+                    ]);
+
+                    $this->notifications->send(
+                        $reservation->user,
+                        'sock_waitlist_reservation_shifted',
+                        'Reservierter Sockenzeitraum automatisch verschoben',
+                        'Deine reservierte Wartelistenposition für „'.$reservation->offer->title.'“ wurde wegen einer Terminverlängerung automatisch auf den '.$activation->format('d.m.Y').' verschoben. Die 24-Stunden-Annahmefrist startet für den neuen konfliktfreien Zeitraum erneut.',
+                        route('offers.show',$reservation->offer),
+                        ['offer_id'=>$reservation->offer_id,'waitlist_entry_id'=>$reservation->id,'old_date'=>$old->toDateString(),'new_date'=>$activation->toDateString()]
                     );
                 }
             }
 
-            $duration=(int)data_get($follower->offer_snapshot,'duration_days',1);
-            $cursorEnd=$activation->addDays($duration);
+            $cursorEnd=$activation->addDays((int)$item['duration']);
         }
     }
 
