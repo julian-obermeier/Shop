@@ -148,7 +148,7 @@ class PrivacyService
             foreach($user->conversations as $conversation){
                 foreach($conversation->messages as $message){
                     if($message->user_id===$user->id){
-                        $message->update(['body'=>'[nach Kontolöschung anonymisiert]']);
+                        $message->anonymizeForDeletedUser();
                     }
                 }
             }
