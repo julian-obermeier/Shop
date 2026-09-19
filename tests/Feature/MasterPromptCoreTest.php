@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\AuditLog;
 use App\Models\Category;
 use App\Models\Offer;
 use App\Models\Order;
@@ -301,6 +302,60 @@ class MasterPromptCoreTest extends TestCase
         } finally {
             CarbonImmutable::setTestNow();
         }
+    }
+
+
+    public function test_audit_log_and_wallet_ledger_are_append_only(): void
+    {
+        [$provider]=$this->providerAndCategory('append-only@example.test');
+
+        $audit=AuditLog::create([
+            'user_id'=>$provider->id,
+            'action'=>'test.append_only',
+            'auditable_type'=>User::class,
+            'auditable_id'=>$provider->id,
+            'before'=>['status'=>'before'],
+            'after'=>['status'=>'after'],
+        ]);
+
+        try{
+            $audit->update(['action'=>'tampered']);
+            $this->fail('Audit-Log konnte verändert werden.');
+        }catch(\LogicException $e){
+            $this->assertStringContainsString('unveränderlich',$e->getMessage());
+        }
+
+        try{
+            $audit->delete();
+            $this->fail('Audit-Log konnte gelöscht werden.');
+        }catch(\LogicException $e){
+            $this->assertStringContainsString('nicht gelöscht',$e->getMessage());
+        }
+
+        $wallet=$provider->walletAccount()->firstOrFail();
+        $entry=$wallet->entries()->create([
+            'bucket'=>'available',
+            'entry_type'=>'test_credit',
+            'amount'=>25,
+            'description'=>'Append-only-Test',
+        ]);
+
+        try{
+            $entry->update(['amount'=>999]);
+            $this->fail('Wallet-Ledger konnte verändert werden.');
+        }catch(\LogicException $e){
+            $this->assertStringContainsString('unveränderlich',$e->getMessage());
+        }
+
+        try{
+            $entry->delete();
+            $this->fail('Wallet-Ledger konnte gelöscht werden.');
+        }catch(\LogicException $e){
+            $this->assertStringContainsString('nicht gelöscht',$e->getMessage());
+        }
+
+        $this->assertEquals(25.0,$wallet->fresh()->balance('available'));
+        $this->assertSame('test.append_only',$audit->fresh()->action);
     }
 
 
