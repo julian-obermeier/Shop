@@ -197,6 +197,14 @@ class OrderWorkflowTest extends TestCase
         $order=$user->orders()->firstOrFail();
         $alternate=now('Europe/Berlin')->addDays(5)->toDateString();
 
+        $this->actingAs($admin)->post(route('admin.orders.approve',$order),[
+            'start_date'=>$alternate,
+        ])->assertStatus(422);
+
+        $order->refresh();
+        $this->assertSame('requested',$order->status);
+        $this->assertNull($order->confirmed_start_date);
+
         $this->actingAs($admin)->post(route('admin.orders.propose-date',$order),[
             'start_date'=>$alternate,
         ])->assertRedirect();
