@@ -7,6 +7,13 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration {
     public function up(): void
     {
+        // MySQL may use the existing composite UNIQUE index as the supporting
+        // index for the order_id foreign key. Create a dedicated FK index first,
+        // otherwise MySQL refuses to drop the UNIQUE index with error 1553.
+        Schema::table('order_days', function (Blueprint $table) {
+            $table->index('order_id','order_days_order_id_fk_index');
+        });
+
         Schema::table('order_days', function (Blueprint $table) {
             $table->dropUnique(['order_id','day_number']);
             $table->unique(['order_id','series_number','day_number'],'order_days_order_series_day_unique');
@@ -68,6 +75,10 @@ return new class extends Migration {
         Schema::table('order_days', function (Blueprint $table) {
             $table->dropUnique('order_days_order_series_day_unique');
             $table->unique(['order_id','day_number']);
+        });
+
+        Schema::table('order_days', function (Blueprint $table) {
+            $table->dropIndex('order_days_order_id_fk_index');
         });
     }
 };
