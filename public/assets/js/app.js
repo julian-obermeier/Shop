@@ -186,8 +186,12 @@ document.addEventListener('submit', async event => {
     form.dataset.overlayProcessed='1';
     form.requestSubmit();
   }catch(error){
-    form.dataset.overlayProcessed='1';
-    form.requestSubmit();
+    form.dataset.overlayProcessed='0';
+    const status=form.querySelector('[data-camera-status]');
+    if(status){
+      status.textContent='Der Code konnte nicht in das Bild eingeblendet werden. Bitte nimm das Foto erneut auf oder deaktiviere das digitale Overlay und zeige den Code stattdessen handschriftlich bzw. auf einem zweiten Gerät sichtbar im Foto.';
+    }
+    toggle.focus();
   }
 });
 
