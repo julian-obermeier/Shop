@@ -16,6 +16,7 @@ class ShipmentController extends Controller
 
         $existing=$order->shipment;
         $isResubmission=$existing && $existing->review_status==='rejected' && $existing->resubmit_due_at?->isFuture();
+        $resubmitScope=$isResubmission ? ($existing->resubmit_scope ?: 'both') : 'both';
 
         abort_unless(
             in_array($order->status,['waiting_shipping','shipping_overdue'],true) || ($order->status==='shipped' && $isResubmission),
@@ -25,23 +26,28 @@ class ShipmentController extends Controller
 
         $trackingMode=(string)data_get($order->offer_snapshot,'tracking_mode','optional');
 
+        $packageRequired=!$isResubmission || in_array($resubmitScope,['package','both'],true);
+        $receiptRequired=!$isResubmission || in_array($resubmitScope,['receipt','both'],true);
+
         $data=$request->validate([
             'carrier'=>['required','string','max:100'],
             'tracking_number'=>[$trackingMode==='required'?'required':'nullable','string','max:150'],
-            'package_photo'=>['required','image','mimes:jpg,jpeg,png,webp','max:10240'],
-            'receipt_photo'=>['required','image','mimes:jpg,jpeg','max:10240'],
+            'package_photo'=>[$packageRequired?'required':'nullable','image','mimes:jpg,jpeg,png,webp','max:10240'],
+            'receipt_photo'=>[$receiptRequired?'required':'nullable','image','mimes:jpg,jpeg','max:10240'],
         ]);
 
-        $receiptOriginal=(string)$request->file('receipt_photo')->getClientOriginalName();
-        abort_unless(
-            str_starts_with(strtolower($receiptOriginal),'live-'),
-            422,
-            'Der Versand-/Annahmebeleg muss direkt über die Live-Kamera der Webanwendung aufgenommen werden.'
-        );
+        if($request->hasFile('receipt_photo')){
+            $receiptOriginal=(string)$request->file('receipt_photo')->getClientOriginalName();
+            abort_unless(
+                str_starts_with(strtolower($receiptOriginal),'live-'),
+                422,
+                'Der Versand-/Annahmebeleg muss direkt über die Live-Kamera der Webanwendung aufgenommen werden.'
+            );
+        }
 
         if($trackingMode==='none') $data['tracking_number']=null;
 
-        DB::transaction(function() use($order,$request,$data,$isResubmission){
+        DB::transaction(function() use($order,$request,$data,$isResubmission,$resubmitScope){
             $fresh=Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
             $from=$fresh->status;
 
@@ -63,6 +69,7 @@ class ShipmentController extends Controller
                     'status'=>'shipped',
                     'review_status'=>'pending',
                     'review_comment'=>null,
+                    'resubmit_scope'=>null,
                     'resubmit_due_at'=>null,
                 ]);
             }
@@ -71,7 +78,9 @@ class ShipmentController extends Controller
             if($isResubmission) $attempt++;
 
             foreach(['package_photo'=>'package','receipt_photo'=>'receipt'] as $field=>$type){
-                $file=$data[$field];
+                $file=$request->file($field);
+                if(!$file) continue;
+
                 $extension=strtolower($file->getClientOriginalExtension() ?: 'jpg');
                 $path=$file->storeAs($fresh->order_number.'/attempt-'.$attempt,Str::uuid().'.'.$extension,'shipments');
                 $absolute=Storage::disk('shipments')->path($path);
@@ -109,13 +118,13 @@ class ShipmentController extends Controller
                     'changed_by'=>$request->user()->id,
                     'from_status'=>'shipped',
                     'to_status'=>'shipped',
-                    'reason'=>'Versandnachweis innerhalb der Nachreichfrist erneut aufgenommen',
+                    'reason'=>'Beanstandete Versandnachweise innerhalb der Nachreichfrist erneut eingereicht ('.match($resubmitScope){'package'=>'Paketfoto','receipt'=>'Versandbeleg','both'=>'Paketfoto und Versandbeleg'}.')',
                 ]);
             }
         });
 
         return back()->with('success',$isResubmission
-            ? 'Neue Versandnachweise wurden eingereicht.'
+            ? 'Die beanstandeten Versandnachweise wurden erneut eingereicht.'
             : 'Versand und Nachweise wurden gespeichert. Die Ware muss die Auftragsnummer im Paket enthalten.');
     }
 }
