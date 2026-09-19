@@ -177,17 +177,17 @@ Dieses Angebot ist derzeit voll.
 <h3>Zusatzoptionen</h3>
 <div class="option-list">
 @foreach($offer->options->where('active',true) as $option)
-@php($rules=$option->rules?:[])
+@php
+$rules=$option->rules ?: [];
+$requires=collect($rules['requires_ids'] ?? [])->map(fn($id)=>$activeOptions->get((int)$id)?->name)->filter();
+$excludes=collect($rules['excludes_ids'] ?? [])->map(fn($id)=>$activeOptions->get((int)$id)?->name)->filter();
+$minDuration=(int)($rules['min_duration_days'] ?? 0);
+@endphp
 <label class="option">
 <input type="checkbox" name="options[]" value="{{ $option->id }}" data-price="{{ $option->price_delta }}" data-requires='@json($rules["requires_ids"]??[])' data-excludes='@json($rules["excludes_ids"]??[])' @checked($option->required || in_array($option->id,old('options',[]))) @if($option->required) required @endif>
 <span>
 <strong>{{ $option->name }} @if($option->required)<small style="display:inline;color:var(--pink)">Pflicht</small>@endif</strong>
 <small>{{ $option->description }}</small>
-@php
-$requires=collect($rules['requires_ids']??[])->map(fn($id)=>$activeOptions->get((int)$id)?->name)->filter();
-$excludes=collect($rules['excludes_ids']??[])->map(fn($id)=>$activeOptions->get((int)$id)?->name)->filter();
-$minDuration=(int)($rules['min_duration_days']??0);
-@endphp
 @if($requires->isNotEmpty())<small><strong>Benötigt:</strong> {{ $requires->implode(', ') }}</small>@endif
 @if($excludes->isNotEmpty())<small><strong>Nicht kombinierbar mit:</strong> {{ $excludes->implode(', ') }}</small>@endif
 @if($minDuration>0)<small><strong>Mindestdauer:</strong> {{ $minDuration }} Tage</small>@endif
