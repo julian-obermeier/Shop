@@ -156,6 +156,8 @@ class UserController extends Controller
 
     public function warning(Request $request, User $user, AuditService $audit, NotificationService $notifications)
     {
+        abort_unless($user->role==='provider',404);
+
         $data=$request->validate([
             'level'=>['required','in:info,warning,serious'],
             'title'=>['required','string','max:180'],
@@ -173,6 +175,8 @@ class UserController extends Controller
 
     public function restriction(Request $request, User $user, AuditService $audit, NotificationService $notifications)
     {
+        abort_unless($user->role==='provider',404);
+
         $data=$request->validate([
             'reason'=>['required','string','max:1000'],
             'max_active_orders'=>['nullable','integer','min:0','max:5'],
@@ -212,6 +216,8 @@ class UserController extends Controller
         AuditService $audit,
         ReliabilityService $reliability
     ){
+        abort_unless($user->role==='provider',404);
+
         $item=$user->restrictions()->findOrFail($restriction);
         $before=$item->toArray();
 
@@ -397,6 +403,7 @@ class UserController extends Controller
     {
         abort_unless($user->role==='provider',404);
         abort_if($user->status==='active',422,'Dieses Konto ist bereits aktiv.');
+        abort_if($user->status==='deleted',422,'Ein gelöschtes/anonymisiertes Konto kann nicht reaktiviert werden.');
 
         $before=$user->toArray();
 
