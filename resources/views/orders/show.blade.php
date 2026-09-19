@@ -243,7 +243,11 @@ $canSubmit=$isCurrent
 @foreach($windowProofs as $proof)
 <div class="proof-list"><div><span>📎 Versuch {{ $proof->retry_number }} · Code {{ $proof->proof_code }}</span><span class="status {{ $proof->review_status }}">{{ strtoupper($proof->review_status) }}</span></div>
 @if($proof->text_value)<small>Text: {{ $proof->text_value }}</small>@endif
-@if(is_array($proof->proof_data))@foreach($proof->proof_data as $entry)<small>{{ $entry['label']??'Pflichtangabe' }}: {{ $entry['value']??'–' }}</small>@endforeach @endif
+@if(is_array($proof->proof_data))
+@foreach($proof->proof_data as $entry)
+<small>{{ $entry['label']??'Pflichtangabe' }}: {{ $entry['value']??'–' }}</small>
+@endforeach
+@endif
 @if($proof->review_comment)<small>{{ $proof->review_comment }}</small>@endif</div>
 @endforeach
 
