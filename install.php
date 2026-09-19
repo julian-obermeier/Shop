@@ -20,6 +20,22 @@ $tmpDir = $baseDir.'/.installer-tmp';
 session_name('wear_earn_installer');
 session_start();
 
+// Bei einer Ein-Datei-Installation im Domain-Webroot wird /install automatisch
+// als hübsche Installer-URL aktiviert. Eine vorhandene .htaccess wird niemals
+// an dieser Stelle überschrieben.
+if ($baseDir === $scriptDir && !is_file($baseDir.'/.htaccess')) {
+    @file_put_contents(
+        $baseDir.'/.htaccess',
+        "Options -Indexes\n<IfModule mod_rewrite.c>\nRewriteEngine On\nRewriteRule ^install/?$ install.php [L,QSA]\n</IfModule>\n"
+    );
+
+    $requestPath = (string)parse_url((string)($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH);
+    if (str_ends_with($requestPath, '/install.php')) {
+        header('Location: /install');
+        exit;
+    }
+}
+
 function h(mixed $value): string
 {
     return htmlspecialchars((string)$value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
