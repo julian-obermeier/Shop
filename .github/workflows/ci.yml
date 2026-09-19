@@ -29,7 +29,9 @@ jobs:
         run: composer validate --strict --no-check-lock
 
       - name: PHP syntax check
-        run: find app routes database tests -name '*.php' -print0 | xargs -0 -n1 php -l
+        run: |
+          find app routes database tests -name '*.php' -print0 | xargs -0 -n1 php -l
+          php -l install.php
 
       - name: JavaScript syntax check
         run: |
