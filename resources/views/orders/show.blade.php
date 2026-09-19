@@ -124,7 +124,12 @@ $startChallenge=$startDay ? $order->proofChallenges->first(fn($c)=>$c->order_day
 @endif
 <label class="full">Paketfoto über Live-Kamera<input type="file" name="package_photo" accept="image/jpeg" required data-live-camera></label>
 <label class="full">Versand-/Annahmebeleg über Live-Kamera<input type="file" name="receipt_photo" accept="image/jpeg" required data-live-camera><small>Versanddatum und Versanddienstleister müssen eindeutig lesbar sein.</small></label>
-<div class="notice full">Lege die Auftragsnummer <strong>#{{ $order->order_number }}</strong> in das Paket. Die Versandkosten trägst du selbst.</div>
+<div class="notice full">
+<strong>Verbindliche Verpackungs- und Versandregeln</strong><br>
+Die Ware muss sicher, vor Feuchtigkeit und Transportschäden geschützt sowie innerhalb des Pakets getrennt bzw. geeignet verpackt werden.
+Lege die Auftragsnummer <strong>#{{ $order->order_number }}</strong> <strong>in das Paket</strong>. Eine Auftragskennzeichnung außen ist nicht erforderlich.
+Die Versandkosten trägst du selbst. Eigentum an der eingesandten Ware geht mit dem Versand auf den Betreiber über; das Versandrisiko bleibt bis zum bestätigten vollständigen Wareneingang bei dir.
+</div>
 <div class="full"><button class="btn primary">Versandnachweise einreichen</button></div>
 </form>
 </div>
