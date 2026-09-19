@@ -340,6 +340,119 @@ class MasterPromptSchedulingTest extends TestCase
     }
 
 
+    public function test_paused_sock_order_blocks_activation_of_another_sock_order(): void
+    {
+        Mail::fake();
+
+        $now=CarbonImmutable::parse('2026-09-25 09:00:00','Europe/Berlin');
+        CarbonImmutable::setTestNow($now);
+
+        try{
+            $provider=$this->provider('paused-sock-block@example.test');
+            $category=$this->category();
+
+            $pausedOffer=$this->sockOffer($category,'Paused Sock Blocker',3);
+            $nextOffer=$this->sockOffer($category,'Next Sock Attempt',2);
+
+            $this->order($provider,$pausedOffer,'paused','20260000420',[
+                'confirmed_start_date'=>'2026-09-20',
+                'proposed_start_date'=>'2026-09-20',
+                'activation_date'=>'2026-09-20',
+                'start_date'=>'2026-09-21',
+                'end_date'=>'2026-09-23',
+                'paused_from_status'=>'active',
+                'paused_at'=>$now->subDay(),
+                'series_number'=>1,
+            ]);
+
+            $next=$this->order($provider,$nextOffer,'approved','20260000421',[
+                'confirmed_start_date'=>$now->toDateString(),
+                'proposed_start_date'=>$now->toDateString(),
+                'series_number'=>1,
+            ]);
+
+            $this->actingAs($provider)
+                ->post(route('orders.start',$next))
+                ->assertStatus(422);
+
+            $this->assertSame('approved',$next->fresh()->status);
+            $this->assertDatabaseMissing('order_days',[
+                'order_id'=>$next->id,
+                'day_number'=>0,
+            ]);
+        } finally {
+            CarbonImmutable::setTestNow();
+        }
+    }
+
+    public function test_resuming_waiting_start_pause_archives_old_activation_day_and_creates_fresh_start_day(): void
+    {
+        Mail::fake();
+
+        $now=CarbonImmutable::parse('2026-09-25 09:00:00','Europe/Berlin');
+        CarbonImmutable::setTestNow($now);
+
+        try{
+            $provider=$this->provider('resume-waiting-start@example.test');
+            $admin=$this->admin('resume-waiting-start-admin@example.test');
+            $category=$this->category();
+            $offer=$this->sockOffer($category,'Resume Waiting Start',2);
+
+            $order=$this->order($provider,$offer,'paused','20260000422',[
+                'confirmed_start_date'=>'2026-09-23',
+                'proposed_start_date'=>'2026-09-23',
+                'paused_from_status'=>'waiting_start',
+                'paused_at'=>'2026-09-23 10:00:00',
+                'series_number'=>1,
+                'series_interruptions'=>0,
+            ]);
+
+            $oldStart=OrderDay::create([
+                'order_id'=>$order->id,
+                'day_number'=>0,
+                'series_number'=>1,
+                'date'=>'2026-09-23',
+                'required_proofs'=>1,
+                'status'=>'activation',
+                'counts_toward_series'=>true,
+            ]);
+
+            $newActivation=$now->addDay();
+
+            $this->actingAs($admin)
+                ->post(route('admin.orders.resume',$order),[
+                    'activation_date'=>$newActivation->toDateString(),
+                ])
+                ->assertRedirect();
+
+            $order->refresh();
+
+            $this->assertSame('approved',$order->status);
+            $this->assertSame(2,(int)$order->series_number);
+            $this->assertSame($newActivation->toDateString(),$order->confirmed_start_date?->toDateString());
+            $this->assertSame($newActivation->toDateString(),$order->proposed_start_date?->toDateString());
+            $this->assertFalse((bool)$oldStart->fresh()->counts_toward_series);
+
+            CarbonImmutable::setTestNow($newActivation->setTime(10,0));
+
+            $this->actingAs($provider)
+                ->post(route('orders.start',$order->fresh()))
+                ->assertRedirect();
+
+            $freshStart=$order->fresh()->days()
+                ->where('series_number',2)
+                ->where('day_number',0)
+                ->firstOrFail();
+
+            $this->assertSame($newActivation->toDateString(),$freshStart->date->toDateString());
+            $this->assertTrue((bool)$freshStart->counts_toward_series);
+            $this->assertSame('waiting_start',$order->fresh()->status);
+        } finally {
+            CarbonImmutable::setTestNow();
+        }
+    }
+
+
     private function provider(string $email): User
     {
         $user=User::create([
