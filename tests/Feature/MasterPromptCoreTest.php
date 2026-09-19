@@ -476,6 +476,7 @@ class MasterPromptCoreTest extends TestCase
 
         $field=$order->fieldValues()->create([
             'offer_field_id'=>null,
+            'label'=>'Größe',
             'key'=>'groesse',
             'value'=>'39',
             'field_snapshot'=>[
