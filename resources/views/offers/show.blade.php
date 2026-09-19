@@ -128,7 +128,12 @@ Dieses Angebot ist derzeit voll.
 <div class="big-price"><span>Max. vereinbart</span><strong data-total>{{ number_format($offer->base_compensation,2,',','.') }} €</strong></div>
 <div class="summary-row"><span>Grundvergütung</span><strong>{{ number_format($offer->base_compensation,2,',','.') }} €</strong></div>
 
-@if($offerBlocked)
+@if(!auth()->user()->hasVerifiedEmail())
+<div class="notice">
+<strong>E-Mail-Adresse noch nicht bestätigt.</strong><br>
+Du kannst die Angebotsdetails bereits lesen. Warteliste, Auftragskonfiguration und Auftragsanfrage werden erst nach erfolgreicher E-Mail-Verifikation freigeschaltet.
+</div>
+@elseif($offerBlocked)
 <div class="notice"><strong>Für dein Konto derzeit nicht verfügbar.</strong><br>Eine aktive Zuverlässigkeitseinschränkung verhindert neue Anfragen oder schließt dieses konkrete Angebot aus.</div>
 @elseif(!$canRequest)
 @if($waitlistEntry?->status==='waiting')
