@@ -76,8 +76,19 @@ Dieses Angebot ist derzeit voll.
 
 <div class="panel">
 <h3>Versand & Prüfung</h3>
-<p>Versand innerhalb von 24 Stunden nach Ende der Erfüllungsphase auf eigene Kosten. Paketfoto und Versandbeleg sind Pflicht.</p>
+@if($offer->requires_precheck)
+<div class="notice"><strong>Vorprüfung erforderlich.</strong><br>Vor der endgültigen Auftragsfreigabe musst du die im Auftrag abgefragten Artikelangaben und ein Prüffoto einreichen; der Admin prüft diese Stufe vor dem verbindlichen Start.</div>
+@endif
+<p>Versand innerhalb von 24 Stunden nach Ende der Erfüllungsphase auf eigene Kosten. Paketfoto und Versand-/Annahmebeleg sind Pflicht.</p>
+<p><strong>Versandbeleg:</strong> muss direkt über die Live-Kamera der Webanwendung aufgenommen werden; Galerie-/Dateiauswahl ist dafür nicht zulässig. Versanddatum und Versanddienstleister müssen eindeutig lesbar sein.</p>
 <p><strong>Tracking:</strong> {{ ['required'=>'verpflichtend','optional'=>'optional','none'=>'nicht vorgesehen'][$offer->tracking_mode??'optional'] }}</p>
+<ul>
+<li>sichere Verpackung</li>
+<li>Schutz vor Feuchtigkeit und Transportschäden</li>
+<li>Ware innerhalb des Pakets getrennt bzw. geeignet verpacken</li>
+<li>Auftragsnummer im Paket beilegen; außen ist keine Kennzeichnung erforderlich</li>
+</ul>
+<p class="muted">Eigentum an der eingesandten Ware geht mit dem Versand auf den Betreiber über. Das Versandrisiko bleibt bis zum bestätigten vollständigen Wareneingang bei dir.</p>
 <p>Die finale Warenprüfung bewertet Aussehen, Geruch, Geschmack, Nachweise und Extras jeweils mit bestanden/nicht bestanden und 0–10 Punkten. Extras werden separat als erfüllt oder nicht erfüllt vergütet.</p>
 
 @if($inspectionCategories->isNotEmpty())
