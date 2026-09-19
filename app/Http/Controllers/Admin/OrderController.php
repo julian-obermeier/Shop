@@ -258,8 +258,21 @@ class OrderController extends Controller
                     'Europe/Berlin'
                 )->startOfDay();
 
+                $series=(int)$order->series_number;
+
+                if($origin==='waiting_start'){
+                    $order->days()
+                        ->where('series_number',$series)
+                        ->where('day_number',0)
+                        ->update(['counts_toward_series'=>false]);
+
+                    $series++;
+                }
+
                 $order->update([
                     'status'=>'approved',
+                    'series_number'=>$series,
+                    'series_interruptions'=>0,
                     'paused_at'=>null,
                     'paused_from_status'=>null,
                     'confirmed_start_date'=>$activation->toDateString(),
