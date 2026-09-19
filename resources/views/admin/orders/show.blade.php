@@ -94,6 +94,7 @@ $pointsAffect=(bool)data_get($inspectionConfig,'points_affect_compensation',fals
 @endforeach
 <form method="post" action="{{ route('admin.shipments.review',$order->shipment) }}" class="stack-form">@csrf
 <label>Versandnachweise<select name="review_status"><option value="accepted">Akzeptieren</option><option value="rejected">Ablehnen · 2h Nachreichung</option></select></label>
+<label>Bei Ablehnung neu erforderlich<select name="resubmit_scope"><option value="receipt">Nur Versand-/Annahmebeleg</option><option value="package">Nur Paketfoto</option><option value="both">Paketfoto + Versand-/Annahmebeleg</option></select></label>
 <label>Kommentar / Ablehnungsgrund<textarea name="review_comment" rows="3"></textarea></label>
 <button class="btn secondary">Versandnachweise prüfen</button>
 </form>
