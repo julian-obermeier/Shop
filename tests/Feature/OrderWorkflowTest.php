@@ -367,11 +367,10 @@ class OrderWorkflowTest extends TestCase
         $user->profile()->create();
         WalletAccount::create(['user_id'=>$user->id]);
 
-        $category=Category::create([
-            'name'=>'Socken',
-            'slug'=>'socken-test',
-            'active'=>true,
-        ]);
+        $category=Category::firstOrCreate(
+            ['slug'=>'socken-test'],
+            ['name'=>'Socken','active'=>true]
+        );
 
         $offer=Offer::create([
             'category_id'=>$category->id,
