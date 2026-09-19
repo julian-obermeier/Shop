@@ -27,10 +27,18 @@ class ProofController extends Controller
         $this->assertWindowOpen($day,$window,true);
 
         return DB::transaction(function() use($request,$day,$window){
-            ProofChallenge::where('order_id',$day->order_id)
+            $scope=ProofChallenge::where('order_id',$day->order_id)
                 ->where('order_day_id',$day->id)
                 ->where('window_key',$window['key'])
                 ->whereNull('used_at')
+                ->whereNull('expired_at');
+
+            (clone $scope)
+                ->where('expires_at','<=',now())
+                ->update(['expired_at'=>now()]);
+
+            (clone $scope)
+                ->where('expires_at','>',now())
                 ->update(['used_at'=>now()]);
 
             $code=strtoupper(Str::random(6));
@@ -76,6 +84,11 @@ class ProofController extends Controller
             ->where('user_id',$request->user()->id)
             ->where('window_key',$window['key'])
             ->firstOrFail();
+
+        if(!$challenge->used_at && !$challenge->expired_at && $challenge->expires_at && $challenge->expires_at->isPast()){
+            $challenge->update(['expired_at'=>now()]);
+            abort(422,'Der Nachweiscode ist abgelaufen. Der Ablauf wurde protokolliert; bitte erzeuge einen neuen Code.');
+        }
 
         abort_unless($challenge->isUsable(),422,'Der Nachweiscode ist abgelaufen oder wurde bereits verwendet.');
         abort_unless(hash_equals($challenge->code,strtoupper(trim($data['proof_code']))),422,'Der eingegebene Nachweiscode stimmt nicht.');
@@ -124,6 +137,12 @@ class ProofController extends Controller
 
         DB::transaction(function() use($day,$request,$file,$path,$absolute,$challenge,$window,$data,$proofData,$retryNumber,$orders){
             $challenge=ProofChallenge::whereKey($challenge->id)->lockForUpdate()->firstOrFail();
+
+            if(!$challenge->used_at && !$challenge->expired_at && $challenge->expires_at && $challenge->expires_at->isPast()){
+                $challenge->update(['expired_at'=>now()]);
+                abort(422,'Der Nachweiscode ist zwischenzeitlich abgelaufen. Der Ablauf wurde protokolliert.');
+            }
+
             abort_unless($challenge->isUsable(),422,'Der Nachweiscode wurde zwischenzeitlich verwendet oder ist abgelaufen.');
             $challenge->update(['used_at'=>now()]);
 
