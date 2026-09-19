@@ -55,6 +55,7 @@ class OrderController extends Controller
     public function acceptDate(Order $order, OrderService $service)
     {
         abort_unless($order->user_id===request()->user()->id,403);
+        abort_unless(request()->user()->hasVerifiedEmail(),422,'Bitte bestätige zuerst deine E-Mail-Adresse.');
         $service->acceptAlternateDate($order,request()->user());
         return back()->with('success','Der vorgeschlagene Starttermin wurde verbindlich bestätigt.');
     }
