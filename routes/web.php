@@ -166,6 +166,7 @@ Route::prefix('admin')->name('admin.')->middleware(['auth','active','admin'])->g
 
         Route::get('/vorpruefungen', [AdminPrecheckController::class, 'index'])->name('prechecks.index');
         Route::get('/vorpruefungen/{precheck}/datei', [AdminPrecheckController::class, 'file'])->name('prechecks.file');
+        Route::get('/vorpruefungen/{precheck}/historie/{index}/datei', [AdminPrecheckController::class, 'historicalFile'])->whereNumber('index')->name('prechecks.history-file');
         Route::post('/vorpruefungen/{precheck}/pruefen', [AdminPrecheckController::class, 'review'])->name('prechecks.review');
     
 
