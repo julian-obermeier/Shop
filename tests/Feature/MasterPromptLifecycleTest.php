@@ -1085,6 +1085,123 @@ class MasterPromptLifecycleTest extends TestCase
     }
 
 
+    public function test_admin_review_endpoints_cannot_rewrite_already_decided_precheck_proof_or_shipment(): void
+    {
+        Mail::fake();
+
+        $provider=$this->provider('review-state-safe@example.test');
+        $admin=$this->admin('admin-review-state-safe@example.test');
+        $category=$this->category();
+        $offer=$this->offer($category,'Review State Safe');
+
+        $precheckOrder=Order::create([
+            'order_number'=>'20260000314',
+            'user_id'=>$provider->id,
+            'offer_id'=>$offer->id,
+            'status'=>'precheck',
+            'compensation_total'=>40,
+            'offer_snapshot'=>['title'=>$offer->title,'duration_days'=>1],
+            'proposed_start_date'=>now('Europe/Berlin')->addDay()->toDateString(),
+            'confirmed_start_date'=>now('Europe/Berlin')->addDay()->toDateString(),
+        ]);
+        $precheck=$precheckOrder->precheck()->create([
+            'user_id'=>$provider->id,
+            'status'=>'submitted',
+            'item_description'=>'Prüfartikel',
+            'submitted_at'=>now(),
+        ]);
+
+        $this->actingAs($admin)->post(route('admin.prechecks.review',$precheck),[
+            'status'=>'accepted',
+        ])->assertRedirect();
+
+        $this->actingAs($admin)->post(route('admin.prechecks.review',$precheck->fresh()),[
+            'status'=>'rejected',
+            'admin_comment'=>'Darf nicht mehr umgeschrieben werden',
+        ])->assertStatus(422);
+
+        $this->assertSame('accepted',$precheck->fresh()->status);
+        $this->assertSame('approved',$precheckOrder->fresh()->status);
+
+        $proofOrder=Order::create([
+            'order_number'=>'20260000315',
+            'user_id'=>$provider->id,
+            'offer_id'=>$offer->id,
+            'status'=>'active',
+            'compensation_total'=>40,
+            'offer_snapshot'=>[
+                'title'=>$offer->title,
+                'duration_days'=>1,
+                'proof_requirements'=>[[
+                    'key'=>'daily','label'=>'Tagesnachweis','start'=>'00:00','end'=>'23:59','required_images'=>1,
+                ]],
+            ],
+            'series_number'=>1,
+        ]);
+        $day=OrderDay::create([
+            'order_id'=>$proofOrder->id,
+            'day_number'=>1,
+            'series_number'=>1,
+            'date'=>now('Europe/Berlin')->toDateString(),
+            'required_proofs'=>1,
+            'status'=>'open',
+            'counts_toward_series'=>true,
+        ]);
+        $proof=ProofSubmission::create([
+            'order_day_id'=>$day->id,
+            'user_id'=>$provider->id,
+            'type'=>'photo',
+            'window_key'=>'daily',
+            'storage_path'=>'proof/state-safe.jpg',
+            'original_name'=>'live-state-safe.jpg',
+            'mime_type'=>'image/jpeg',
+            'file_size'=>123,
+            'sha256'=>str_repeat('a',64),
+            'retry_number'=>0,
+            'review_status'=>'pending',
+        ]);
+
+        $this->actingAs($admin)->post(route('admin.proofs.review',$proof),[
+            'review_status'=>'accepted',
+        ])->assertRedirect();
+
+        $this->actingAs($admin)->post(route('admin.proofs.review',$proof->fresh()),[
+            'review_status'=>'rejected',
+            'review_comment'=>'Darf nicht mehr geändert werden',
+            'rejection_kind'=>'technical',
+        ])->assertStatus(422);
+
+        $this->assertSame('accepted',$proof->fresh()->review_status);
+
+        $shipmentOrder=Order::create([
+            'order_number'=>'20260000316',
+            'user_id'=>$provider->id,
+            'offer_id'=>$offer->id,
+            'status'=>'shipped',
+            'compensation_total'=>40,
+            'offer_snapshot'=>['title'=>$offer->title,'duration_days'=>1],
+        ]);
+        $shipment=$shipmentOrder->shipment()->create([
+            'carrier'=>'DHL',
+            'status'=>'shipped',
+            'review_status'=>'pending',
+            'shipped_at'=>now(),
+            'ownership_transferred_at'=>now(),
+        ]);
+
+        $this->actingAs($admin)->post(route('admin.shipments.review',$shipment),[
+            'review_status'=>'accepted',
+        ])->assertRedirect();
+
+        $this->actingAs($admin)->post(route('admin.shipments.review',$shipment->fresh()),[
+            'review_status'=>'rejected',
+            'review_comment'=>'Darf nicht mehr geändert werden',
+        ])->assertStatus(422);
+
+        $this->assertSame('accepted',$shipment->fresh()->review_status);
+    }
+
+
     public function test_submitted_proof_and_shipment_evidence_files_are_immutable_but_review_state_remains_editable(): void
     {
         $provider=$this->provider('immutable-evidence@example.test');
