@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Models\WalletAccount;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
 
 class OrderWorkflowTest extends TestCase
@@ -138,6 +139,141 @@ class OrderWorkflowTest extends TestCase
         $response->assertSee('+1 Tag(e)');
         $response->assertSee('Zusatznachweise:');
         $response->assertSee('+1 pro Tag');
+    }
+
+
+    public function test_unconfirmed_request_can_be_withdrawn_without_reliability_penalty(): void
+    {
+        Mail::fake();
+
+        [$user,$offer]=$this->makeUserAndOffer(true);
+
+        $this->actingAs($user)->post(route('offers.accept',$offer),[
+            'proposed_start_date'=>now('Europe/Berlin')->addDays(2)->toDateString(),
+            'confirm_summary'=>'1',
+        ])->assertRedirect();
+
+        $order=$user->orders()->firstOrFail();
+
+        $this->actingAs($user)
+            ->post(route('orders.withdraw',$order))
+            ->assertRedirect(route('orders.index'));
+
+        $order->refresh();
+
+        $this->assertSame('cancelled',$order->status);
+        $this->assertNotNull($order->completed_at);
+        $this->assertSame(0,(int)$order->reliability_issue_count);
+        $this->assertDatabaseHas('order_status_history',[
+            'order_id'=>$order->id,
+            'from_status'=>'requested',
+            'to_status'=>'cancelled',
+        ]);
+        $this->assertDatabaseMissing('reliability_events',[
+            'order_id'=>$order->id,
+        ]);
+    }
+
+    public function test_admin_date_counterproposal_requires_provider_acceptance_before_order_is_confirmed(): void
+    {
+        Mail::fake();
+
+        [$user,$offer]=$this->makeUserAndOffer(true);
+        $admin=$this->makeAdmin('date-admin@example.test','date.admin');
+
+        $this->actingAs($user)->post(route('offers.accept',$offer),[
+            'proposed_start_date'=>now('Europe/Berlin')->addDays(2)->toDateString(),
+            'confirm_summary'=>'1',
+        ])->assertRedirect();
+
+        $order=$user->orders()->firstOrFail();
+        $alternate=now('Europe/Berlin')->addDays(5)->toDateString();
+
+        $this->actingAs($admin)->post(route('admin.orders.propose-date',$order),[
+            'start_date'=>$alternate,
+        ])->assertRedirect();
+
+        $order->refresh();
+
+        $this->assertSame('awaiting_date_confirmation',$order->status);
+        $this->assertSame($alternate,$order->proposed_start_date?->toDateString());
+        $this->assertNull($order->confirmed_start_date);
+
+        $this->actingAs($user)
+            ->post(route('orders.accept-date',$order))
+            ->assertRedirect();
+
+        $order->refresh();
+
+        $this->assertSame('approved',$order->status);
+        $this->assertSame($alternate,$order->confirmed_start_date?->toDateString());
+        $this->assertSame($alternate,$order->proposed_start_date?->toDateString());
+    }
+
+    public function test_generic_admin_abort_rejects_unconfirmed_request_but_can_cancel_confirmed_prestart_order(): void
+    {
+        Mail::fake();
+
+        [$user,$offer]=$this->makeUserAndOffer(true);
+        $admin=$this->makeAdmin('cancel-admin@example.test','cancel.admin');
+
+        $this->actingAs($user)->post(route('offers.accept',$offer),[
+            'proposed_start_date'=>now('Europe/Berlin')->addDays(3)->toDateString(),
+            'confirm_summary'=>'1',
+        ])->assertRedirect();
+
+        $order=$user->orders()->firstOrFail();
+
+        $this->actingAs($admin)->post(route('admin.orders.status',$order),[
+            'status'=>'cancelled',
+            'reason'=>'Vor Bestätigung nicht über generischen Abbruch bearbeiten',
+            'compensation_amount'=>0,
+        ])->assertStatus(422);
+
+        $this->assertSame('requested',$order->fresh()->status);
+
+        $this->actingAs($admin)->post(route('admin.orders.approve',$order->fresh()),[
+            'start_date'=>now('Europe/Berlin')->addDays(3)->toDateString(),
+        ])->assertRedirect();
+
+        $order->refresh();
+        $this->assertSame('approved',$order->status);
+
+        $this->actingAs($admin)->post(route('admin.orders.status',$order),[
+            'status'=>'cancelled',
+            'reason'=>'Organisatorischer Abbruch vor dem Aktivierungstag',
+            'compensation_amount'=>0,
+        ])->assertRedirect();
+
+        $order->refresh();
+
+        $this->assertSame('cancelled',$order->status);
+        $this->assertEquals(0.0,(float)$order->final_compensation);
+        $this->assertNotNull($order->completed_at);
+        $this->assertDatabaseHas('order_status_history',[
+            'order_id'=>$order->id,
+            'from_status'=>'approved',
+            'to_status'=>'cancelled',
+            'reason'=>'Organisatorischer Abbruch vor dem Aktivierungstag',
+        ]);
+    }
+
+
+    private function makeAdmin(string $email, string $username): User
+    {
+        $admin=User::create([
+            'role'=>'admin',
+            'username'=>$username,
+            'first_name'=>'Admin',
+            'last_name'=>'Konto',
+            'birth_date'=>'1970-01-01',
+            'email'=>$email,
+            'password'=>Hash::make('VerySecurePassword123!'),
+            'status'=>'active',
+        ]);
+        $admin->forceFill(['email_verified_at'=>now()])->save();
+
+        return $admin;
     }
 
 
