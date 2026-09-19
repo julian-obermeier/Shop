@@ -212,12 +212,18 @@ class WalletPayoutTest extends TestCase
             $admin->forceFill(['email_verified_at'=>now()])->save();
 
             $this->actingAs($admin)->post(route('admin.payouts.update',$payout),[
-                'status'=>'approved',
+                'status'=>'review',
             ])->assertStatus(422);
 
             $this->assertSame('requested',$payout->fresh()->status);
 
             CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-18 09:00:00','Europe/Berlin'));
+
+            $this->actingAs($admin)->post(route('admin.payouts.update',$payout->fresh()),[
+                'status'=>'review',
+            ])->assertRedirect();
+
+            $this->assertSame('review',$payout->fresh()->status);
 
             $this->actingAs($admin)->post(route('admin.payouts.update',$payout->fresh()),[
                 'status'=>'approved',
