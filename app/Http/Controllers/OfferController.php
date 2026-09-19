@@ -26,7 +26,7 @@ class OfferController extends Controller
         $offers=$query->orderByDesc('created_at')->paginate(12)->withQueryString();
         $categories=Category::where('active',true)->orderBy('name')->get();
 
-        $capacity=collect($offers->items())->mapWithKeys(fn($offer)=>[$offer->id=>$waitlists->availableSlots($offer)]);
+        $capacity=collect($offers->items())->mapWithKeys(fn($offer)=>[$offer->id=>$waitlists->availableDirectSlots($offer)]);
 
         return view('offers.index',compact('offers','categories','capacity'));
     }
@@ -36,7 +36,7 @@ class OfferController extends Controller
         abort_unless(Offer::published()->whereKey($offer->id)->exists(),404);
         $offer->load('category','options','fields');
 
-        $availableSlots=$waitlists->availableSlots($offer);
+        $availableSlots=$waitlists->availableDirectSlots($offer);
         $waitlistEntry=OfferWaitlistEntry::where('offer_id',$offer->id)
             ->where('user_id',request()->user()->id)
             ->whereIn('status',['waiting','reserved'])
