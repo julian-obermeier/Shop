@@ -92,7 +92,7 @@ $startChallenge=$startDay ? $order->proofChallenges->first(fn($c)=>$c->order_day
 <input type="hidden" name="challenge_id" value="{{ $startChallenge->id }}">
 <input type="hidden" name="proof_code" value="{{ $startChallenge->code }}">
 <input type="hidden" name="window_key" value="start">
-<label>Live-Kamera<input type="file" name="proof" accept="image/jpeg" required data-proof-file data-live-camera hidden></label>
+<label>Live-Kamera<input type="file" name="proof" accept="image/jpeg" required data-proof-file data-live-camera data-camera-context="proof:{{ $startDay->id }}:{{ $startChallenge->id }}:start" hidden></label>
 <label class="check"><input type="checkbox" data-overlay-code><span>Code automatisch sichtbar in das aufgenommene Bild einblenden</span></label>
 <button class="btn primary">Startfoto einreichen</button>
 </form>
@@ -131,7 +131,7 @@ $resubmitLabel=match($resubmitScope){'package'=>'Paketfoto','receipt'=>'Versand-
 <label class="full">Paketfoto<input type="file" name="package_photo" accept="image/*" required><small>Foto des fertig verpackten Pakets; Galerie-/Dateiauswahl ist hierfür zulässig.</small></label>
 @endif
 @if(!$isShipmentResubmission || in_array($resubmitScope,['receipt','both'],true))
-<label class="full">Versand-/Annahmebeleg über Live-Kamera<input type="file" name="receipt_photo" accept="image/jpeg" required data-live-camera hidden><small>Versanddatum und Versanddienstleister müssen eindeutig lesbar sein. Galerie-/Dateiauswahl ist für diesen Beleg nicht zulässig.</small></label>
+<label class="full">Versand-/Annahmebeleg über Live-Kamera<input type="file" name="receipt_photo" accept="image/jpeg" required data-live-camera data-camera-context="shipment:{{ $order->id }}:receipt" hidden><small>Versanddatum und Versanddienstleister müssen eindeutig lesbar sein. Galerie-/Dateiauswahl ist für diesen Beleg nicht zulässig.</small></label>
 @endif
 <div class="notice full">
 <strong>Verbindliche Verpackungs- und Versandregeln</strong><br>
@@ -378,6 +378,7 @@ $canSubmit=$isCurrent
                         required
                         data-proof-file
                         data-live-camera
+                        data-camera-context="proof:{{ $day->id }}:{{ $challenge->id }}:{{ $key }}"
                         hidden
                     >
                 </label>
