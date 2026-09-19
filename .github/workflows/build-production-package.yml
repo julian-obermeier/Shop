@@ -1,0 +1,88 @@
+name: Build Production Package
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Resolve revision
+        id: revision
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            echo "ref=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=main" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.revision.outputs.ref }}
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, fileinfo, pdo_mysql, gd
+          coverage: none
+
+      - name: Install production dependencies
+        run: composer install --no-dev --no-interaction --prefer-dist --no-progress --optimize-autoloader
+
+      - name: Prepare production package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/shop-production
+          rsync -a ./ build/shop-production/ \
+            --exclude='.git/' \
+            --exclude='.github/' \
+            --exclude='tests/' \
+            --exclude='build/' \
+            --exclude='.env'
+          mkdir -p build/shop-production/storage/framework/cache
+          mkdir -p build/shop-production/storage/framework/sessions
+          mkdir -p build/shop-production/storage/framework/views
+          mkdir -p build/shop-production/storage/logs
+          mkdir -p build/shop-production/bootstrap/cache
+          cat > build/shop-production/ALLINKL-DEPLOY.txt <<'TXT'
+          SHOP / ALL-INKL PRODUKTIONSPAKET
+
+          1. Dieses Paket enthält vendor/ bereits vollständig.
+          2. Die Domain/Subdomain muss auf den Ordner public/ dieser Anwendung zeigen.
+          3. In KAS für die Domain PHP 8.3 oder höher auswählen.
+          4. Im Anwendungs-Hauptverzeichnis eine Produktions-.env anlegen.
+          5. APP_URL=https://shop.fetisch-game.com setzen.
+          6. Einmalig APP_KEY erzeugen, falls noch keiner existiert:
+             /usr/bin/php83 artisan key:generate
+          7. Danach:
+             /usr/bin/php83 artisan migrate --force
+             /usr/bin/php83 artisan optimize:clear
+             /usr/bin/php83 artisan storage:link
+             /usr/bin/php83 artisan config:cache
+             /usr/bin/php83 artisan route:cache
+             /usr/bin/php83 artisan view:cache
+          8. storage/ und bootstrap/cache müssen für den Webserver beschreibbar sein.
+          9. Den Laravel Scheduler im KAS als Cronjob einrichten.
+          TXT
+
+      - name: Upload production package
+        uses: actions/upload-artifact@v4
+        with:
+          name: shop-production-${{ steps.revision.outputs.ref }}
+          path: build/shop-production/
+          if-no-files-found: error
+          retention-days: 14
