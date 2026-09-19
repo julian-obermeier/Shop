@@ -34,11 +34,12 @@ class PayoutController extends Controller
             $wasTerminal=in_array($payout->status,['completed','rejected','cancelled'],true);
 
             $allowedTransitions=[
+                // Normaler Vorwärtsfluss plus ausdrücklich erlaubte Admin-Rücksetzung/Wiederöffnung.
                 'requested'=>['review','rejected','cancelled'],
-                'review'=>['approved','rejected','cancelled'],
-                'approved'=>['payment_executed','failed','rejected','cancelled'],
-                'failed'=>['approved','rejected','cancelled'],
-                'payment_executed'=>[],
+                'review'=>['requested','approved','rejected','cancelled'],
+                'approved'=>['requested','review','payment_executed','failed','rejected','cancelled'],
+                'failed'=>['requested','review','approved','rejected','cancelled'],
+                'payment_executed'=>['requested','review','approved','failed','rejected','cancelled'],
                 'completed'=>['requested','review','approved','failed','payment_executed','rejected','cancelled'],
                 'rejected'=>['requested','review','approved','failed','payment_executed','cancelled'],
                 'cancelled'=>['requested','review','approved','failed','payment_executed','rejected'],
