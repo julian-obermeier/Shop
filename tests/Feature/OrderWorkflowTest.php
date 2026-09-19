@@ -277,6 +277,47 @@ class OrderWorkflowTest extends TestCase
     }
 
 
+    public function test_shipping_page_enforces_live_camera_for_receipt_but_not_for_package_photo(): void
+    {
+        [$user,$offer]=$this->makeUserAndOffer(true);
+
+        $order=\App\Models\Order::create([
+            'order_number'=>'20260000701',
+            'user_id'=>$user->id,
+            'offer_id'=>$offer->id,
+            'status'=>'waiting_shipping',
+            'compensation_total'=>40,
+            'offer_snapshot'=>[
+                'title'=>$offer->title,
+                'duration_days'=>2,
+                'tracking_mode'=>'optional',
+            ],
+            'current_requirements'=>[
+                'title'=>$offer->title,
+                'duration_days'=>2,
+                'tracking_mode'=>'optional',
+            ],
+            'execution_completed_at'=>now()->subHour(),
+            'shipping_due_at'=>now()->addHours(23),
+        ]);
+
+        $response=$this->actingAs($user)->get(route('orders.show',$order));
+
+        $response->assertOk();
+        $html=$response->getContent();
+
+        $this->assertMatchesRegularExpression(
+            '/name="receipt_photo"[^>]*data-live-camera[^>]*hidden|name="receipt_photo"[^>]*hidden[^>]*data-live-camera/',
+            $html
+        );
+        $this->assertMatchesRegularExpression('/name="package_photo"[^>]*accept="image\/\*"/',$html);
+
+        preg_match('/<input[^>]*name="package_photo"[^>]*>/',$html,$packageMatch);
+        $this->assertNotEmpty($packageMatch);
+        $this->assertStringNotContainsString('data-live-camera',$packageMatch[0]);
+    }
+
+
     private function makeUserAndOffer(bool $emailVerified): array
     {
         $user=User::create([
