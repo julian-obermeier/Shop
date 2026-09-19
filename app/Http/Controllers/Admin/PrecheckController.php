@@ -23,6 +23,19 @@ class PrecheckController extends Controller
         return Storage::disk('prechecks')->download($precheck->photo_path);
     }
 
+
+    public function historicalFile(OrderPrecheck $precheck, int $index): StreamedResponse
+    {
+        $history=(array)data_get($precheck->answers,'photo_history',[]);
+        $entry=$history[$index]??null;
+        abort_unless(is_array($entry) && !empty($entry['path']),404);
+
+        $path=(string)$entry['path'];
+        abort_unless(Storage::disk('prechecks')->exists($path),404);
+
+        return Storage::disk('prechecks')->download($path);
+    }
+
     public function review(Request $request, OrderPrecheck $precheck, AuditService $audit, NotificationService $notifications)
     {
         $data=$request->validate(['status'=>['required','in:accepted,resubmit,rejected'],'admin_comment'=>['nullable','string','max:2000']]);
