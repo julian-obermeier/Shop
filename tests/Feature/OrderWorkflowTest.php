@@ -321,6 +321,48 @@ class OrderWorkflowTest extends TestCase
     }
 
 
+    public function test_provider_order_view_persistently_shows_goods_inspection_reason_and_result(): void
+    {
+        [$user,$offer]=$this->makeUserAndOffer(true);
+
+        $order=\App\Models\Order::create([
+            'order_number'=>'20260000703',
+            'user_id'=>$user->id,
+            'offer_id'=>$offer->id,
+            'status'=>'inspection',
+            'compensation_total'=>40,
+            'offer_snapshot'=>[
+                'title'=>$offer->title,
+                'duration_days'=>2,
+                'tracking_mode'=>'optional',
+            ],
+        ]);
+
+        $order->goodsInspection()->create([
+            'reviewed_by'=>null,
+            'categories'=>[
+                'appearance'=>['label'=>'Aussehen','passed'=>false,'points'=>4,'comment'=>'Abweichung sichtbar','ko'=>false],
+                '_total_points'=>34,
+            ],
+            'base_percentage'=>80,
+            'extra_results'=>[],
+            'calculated_compensation'=>32,
+            'result'=>'rework',
+            'reason'=>'Bitte die dokumentierte Abweichung vor dem Abschluss klären.',
+            'reviewed_at'=>now(),
+        ]);
+
+        $response=$this->actingAs($user)->get(route('orders.show',$order));
+
+        $response->assertOk();
+        $response->assertSee('Warenprüfung');
+        $response->assertSee('REWORK');
+        $response->assertSee('Bitte die dokumentierte Abweichung vor dem Abschluss klären.');
+        $response->assertSee('Abweichung sichtbar');
+        $response->assertSee('34/50');
+    }
+
+
     public function test_unverified_user_can_read_offer_but_cannot_configure_or_join_waitlist_in_ui(): void
     {
         [$user,$offer]=$this->makeUserAndOffer(false);
