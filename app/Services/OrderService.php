@@ -466,6 +466,8 @@ class OrderService
             'status'=>'waiting_start',
             'series_number'=>$newSeries,
             'series_interruptions'=>0,
+            'confirmed_start_date'=>$today->toDateString(),
+            'proposed_start_date'=>$today->toDateString(),
             'activation_date'=>null,
             'start_date'=>null,
             'end_date'=>null,
@@ -484,16 +486,25 @@ class OrderService
             'changed_by'=>null,
             'from_status'=>'active',
             'to_status'=>'waiting_start',
-            'reason'=>'Startfoto endgültig ungültig; neues Startfoto und neue Serie erforderlich',
+            'reason'=>'Startfoto endgültig ungültig; neues Startfoto und neue Serie erforderlich. Neuer Aktivierungstag '.$today->format('d.m.Y').'.',
         ]);
+
+        $this->shiftSockFollowers($order);
     }
 
     public function shiftSockFollowers(Order $order): void
     {
         $order->refresh();
-        if(!$order->isSockWearing() || !$order->end_date) return;
+        if(!$order->isSockWearing()) return;
 
-        $cursorEnd=CarbonImmutable::parse($order->end_date,'Europe/Berlin');
+        if($order->end_date){
+            $cursorEnd=CarbonImmutable::parse($order->end_date,'Europe/Berlin');
+        } elseif($order->confirmed_start_date){
+            $cursorEnd=CarbonImmutable::parse($order->confirmed_start_date,'Europe/Berlin')
+                ->addDays((int)data_get($order->offer_snapshot,'duration_days',1));
+        } else {
+            return;
+        }
         $followers=Order::with('user')->where('user_id',$order->user_id)
             ->where('id','!=',$order->id)
             ->whereIn('status',['precheck','precheck_resubmit','approved','waiting_start'])
