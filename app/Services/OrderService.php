@@ -20,12 +20,18 @@ class OrderService
             $lockedOffer=Offer::whereKey($offer->id)->lockForUpdate()->firstOrFail();
             abort_unless($lockedOffer->active,404);
 
-            $reservation=OfferWaitlistEntry::where('offer_id',$lockedOffer->id)
+            $queueEntry=OfferWaitlistEntry::where('offer_id',$lockedOffer->id)
                 ->where('user_id',$user->id)
-                ->where('status','reserved')
-                ->where('reservation_expires_at','>',now())
+                ->whereIn('status',['waiting','reserved'])
                 ->lockForUpdate()
                 ->first();
+
+            $reservation=$queueEntry
+                && $queueEntry->status==='reserved'
+                && $queueEntry->reservation_expires_at
+                && $queueEntry->reservation_expires_at->isFuture()
+                    ? $queueEntry
+                    : null;
 
             if($reservation?->planned_start_date){
                 $proposedStartDate=$reservation->planned_start_date->toDateString();
@@ -161,10 +167,12 @@ class OrderService
                 'reason'=>'Auftragsanfrage mit Startwunsch '.$start->format('d.m.Y').' erstellt',
             ]);
 
-            if($reservation){
-                $reservation->update([
+            if($queueEntry){
+                $queueEntry->update([
                     'status'=>'used',
+                    'reserved_at'=>$reservation?->reserved_at,
                     'reservation_expires_at'=>null,
+                    'reservation_remaining_seconds'=>null,
                 ]);
             }
 
