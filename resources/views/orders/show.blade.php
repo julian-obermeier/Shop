@@ -148,6 +148,32 @@ Die Versandkosten trägst du selbst. Eigentum an der eingesandten Ware geht mit 
 @endif
 
 
+@if($order->goodsInspection)
+<div class="panel" style="margin-bottom:18px">
+<h2>Warenprüfung</h2>
+<dl class="meta-list">
+<div><dt>Ergebnis</dt><dd>{{ strtoupper(str_replace('_',' ',$order->goodsInspection->result)) }}</dd></div>
+<div><dt>Gesamtpunkte</dt><dd>{{ (int)data_get($order->goodsInspection->categories,'_total_points',0) }}/50</dd></div>
+<div><dt>Grundvergütung</dt><dd>{{ number_format((float)$order->goodsInspection->base_percentage,0) }} %</dd></div>
+<div><dt>Berechnete Vergütung</dt><dd>{{ number_format((float)$order->goodsInspection->calculated_compensation,2,',','.') }} €</dd></div>
+</dl>
+@if($order->goodsInspection->reason)
+<div class="notice"><strong>Begründung / weitere Anforderung</strong><br>{{ $order->goodsInspection->reason }}</div>
+@endif
+@foreach(($order->goodsInspection->categories??[]) as $key=>$row)
+@if(!str_starts_with((string)$key,'_'))
+<p><strong>{{ $row['label']??$key }}:</strong> {{ ($row['passed']??false)?'bestanden':'nicht bestanden' }} · {{ $row['points']??0 }}/10 @if($row['comment']??null) · {{ $row['comment'] }}@endif</p>
+@endif
+@endforeach
+@if(is_array($order->goodsInspection->extra_results) && count($order->goodsInspection->extra_results))
+<h3>Extras</h3>
+@foreach($order->goodsInspection->extra_results as $extra)
+<p><strong>{{ $extra['name']??'Extra' }}:</strong> {{ ($extra['fulfilled']??false)?'erfüllt':'nicht erfüllt' }} · {{ number_format((float)($extra['amount']??0),2,',','.') }} € @if($extra['comment']??null) · {{ $extra['comment'] }}@endif</p>
+@endforeach
+@endif
+</div>
+@endif
+
 @if($order->status==='rejected' && $order->goodsInspection?->result==='rejected')
 @php
 $returnDecisionDeadline=$order->goodsInspection->reviewed_at?->copy()->timezone('Europe/Berlin')->startOfDay()->addDays(3)->endOfDay();
