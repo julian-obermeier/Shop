@@ -141,7 +141,7 @@ class ProofController extends Controller
 
         $captures->consume(
             $request,
-            (string)$data['camera_capture_token'],
+            (string)($data['camera_capture_token']??''),
             'proof:'.$day->id.':'.$challenge->id.':'.$window['key']
         );
 
