@@ -109,21 +109,30 @@ $startChallenge=$startDay ? $order->proofChallenges->first(fn($c)=>$c->order_day
 @endif
 
 @if(in_array($order->status,['waiting_shipping','shipping_overdue'],true) || ($order->status==='shipped' && $order->shipment?->review_status==='rejected' && $order->shipment?->resubmit_due_at?->isFuture()))
+@php
+$isShipmentResubmission=$order->status==='shipped' && $order->shipment?->review_status==='rejected';
+$resubmitScope=$isShipmentResubmission ? ($order->shipment?->resubmit_scope ?: 'both') : 'both';
+$resubmitLabel=match($resubmitScope){'package'=>'Paketfoto','receipt'=>'Versand-/Annahmebeleg',default=>'Paketfoto und Versand-/Annahmebeleg'};
+@endphp
 <div class="panel" style="margin-bottom:18px">
-<h2>{{ $order->status==='shipped'?'Versandnachweise erneut aufnehmen':'Versand melden' }}</h2>
+<h2>{{ $isShipmentResubmission?'Versandnachweis erneut einreichen':'Versand melden' }}</h2>
 @if($order->shipping_due_at)
 <div class="notice">Versandfrist: <strong>{{ $order->shipping_due_at->format('d.m.Y H:i') }} Uhr</strong>@if($order->shipping_due_at->isPast()) · <strong>überschritten</strong>@endif</div>
 @endif
 @if($order->shipment?->review_status==='rejected')
-<div class="flash error">{{ $order->shipment->review_comment }}<br>Neue Nachweise bis {{ $order->shipment->resubmit_due_at?->format('d.m.Y H:i') }} Uhr.</div>
+<div class="flash error">{{ $order->shipment->review_comment }}<br>Neu erforderlich: <strong>{{ $resubmitLabel }}</strong>. Nachreichung bis {{ $order->shipment->resubmit_due_at?->format('d.m.Y H:i') }} Uhr.</div>
 @endif
 <form method="post" enctype="multipart/form-data" action="{{ route('orders.shipment',$order) }}" class="form-grid">@csrf
 <label>Versanddienstleister<input name="carrier" value="{{ old('carrier',$order->shipment?->carrier) }}" placeholder="z. B. DHL" required></label>
 @if($trackingMode!=='none')
 <label>Trackingnummer<input name="tracking_number" value="{{ old('tracking_number',$order->shipment?->tracking_number) }}" @required($trackingMode==='required')><small>{{ $trackingMode==='required'?'Pflicht':'optional' }}</small></label>
 @endif
+@if(!$isShipmentResubmission || in_array($resubmitScope,['package','both'],true))
 <label class="full">Paketfoto<input type="file" name="package_photo" accept="image/*" required><small>Foto des fertig verpackten Pakets; Galerie-/Dateiauswahl ist hierfür zulässig.</small></label>
+@endif
+@if(!$isShipmentResubmission || in_array($resubmitScope,['receipt','both'],true))
 <label class="full">Versand-/Annahmebeleg über Live-Kamera<input type="file" name="receipt_photo" accept="image/jpeg" required data-live-camera hidden><small>Versanddatum und Versanddienstleister müssen eindeutig lesbar sein. Galerie-/Dateiauswahl ist für diesen Beleg nicht zulässig.</small></label>
+@endif
 <div class="notice full">
 <strong>Verbindliche Verpackungs- und Versandregeln</strong><br>
 Die Ware muss sicher, vor Feuchtigkeit und Transportschäden geschützt sowie innerhalb des Pakets getrennt bzw. geeignet verpackt werden.
