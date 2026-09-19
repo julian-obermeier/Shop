@@ -14,7 +14,7 @@
 <td style="display:flex;gap:8px;flex-wrap:wrap">
 <a class="btn secondary" href="{{ route('admin.offers.edit',$offer) }}">Bearbeiten</a>
 <form method="post" action="{{ route('admin.offers.duplicate',$offer) }}">@csrf<button class="btn secondary">Duplizieren</button></form>
-<form method="post" action="{{ route('admin.offers.destroy',$offer) }}" onsubmit="return confirm('Angebot wirklich vollständig löschen? Bestehende Aufträge behalten ihren Snapshot.')">@csrf @method('DELETE')<button class="btn secondary">Löschen</button></form>
+<form method="post" action="{{ route('admin.offers.destroy',$offer) }}" onsubmit="return confirm('Angebot wirklich vollständig löschen? Bestehende Aufträge behalten ihren Snapshot.')">@csrf @method('DELETE')<label class="check"><input type="checkbox" name="confirm_delete" value="1" required><span>Löschen ausdrücklich bestätigen</span></label><button class="btn secondary">Löschen</button></form>
 </td>
 </tr>
 @endforeach
