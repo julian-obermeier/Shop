@@ -1388,6 +1388,71 @@ class MasterPromptLifecycleTest extends TestCase
     }
 
 
+    public function test_precheck_replacement_preserves_previous_photo_hash_and_admin_can_open_history(): void
+    {
+        Storage::fake('prechecks');
+
+        $provider=$this->provider('precheck-history@example.test');
+        $admin=$this->admin('admin-precheck-history@example.test');
+        $category=$this->category();
+        $offer=$this->offer($category,'Precheck History');
+        $offer->update(['requires_precheck'=>true]);
+
+        $order=Order::create([
+            'order_number'=>'20260000319',
+            'user_id'=>$provider->id,
+            'offer_id'=>$offer->id,
+            'status'=>'precheck',
+            'compensation_total'=>40,
+            'offer_snapshot'=>[
+                'title'=>$offer->title,
+                'duration_days'=>1,
+                'requires_precheck'=>true,
+            ],
+        ]);
+
+        $this->actingAs($provider)->post(route('orders.precheck',$order),[
+            'item_description'=>'Erste Version',
+            'item_type'=>'Artikel',
+            'item_size'=>'M',
+            'photo'=>UploadedFile::fake()->image('first.jpg',800,600),
+        ])->assertRedirect();
+
+        $precheck=$order->precheck()->firstOrFail();
+        $firstPath=$precheck->photo_path;
+        $firstHash=data_get($precheck->answers,'current_photo_sha256');
+
+        Storage::disk('prechecks')->assertExists($firstPath);
+        $this->assertNotEmpty($firstHash);
+
+        $order->update(['status'=>'precheck_resubmit']);
+
+        $this->actingAs($provider)->post(route('orders.precheck',$order->fresh()),[
+            'item_description'=>'Zweite Version',
+            'item_type'=>'Artikel',
+            'item_size'=>'M',
+            'photo'=>UploadedFile::fake()->image('second.jpg',800,600),
+        ])->assertRedirect();
+
+        $precheck->refresh();
+        $history=(array)data_get($precheck->answers,'photo_history',[]);
+
+        $this->assertCount(1,$history);
+        $this->assertSame($firstPath,$history[0]['path']);
+        $this->assertSame($firstHash,$history[0]['sha256']);
+        Storage::disk('prechecks')->assertExists($firstPath);
+        Storage::disk('prechecks')->assertExists($precheck->photo_path);
+
+        $this->actingAs($provider)
+            ->get(route('admin.prechecks.history-file',[$precheck,0]))
+            ->assertStatus(403);
+
+        $this->actingAs($admin)
+            ->get(route('admin.prechecks.history-file',[$precheck,0]))
+            ->assertOk();
+    }
+
+
     private function provider(string $email): User
     {
         $user=User::create([
