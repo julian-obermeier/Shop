@@ -280,6 +280,100 @@ class WalletPayoutTest extends TestCase
     }
 
 
+    public function test_payout_requires_full_status_chain_and_completes_only_after_24_hours(): void
+    {
+        Mail::fake();
+
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-17 12:00:00','Europe/Berlin'));
+
+        try{
+            $user=$this->makeVerifiedUser('payout-chain@example.test');
+            $wallet=WalletAccount::create(['user_id'=>$user->id]);
+            $wallet->entries()->create([
+                'bucket'=>'available',
+                'entry_type'=>'test_credit',
+                'amount'=>30,
+                'description'=>'Testguthaben',
+            ]);
+
+            $this->actingAs($user)->post(route('wallet.payout'),[
+                'amount'=>10,
+                'method'=>'bank_transfer',
+            ])->assertRedirect();
+
+            $payout=$user->payouts()->firstOrFail();
+            $this->assertSame('2026-09-18',$payout->processing_date?->toDateString());
+
+            $admin=User::create([
+                'role'=>'admin',
+                'username'=>'payout.chain.admin',
+                'first_name'=>'Admin',
+                'last_name'=>'Chain',
+                'birth_date'=>'1970-01-01',
+                'email'=>'payout-chain-admin@example.test',
+                'password'=>Hash::make('VerySecurePassword123!'),
+                'status'=>'active',
+            ]);
+            $admin->forceFill(['email_verified_at'=>now()])->save();
+
+            CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-18 09:00:00','Europe/Berlin'));
+
+            $this->actingAs($admin)->post(route('admin.payouts.update',$payout),[
+                'status'=>'approved',
+            ])->assertStatus(422);
+
+            $this->actingAs($admin)->post(route('admin.payouts.update',$payout->fresh()),[
+                'status'=>'payment_executed',
+            ])->assertStatus(422);
+
+            $this->actingAs($admin)->post(route('admin.payouts.update',$payout->fresh()),[
+                'status'=>'completed',
+            ])->assertStatus(422);
+
+            $this->assertSame('requested',$payout->fresh()->status);
+
+            $this->actingAs($admin)->post(route('admin.payouts.update',$payout->fresh()),[
+                'status'=>'review',
+            ])->assertRedirect();
+
+            $this->actingAs($admin)->post(route('admin.payouts.update',$payout->fresh()),[
+                'status'=>'approved',
+            ])->assertRedirect();
+
+            $this->actingAs($admin)->post(route('admin.payouts.update',$payout->fresh()),[
+                'status'=>'payment_executed',
+            ])->assertRedirect();
+
+            $payout->refresh();
+            $executedAt=$payout->payment_executed_at->copy();
+
+            $this->assertSame('payment_executed',$payout->status);
+            $this->assertEquals(20.0,$wallet->fresh()->balance('available'));
+            $this->assertEquals(10.0,$wallet->fresh()->balance('payout_pending'));
+            $this->assertEquals(0.0,$wallet->fresh()->balance('paid'));
+
+            CarbonImmutable::setTestNow($executedAt->copy()->addHours(23)->addMinutes(59));
+            $this->artisan('payouts:complete-executed')->assertExitCode(0);
+
+            $this->assertSame('payment_executed',$payout->fresh()->status);
+            $this->assertEquals(10.0,$wallet->fresh()->balance('payout_pending'));
+            $this->assertEquals(0.0,$wallet->fresh()->balance('paid'));
+
+            CarbonImmutable::setTestNow($executedAt->copy()->addHours(24)->addSecond());
+            $this->artisan('payouts:complete-executed')->assertExitCode(0);
+
+            $payout->refresh();
+            $this->assertSame('completed',$payout->status);
+            $this->assertNotNull($payout->completed_at);
+            $this->assertNotNull($payout->paid_at);
+            $this->assertEquals(0.0,$wallet->fresh()->balance('payout_pending'));
+            $this->assertEquals(10.0,$wallet->fresh()->balance('paid'));
+        } finally {
+            CarbonImmutable::setTestNow();
+        }
+    }
+
+
     private function makeVerifiedUser(string $email): User
     {
         $user=User::create([
