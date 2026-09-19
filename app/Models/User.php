@@ -25,6 +25,38 @@ class User extends Authenticatable implements MustVerifyEmailContract
         ];
     }
 
+
+    protected static function booted(): void
+    {
+        static::creating(function(self $user){
+            if($user->role==='admin' && self::where('role','admin')->exists()){
+                throw new \LogicException('Es darf genau ein Admin-Konto existieren.');
+            }
+        });
+
+        static::updating(function(self $user){
+            $originalRole=(string)$user->getOriginal('role');
+
+            if($originalRole==='admin' && $user->role!=='admin'){
+                throw new \LogicException('Das einzige Admin-Konto darf nicht in eine andere Rolle umgewandelt werden.');
+            }
+
+            if(
+                $originalRole!=='admin'
+                && $user->role==='admin'
+                && self::where('role','admin')->whereKeyNot($user->id)->exists()
+            ){
+                throw new \LogicException('Es darf genau ein Admin-Konto existieren.');
+            }
+        });
+
+        static::deleting(function(self $user){
+            if($user->role==='admin'){
+                throw new \LogicException('Das einzige Admin-Konto darf nicht gelöscht werden.');
+            }
+        });
+    }
+
     public function profile(): HasOne { return $this->hasOne(UserProfile::class); }
     public function orders(): HasMany { return $this->hasMany(Order::class); }
     public function walletAccount(): HasOne { return $this->hasOne(WalletAccount::class); }
