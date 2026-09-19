@@ -394,7 +394,7 @@ class OrderService
     {
         $last=$order->days()
             ->where('series_number',$order->series_number)
-            ->orderByDesc('date')
+            ->reorder('date','desc')
             ->orderByDesc('day_number')
             ->first();
 
