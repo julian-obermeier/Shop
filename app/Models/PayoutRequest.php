@@ -22,6 +22,22 @@ class PayoutRequest extends Model
         ];
     }
 
+
+    protected static function booted(): void
+    {
+        static::updating(function(self $payout){
+            foreach(['payout_number','user_id','amount','method','destination','processing_date'] as $attribute){
+                if($payout->isDirty($attribute)){
+                    throw new \LogicException('Der Auszahlungsantrag ist ein unveränderlicher Snapshot; Ziel- und Betragsdaten dürfen nach Antragstellung nicht geändert werden.');
+                }
+            }
+        });
+
+        static::deleting(function(){
+            throw new \LogicException('Auszahlungsanträge dürfen nicht gelöscht werden.');
+        });
+    }
+
     public function user(): BelongsTo { return $this->belongsTo(User::class); }
 
     public function isOpen(): bool
