@@ -1306,6 +1306,88 @@ class MasterPromptLifecycleTest extends TestCase
     }
 
 
+    public function test_requirement_change_next_window_uses_earliest_future_window_even_when_config_is_unsorted(): void
+    {
+        Mail::fake();
+
+        $now=CarbonImmutable::parse('2026-09-19 09:00:00','Europe/Berlin');
+        CarbonImmutable::setTestNow($now);
+
+        try{
+            $provider=$this->provider('next-window-order@example.test');
+            $admin=$this->admin('next-window-admin@example.test');
+            $category=$this->category();
+            $offer=$this->offer($category,'Next Window Ordering');
+
+            $requirements=[
+                [
+                    'key'=>'afternoon',
+                    'label'=>'Nachmittag',
+                    'start'=>'14:00',
+                    'end'=>'15:00',
+                    'required_images'=>1,
+                ],
+                [
+                    'key'=>'morning',
+                    'label'=>'Vormittag',
+                    'start'=>'10:00',
+                    'end'=>'11:00',
+                    'required_images'=>1,
+                ],
+            ];
+
+            $snapshot=[
+                'title'=>$offer->title,
+                'duration_days'=>1,
+                'proof_requirements'=>$requirements,
+                'inspection_config'=>$offer->inspection_config,
+            ];
+
+            $order=Order::create([
+                'order_number'=>'20260000320',
+                'user_id'=>$provider->id,
+                'offer_id'=>$offer->id,
+                'status'=>'active',
+                'compensation_total'=>40,
+                'offer_snapshot'=>$snapshot,
+                'current_requirements'=>$snapshot,
+                'series_number'=>1,
+                'start_date'=>$now->toDateString(),
+                'end_date'=>$now->toDateString(),
+            ]);
+
+            OrderDay::create([
+                'order_id'=>$order->id,
+                'day_number'=>1,
+                'series_number'=>1,
+                'date'=>$now->toDateString(),
+                'required_proofs'=>2,
+                'status'=>'open',
+                'counts_toward_series'=>true,
+            ]);
+
+            $this->actingAs($admin)->post(route('admin.orders.requirements',$order),[
+                'requirement_text'=>'Neue Anforderung ab dem tatsächlich nächsten Nachweisfenster.',
+                'effective_mode'=>'next_window',
+                'additional_compensation'=>0,
+            ])->assertRedirect();
+
+            $order->refresh();
+
+            $this->assertSame(
+                '2026-09-19 10:00',
+                $order->requirements_effective_at?->timezone('Europe/Berlin')->format('Y-m-d H:i')
+            );
+            $this->assertSame(
+                'next_window',
+                data_get($order->current_requirements,'admin_addition.effective_mode')
+            );
+        } finally {
+            CarbonImmutable::setTestNow();
+        }
+    }
+
+
     private function provider(string $email): User
     {
         $user=User::create([
