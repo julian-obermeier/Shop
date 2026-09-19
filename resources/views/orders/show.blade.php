@@ -211,7 +211,7 @@ $windows=$day->day_number===0
 </div>
 @if(!$day->counts_toward_series)<div class="notice">Archiviert – zählt nicht mehr zur aktuellen erfolgreichen Serie.@if($day->invalid_reason) {{ $day->invalid_reason }}@endif</div>@endif
 
-@foreach(is_array($windows)?$windows:[] as $window)
+@foreach(is_array($windows) ? $windows : [] as $window)
 @php
 $key=(string)($window['key']??'default');
 $required=(int)($window['required_images']??1);
@@ -225,51 +225,137 @@ $isStartResubmission=$day->day_number===0
     && $order->status==='active'
     && $latestRejected?->rejection_kind==='technical'
     && $latestRejected?->resubmit_due_at?->isFuture();
-$challenge=$order->proofChallenges->first(fn($c)=>$c->order_day_id===$day->id && $c->window_key===$key && !$c->used_at && $c->expires_at?->isFuture());
+$challenge=$order->proofChallenges->first(
+    fn($c)=>$c->order_day_id===$day->id
+        && $c->window_key===$key
+        && !$c->used_at
+        && !$c->expired_at
+        && $c->expires_at?->isFuture()
+);
 $canSubmit=$isCurrent
     && $day->counts_toward_series
     && ($accepted+$pending)<$required
     && !$awaitingExtraRetry
-    && ($day->day_number===0 ? ($order->status==='waiting_start' || $isStartResubmission) : $order->status==='active');
+    && ($day->day_number===0
+        ? ($order->status==='waiting_start' || $isStartResubmission)
+        : $order->status==='active');
 @endphp
-<div class="panel" style="margin:12px 0">
-<strong>{{ $window['label']??$key }}</strong>
-<small class="muted"> · {{ $window['start']??'00:00' }}–{{ $window['end']??'23:59' }} · akzeptiert {{ $accepted }}/{{ $required }}@if($window['face_required']??false) · Gesicht Pflicht@endif</small>
-@if(!empty($window['image_requirements']))<div class="notice"><strong>Bildanforderung:</strong> {{ $window['image_requirements'] }}</div>@endif
-@if(!empty($window['required_fields']))<div class="notice"><strong>Zusätzliche Pflichtangaben:</strong> {{ collect($window['required_fields'])->pluck('label')->filter()->implode(', ') }}</div>@endif
-@if($awaitingExtraRetry)
-<div class="notice"><strong>Reguläre Nachreichversuche ausgeschöpft.</strong><br>Ein weiterer Versuch ist nur möglich, wenn der Admin ihn ausdrücklich freigibt.</div>
-@endif
-@foreach($windowProofs as $proof)
-<div class="proof-list"><div><span>📎 Versuch {{ $proof->retry_number }} · Code {{ $proof->proof_code }}</span><span class="status {{ $proof->review_status }}">{{ strtoupper($proof->review_status) }}</span></div>
-@if($proof->text_value)<small>Text: {{ $proof->text_value }}</small>@endif
-@if(is_array($proof->proof_data))
-@foreach($proof->proof_data as $entry)
-<small>{{ $entry['label']??'Pflichtangabe' }}: {{ $entry['value']??'–' }}</small>
-@endforeach
-@endif
-@if($proof->review_comment)<small>{{ $proof->review_comment }}</small>@endif</div>
-@endforeach
 
-@if($canSubmit && ($day->day_number>0 || $isStartResubmission))
-@if(!$challenge)
-<form method="post" action="{{ route('proofs.challenge',$day) }}" style="margin-top:10px">@csrf<input type="hidden" name="window_key" value="{{ $key }}"><button class="btn secondary">10-Minuten-Code erzeugen</button></form>
-@else
-<div class="notice"><strong>Code: {{ $challenge->code }}</strong> · gültig bis {{ $challenge->expires_at->format('H:i:s') }} Uhr</div>
-<form method="post" enctype="multipart/form-data" action="{{ route('proofs.store',$day) }}" class="stack-form" data-proof-upload data-code="{{ $challenge->code }}">@csrf
-<input type="hidden" name="challenge_id" value="{{ $challenge->id }}">
-<input type="hidden" name="proof_code" value="{{ $challenge->code }}">
-<input type="hidden" name="window_key" value="{{ $key }}">
-@if($window['text_required']??false)<label>Pflichttext<textarea name="text_value" rows="3" required></textarea></label>@endif
-@foreach(($window['required_fields']??[]) as $requiredField)
-<label>{{ $requiredField['label']??'Pflichtangabe' }}<input name="proof_data[{{ $requiredField['key'] }}]" required maxlength="1000"></label>
-@endforeach
-<label>Live-Kamera<input type="file" name="proof" accept="image/jpeg" required data-proof-file data-live-camera hidden></label>
-<label class="check"><input type="checkbox" data-overlay-code><span>Code automatisch sichtbar in das aufgenommene Bild einblenden</span></label>
-<button class="btn secondary">Nachweis einreichen</button>
-</form>
-@endif
-@endif
+<div class="panel" style="margin:12px 0">
+    <strong>{{ $window['label']??$key }}</strong>
+    <small class="muted">
+        · {{ $window['start']??'00:00' }}–{{ $window['end']??'23:59' }}
+        · akzeptiert {{ $accepted }}/{{ $required }}
+        @if($window['face_required']??false)
+            · Gesicht Pflicht
+        @endif
+    </small>
+
+    @if(!empty($window['image_requirements']))
+        <div class="notice">
+            <strong>Bildanforderung:</strong> {{ $window['image_requirements'] }}
+        </div>
+    @endif
+
+    @if(!empty($window['required_fields']))
+        <div class="notice">
+            <strong>Zusätzliche Pflichtangaben:</strong>
+            {{ collect($window['required_fields'])->pluck('label')->filter()->implode(', ') }}
+        </div>
+    @endif
+
+    @if($awaitingExtraRetry)
+        <div class="notice">
+            <strong>Reguläre Nachreichversuche ausgeschöpft.</strong><br>
+            Ein weiterer Versuch ist nur möglich, wenn der Admin ihn ausdrücklich freigibt.
+        </div>
+    @endif
+
+    @foreach($windowProofs as $proof)
+        <div class="proof-list">
+            <div>
+                <span>📎 Versuch {{ $proof->retry_number }} · Code {{ $proof->proof_code }}</span>
+                <span class="status {{ $proof->review_status }}">{{ strtoupper($proof->review_status) }}</span>
+            </div>
+
+            @if($proof->text_value)
+                <small>Text: {{ $proof->text_value }}</small>
+            @endif
+
+            @if(is_array($proof->proof_data))
+                @foreach($proof->proof_data as $entry)
+                    <small>{{ $entry['label']??'Pflichtangabe' }}: {{ $entry['value']??'–' }}</small>
+                @endforeach
+            @endif
+
+            @if($proof->review_comment)
+                <small>{{ $proof->review_comment }}</small>
+            @endif
+        </div>
+    @endforeach
+
+    @if($canSubmit && ($day->day_number>0 || $isStartResubmission))
+        @if(!$challenge)
+            <form method="post" action="{{ route('proofs.challenge',$day) }}" style="margin-top:10px">
+                @csrf
+                <input type="hidden" name="window_key" value="{{ $key }}">
+                <button class="btn secondary">10-Minuten-Code erzeugen</button>
+            </form>
+        @else
+            <div class="notice">
+                <strong>Code: {{ $challenge->code }}</strong>
+                · gültig bis {{ $challenge->expires_at->format('H:i:s') }} Uhr
+            </div>
+
+            <form
+                method="post"
+                enctype="multipart/form-data"
+                action="{{ route('proofs.store',$day) }}"
+                class="stack-form"
+                data-proof-upload
+                data-code="{{ $challenge->code }}"
+            >
+                @csrf
+                <input type="hidden" name="challenge_id" value="{{ $challenge->id }}">
+                <input type="hidden" name="proof_code" value="{{ $challenge->code }}">
+                <input type="hidden" name="window_key" value="{{ $key }}">
+
+                @if($window['text_required']??false)
+                    <label>
+                        Pflichttext
+                        <textarea name="text_value" rows="3" required></textarea>
+                    </label>
+                @endif
+
+                @foreach(($window['required_fields']??[]) as $requiredField)
+                    <label>
+                        {{ $requiredField['label']??'Pflichtangabe' }}
+                        <input name="proof_data[{{ $requiredField['key'] }}]" required maxlength="1000">
+                    </label>
+                @endforeach
+
+                <label>
+                    Live-Kamera
+                    <input
+                        type="file"
+                        name="proof"
+                        accept="image/jpeg"
+                        required
+                        data-proof-file
+                        data-live-camera
+                        hidden
+                    >
+                </label>
+
+                <label class="check">
+                    <input type="checkbox" data-overlay-code>
+                    <span>Code automatisch sichtbar in das aufgenommene Bild einblenden</span>
+                </label>
+
+                <button class="btn secondary">Nachweis einreichen</button>
+            </form>
+        @endif
+    @endif
 </div>
 @endforeach
 </article>
