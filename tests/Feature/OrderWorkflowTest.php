@@ -70,6 +70,77 @@ class OrderWorkflowTest extends TestCase
         ]);
     }
 
+    public function test_offer_detail_discloses_inspection_compensation_and_option_rules_before_request(): void
+    {
+        [$user,$offer]=$this->makeUserAndOffer(true);
+
+        $offer->update([
+            'inspection_config'=>[
+                'categories'=>[
+                    'appearance'=>['label'=>'Aussehen','ko'=>true],
+                    'smell'=>['label'=>'Geruch','ko'=>false],
+                    'taste'=>['label'=>'Geschmack','ko'=>false],
+                    'proofs'=>['label'=>'Nachweise','ko'=>false],
+                    'extras'=>['label'=>'Extras','ko'=>false],
+                ],
+                'points_affect_compensation'=>true,
+                'score_bands'=>[
+                    ['min'=>45,'max'=>50,'percentage'=>100],
+                    ['min'=>35,'max'=>44,'percentage'=>80],
+                ],
+                'start_face_required'=>true,
+            ],
+        ]);
+
+        $base=$offer->options()->create([
+            'name'=>'Sport',
+            'description'=>'Beim Sport tragen',
+            'price_delta'=>5,
+            'extra_proofs_per_day'=>0,
+            'extra_duration_days'=>0,
+            'required'=>false,
+            'active'=>true,
+            'sort_order'=>0,
+            'rules'=>[],
+        ]);
+
+        $offer->options()->create([
+            'name'=>'Schlafen',
+            'description'=>'Beim Schlafen tragen',
+            'price_delta'=>10,
+            'extra_proofs_per_day'=>1,
+            'extra_duration_days'=>1,
+            'required'=>false,
+            'active'=>true,
+            'sort_order'=>1,
+            'rules'=>[
+                'requires_ids'=>[$base->id],
+                'excludes_ids'=>[],
+                'min_duration_days'=>3,
+            ],
+        ]);
+
+        $response=$this->actingAs($user)->get(route('offers.show',$offer));
+
+        $response->assertOk();
+        $response->assertSee('Aussehen');
+        $response->assertSee('KO-Kriterium');
+        $response->assertSee('45–50 Punkte');
+        $response->assertSee('100,00 %');
+        $response->assertSee('35–44 Punkte');
+        $response->assertSee('80,00 %');
+        $response->assertSee('Gesicht muss sichtbar sein');
+        $response->assertSee('Benötigt:');
+        $response->assertSee('Sport');
+        $response->assertSee('Mindestdauer:');
+        $response->assertSee('3 Tage');
+        $response->assertSee('Zusatzdauer:');
+        $response->assertSee('+1 Tag(e)');
+        $response->assertSee('Zusatznachweise:');
+        $response->assertSee('+1 pro Tag');
+    }
+
+
     private function makeUserAndOffer(bool $emailVerified): array
     {
         $user=User::create([
