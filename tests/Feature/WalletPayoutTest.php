@@ -461,7 +461,7 @@ class WalletPayoutTest extends TestCase
     {
         Mail::fake();
 
-        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-18 09:00:00','Europe/Berlin'));
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-17 12:00:00','Europe/Berlin'));
 
         try{
             $user=$this->makeVerifiedUser('payout-reset-any-status@example.test');
@@ -479,6 +479,7 @@ class WalletPayoutTest extends TestCase
             ])->assertRedirect();
 
             $payout=$user->payouts()->firstOrFail();
+            $this->assertSame('2026-09-18',$payout->processing_date?->toDateString());
 
             $admin=User::create([
                 'role'=>'admin',
@@ -491,6 +492,8 @@ class WalletPayoutTest extends TestCase
                 'status'=>'active',
             ]);
             $admin->forceFill(['email_verified_at'=>now()])->save();
+
+            CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-18 09:00:00','Europe/Berlin'));
 
             $this->actingAs($admin)->post(route('admin.payouts.update',$payout),[
                 'status'=>'review',
