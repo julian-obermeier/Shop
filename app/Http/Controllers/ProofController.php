@@ -135,12 +135,12 @@ class ProofController extends Controller
         $path=$file->storeAs($day->order_id.'/series-'.$day->series_number.'/day-'.$day->day_number,Str::uuid().'.'.$extension,'proofs');
         $absolute=Storage::disk('proofs')->path($path);
 
-        DB::transaction(function() use($day,$request,$file,$path,$absolute,$challenge,$window,$data,$proofData,$retryNumber,$orders){
+        $stored=DB::transaction(function() use($day,$request,$file,$path,$absolute,$challenge,$window,$data,$proofData,$retryNumber,$orders){
             $challenge=ProofChallenge::whereKey($challenge->id)->lockForUpdate()->firstOrFail();
 
             if(!$challenge->used_at && !$challenge->expired_at && $challenge->expires_at && $challenge->expires_at->isPast()){
                 $challenge->update(['expired_at'=>now()]);
-                abort(422,'Der Nachweiscode ist zwischenzeitlich abgelaufen. Der Ablauf wurde protokolliert.');
+                return false;
             }
 
             abort_unless($challenge->isUsable(),422,'Der Nachweiscode wurde zwischenzeitlich verwendet oder ist abgelaufen.');
@@ -167,7 +167,14 @@ class ProofController extends Controller
             if($day->day_number===0 && $day->order->status==='waiting_start'){
                 $orders->activateAfterStartProof($day);
             }
+
+            return true;
         });
+
+        if(!$stored){
+            Storage::disk('proofs')->delete($path);
+            abort(422,'Der Nachweiscode ist zwischenzeitlich abgelaufen. Der Ablauf wurde protokolliert; bitte erzeuge einen neuen Code.');
+        }
 
         return back()->with('success',$day->day_number===0
             ? 'Startfoto wurde eingereicht. Tag 1 beginnt am folgenden Kalendertag.'
