@@ -22,13 +22,6 @@ class ProofController extends Controller
             'window_key'=>['required','string','max:80'],
         ]);
 
-        $originalProofName=(string)$request->file('proof')->getClientOriginalName();
-        abort_unless(
-            str_starts_with(strtolower($originalProofName),'live-'),
-            422,
-            'Nachweisfotos müssen direkt über die Live-Kamera der Webanwendung aufgenommen werden.'
-        );
-
         $window=$this->resolveWindow($day,$data['window_key']);
         $this->assertSubmissionAllowed($day,$window);
         $this->assertWindowOpen($day,$window,true);
@@ -80,6 +73,13 @@ class ProofController extends Controller
             'proof_data'=>['nullable','array'],
             'proof_data.*'=>['nullable','string','max:1000'],
         ]);
+
+        $originalProofName=(string)$data['proof']->getClientOriginalName();
+        abort_unless(
+            str_starts_with(strtolower($originalProofName),'live-'),
+            422,
+            'Nachweisfotos müssen direkt über die Live-Kamera der Webanwendung aufgenommen werden.'
+        );
 
         $window=$this->resolveWindow($day,$data['window_key']);
         $this->assertSubmissionAllowed($day,$window);
