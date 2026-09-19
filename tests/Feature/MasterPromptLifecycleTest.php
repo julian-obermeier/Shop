@@ -1735,6 +1735,7 @@ class MasterPromptLifecycleTest extends TestCase
         Storage::fake('shipments');
 
         $provider=$this->provider('camera-guard@example.test');
+        $admin=$this->admin('camera-guard-admin@example.test');
         $category=$this->category();
         $offer=$this->offer($category,'Camera Guard');
 
@@ -1843,6 +1844,44 @@ class MasterPromptLifecycleTest extends TestCase
             'shipment_id'=>$shipment->id,
             'type'=>'receipt',
             'original_name'=>'live-receipt.jpg',
+        ]);
+
+        $this->actingAs($admin)->post(route('admin.shipments.review',$shipment),[
+            'review_status'=>'rejected',
+            'resubmit_scope'=>'receipt',
+            'review_comment'=>'Versanddatum auf dem Beleg nicht lesbar.',
+        ])->assertRedirect();
+
+        $shipment->refresh();
+        $this->assertSame('rejected',$shipment->review_status);
+        $this->assertSame('receipt',$shipment->resubmit_scope);
+        $this->assertNotNull($shipment->resubmit_due_at);
+
+        $resubmissionPage=$this->actingAs($provider)->get(route('orders.show',$shippingOrder->fresh()));
+        $resubmissionPage->assertOk();
+        $resubmissionPage->assertSee('Neu erforderlich:');
+        $resubmissionPage->assertSee('Versand-/Annahmebeleg');
+        $resubmissionHtml=$resubmissionPage->getContent();
+        $this->assertStringNotContainsString('name="package_photo"',$resubmissionHtml);
+        $this->assertStringContainsString('name="receipt_photo"',$resubmissionHtml);
+
+        $this->actingAs($provider)->post(route('orders.shipment',$shippingOrder->fresh()),[
+            'carrier'=>'DHL',
+            'receipt_photo'=>UploadedFile::fake()->image('live-receipt-retry.jpg',800,600),
+        ])->assertRedirect();
+
+        $shipment->refresh();
+        $this->assertSame('pending',$shipment->review_status);
+        $this->assertNull($shipment->resubmit_scope);
+        $this->assertNull($shipment->resubmit_due_at);
+        $this->assertSame(3,$shipment->evidences()->count());
+        $this->assertSame(1,$shipment->evidences()->where('type','package')->count());
+        $this->assertSame(2,$shipment->evidences()->where('type','receipt')->count());
+        $this->assertDatabaseHas('shipment_evidences',[
+            'shipment_id'=>$shipment->id,
+            'type'=>'receipt',
+            'attempt'=>1,
+            'original_name'=>'live-receipt-retry.jpg',
         ]);
     }
 
