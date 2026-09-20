@@ -652,6 +652,10 @@ function unlock_next_shipping_step(int $orderId, int $completedSortOrder): void 
 }
 
 function order_ready_for_shipping(int $orderId): bool {
+    $q=db()->prepare("SELECT COUNT(*) FROM order_days WHERE order_id=? AND status IN('planned','active')");
+    $q->execute([$orderId]);
+    if((int)$q->fetchColumn()>0) return false;
+
     $q=db()->prepare("SELECT COUNT(*) FROM evidence_windows WHERE order_id=? AND status IN('planned','open')");
     $q->execute([$orderId]);
     if((int)$q->fetchColumn()>0) return false;
