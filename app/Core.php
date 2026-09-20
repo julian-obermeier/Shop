@@ -808,3 +808,160 @@ function advance_order_to_shipping_if_ready(int $orderId): bool {
     notify_seller((int)$o['seller_id'],'shipping.open','Versand freigeschaltet','Die Durchführung von Auftrag '.$o['order_no'].' ist abgeschlossen. Der Versandworkflow ist jetzt verfügbar.','/auftrag/'.$o['order_no'].'/versand',null,true);
     return true;
 }
+
+
+function outage_shift_datetime(string $value, int $seconds): string {
+    $tz=new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'));
+    return (new DateTimeImmutable($value,$tz))->modify('+'.$seconds.' seconds')->format('Y-m-d H:i:s');
+}
+
+function apply_system_outage(int $outageId): array {
+    $pdo=db();
+    $q=$pdo->prepare('SELECT * FROM system_outages WHERE id=?');
+    $q->execute([$outageId]);
+    $outage=$q->fetch();
+    if(!$outage) throw new RuntimeException('Systemausfall nicht gefunden.');
+    if(!empty($outage['applied_at'])) return ['orders'=>0,'entities'=>0,'seconds'=>0];
+
+    $tz=new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'));
+    $start=new DateTimeImmutable($outage['starts_at'],$tz);
+    $end=new DateTimeImmutable($outage['ends_at'],$tz);
+    $seconds=max(0,$end->getTimestamp()-$start->getTimestamp());
+    if($seconds<60) throw new RuntimeException('Der Ausfallzeitraum muss mindestens eine Minute umfassen.');
+
+    $impactedOrders=[];
+    $entityCount=0;
+    $recordImpact=$pdo->prepare('INSERT IGNORE INTO outage_impacts(outage_id,entity_type,entity_id,seconds_shifted) VALUES(?,?,?,?)');
+
+    $pdo->beginTransaction();
+    try{
+        $qw=$pdo->prepare("SELECT ew.*,o.seller_id,o.order_no
+            FROM evidence_windows ew JOIN orders o ON o.id=ew.order_id
+            WHERE ew.status IN('planned','open','missed')
+              AND ew.starts_at < ?
+              AND COALESCE(ew.grace_ends_at,ew.ends_at) > ?");
+        $qw->execute([$end->format('Y-m-d H:i:s'),$start->format('Y-m-d H:i:s')]);
+        foreach($qw->fetchAll() as $w){
+            $newStart=$w['starts_at'];
+            if(strtotime($w['starts_at']) >= $start->getTimestamp()) $newStart=outage_shift_datetime($w['starts_at'],$seconds);
+            $newEnd=outage_shift_datetime($w['ends_at'],$seconds);
+            $baseGrace=$w['grace_ends_at'] ?: $w['ends_at'];
+            $newGrace=outage_shift_datetime($baseGrace,$seconds);
+            $newStatus=$w['status'];
+            if($newStatus==='missed'){
+                $newStatus=strtotime($newStart)<=time()?'open':'planned';
+                $vq=$pdo->prepare("SELECT id FROM violations WHERE source_key LIKE ? AND status IN('open','reviewed','confirmed')");
+                $vq->execute(['window-'.$w['id'].'-missing-%']);
+                foreach($vq->fetchAll() as $vr){
+                    $pdo->prepare("UPDATE violations SET status='discarded',reviewed_at=NOW() WHERE id=?")->execute([$vr['id']]);
+                    $pdo->prepare("UPDATE extra_days SET status='cancelled' WHERE source_type='violation' AND source_id=? AND status IN('provisional','confirmed')")->execute([$vr['id']]);
+                }
+            }
+            $pdo->prepare("UPDATE evidence_windows SET starts_at=?,ends_at=?,grace_ends_at=?,status=? WHERE id=?")
+                ->execute([$newStart,$newEnd,$newGrace,$newStatus,$w['id']]);
+            $recordImpact->execute([$outageId,'evidence_window',$w['id'],$seconds]);
+            $impactedOrders[(int)$w['order_id']]=[(int)$w['seller_id'],$w['order_no']];
+            $entityCount++;
+        }
+
+        $simple=[
+          ['spontaneous_requests','due_at','grace_ends_at',"status IN('requested','seen','confirmed','uploaded')",'spontaneous_request'],
+          ['order_tasks','due_at',null,"status IN('open','rejected')",'order_task'],
+          ['revision_rounds','due_at',null,"status IN('open','submitted')",'revision_round'],
+          ['order_shipping_steps','due_at',null,"status='open'",'shipping_step'],
+          ['evidence_retake_requests','due_at',null,"status IN('requested','submitted')",'retake_request'],
+        ];
+        foreach($simple as [$table,$dueCol,$graceCol,$statusWhere,$entityType]){
+            try{
+                $sql="SELECT x.*,o.seller_id,o.order_no FROM {$table} x JOIN orders o ON o.id=x.order_id
+                      WHERE x.{$dueCol} IS NOT NULL AND x.{$dueCol}>=? AND x.created_at<=? AND {$statusWhere}";
+                $qq=$pdo->prepare($sql);
+                $qq->execute([$start->format('Y-m-d H:i:s'),$end->format('Y-m-d H:i:s')]);
+                foreach($qq->fetchAll() as $row){
+                    $newDue=outage_shift_datetime($row[$dueCol],$seconds);
+                    if($graceCol){
+                        $newGrace=!empty($row[$graceCol])?outage_shift_datetime($row[$graceCol],$seconds):null;
+                        $pdo->prepare("UPDATE {$table} SET {$dueCol}=?,{$graceCol}=? WHERE id=?")->execute([$newDue,$newGrace,$row['id']]);
+                    }else{
+                        $pdo->prepare("UPDATE {$table} SET {$dueCol}=? WHERE id=?")->execute([$newDue,$row['id']]);
+                    }
+                    $recordImpact->execute([$outageId,$entityType,$row['id'],$seconds]);
+                    $impactedOrders[(int)$row['order_id']]=[(int)$row['seller_id'],$row['order_no']];
+                    $entityCount++;
+                }
+            }catch(PDOException){
+                // A migration may not yet have introduced one optional operational table/column.
+            }
+        }
+
+        try{
+            $qa=$pdo->prepare("SELECT a.*,s.id seller_id FROM offer_assignments a JOIN sellers s ON s.id=a.seller_id
+                WHERE a.status='assigned' AND a.acceptance_deadline>=? AND a.created_at<=?");
+            $qa->execute([$start->format('Y-m-d H:i:s'),$end->format('Y-m-d H:i:s')]);
+            foreach($qa->fetchAll() as $a){
+                $pdo->prepare("UPDATE offer_assignments SET acceptance_deadline=?,updated_at=NOW() WHERE id=?")
+                    ->execute([outage_shift_datetime($a['acceptance_deadline'],$seconds),$a['id']]);
+                $recordImpact->execute([$outageId,'offer_assignment',$a['id'],$seconds]);
+                $entityCount++;
+            }
+        }catch(PDOException){}
+
+        $pdo->prepare("UPDATE system_outages SET status='ended',applied_at=NOW() WHERE id=?")->execute([$outageId]);
+        $pdo->commit();
+    }catch(Throwable $e){
+        if($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+
+    foreach($impactedOrders as $orderId=>[$sellerId,$orderNo]){
+        notify_seller(
+            $sellerId,
+            'system.outage',
+            'Fristen wegen Systemausfall verlängert',
+            'Ein bestätigter technischer Plattformausfall wurde berücksichtigt. Betroffene Fristen in Auftrag '.$orderNo.' wurden automatisch um '.round($seconds/60).' Minuten verlängert.',
+            '/auftrag/'.$orderNo,
+            'outage-'.$outageId.'-order-'.$orderId,
+            true
+        );
+        log_event('system.outage.applied',$sellerId,$orderId,['outage_id'=>$outageId,'seconds'=>$seconds]);
+    }
+
+    return ['orders'=>count($impactedOrders),'entities'=>$entityCount,'seconds'=>$seconds];
+}
+
+function build_interim_summary(int $orderId, int $completedDays): array {
+    $q=db()->prepare("SELECT o.order_no,o.total_compensation,o.released_amount,f.title FROM orders o JOIN offers f ON f.id=o.offer_id WHERE o.id=?");
+    $q->execute([$orderId]);$o=$q->fetch() ?: [];
+
+    $q=db()->prepare("SELECT COUNT(*) FROM order_days WHERE order_id=?");
+    $q->execute([$orderId]);$totalDays=(int)$q->fetchColumn();
+
+    $q=db()->prepare("SELECT COUNT(*) FROM evidence_windows WHERE order_id=? AND status='missed'");
+    $q->execute([$orderId]);$missedWindows=(int)$q->fetchColumn();
+
+    $q=db()->prepare("SELECT COUNT(*) FROM violations WHERE order_id=? AND status='confirmed'");
+    $q->execute([$orderId]);$confirmedViolations=(int)$q->fetchColumn();
+
+    $q=db()->prepare("SELECT COUNT(*) FROM extra_days WHERE order_id=? AND status='confirmed'");
+    $q->execute([$orderId]);$extraDays=(int)$q->fetchColumn();
+
+    $q=db()->prepare("SELECT COUNT(*) FROM spontaneous_requests WHERE order_id=? AND status NOT IN('reviewed','missed')");
+    $q->execute([$orderId]);$openSpontaneous=(int)$q->fetchColumn();
+
+    $q=db()->prepare("SELECT COUNT(*) FROM order_tasks WHERE order_id=? AND status NOT IN('accepted')");
+    $q->execute([$orderId]);$openTasks=(int)$q->fetchColumn();
+
+    return [
+        'order_no'=>$o['order_no'] ?? '',
+        'title'=>$o['title'] ?? '',
+        'completed_days'=>$completedDays,
+        'total_scheduled_days'=>$totalDays,
+        'missed_windows'=>$missedWindows,
+        'confirmed_violations'=>$confirmedViolations,
+        'extra_days'=>$extraDays,
+        'open_spontaneous'=>$openSpontaneous,
+        'open_tasks'=>$openTasks,
+        'current_order_value'=>(float)($o['total_compensation'] ?? 0),
+        'created_at'=>date(DATE_ATOM),
+    ];
+}
