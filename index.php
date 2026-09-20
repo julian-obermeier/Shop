@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 require __DIR__.'/app/Core.php';
+require __DIR__.'/app/Combo.php';
 require __DIR__.'/app/PublicPages.php';
 
 $path=parse_url($_SERVER['REQUEST_URI']??'/',PHP_URL_PATH) ?: '/';
