@@ -251,3 +251,20 @@ if (preg_match('#^/admin/kategoriefeld/(\d+)/umschalten$#',$path,$m) && $method=
     db()->prepare("UPDATE category_fields SET is_active=IF(is_active=1,0,1) WHERE id=?")->execute([$fld['id']]);
     flash('success','Feldstatus geändert.');redirect('/admin/kategorie/'.$fld['category_id']);
 }
+
+
+if (preg_match('#^/admin/angebot/(\d+)/versandschritt$#',$path,$m) && $method==='POST') {
+    require_admin();
+    $q=db()->prepare("SELECT id FROM offers WHERE id=?");$q->execute([(int)$m[1]]);if(!$q->fetchColumn())not_found();
+    $title=post('title');if($title===''){flash('error','Titel des Versandschritts fehlt.');redirect('/admin/angebot/'.$m[1]);}
+    db()->prepare("INSERT INTO offer_shipping_steps(offer_id,sort_order,title,instructions,required_photos,requires_text,requires_checkbox,is_dispatch_step,deadline_hours,active) VALUES(?,?,?,?,?,?,?,?,?,1)")
+      ->execute([(int)$m[1],(int)post('sort_order','0'),$title,post('instructions'),max(0,(int)post('required_photos','0')),isset($_POST['requires_text'])?1:0,isset($_POST['requires_checkbox'])?1:0,isset($_POST['is_dispatch_step'])?1:0,post('deadline_hours')!==''?max(1,(int)post('deadline_hours')):null]);
+    flash('success','Versandschritt gespeichert.');redirect('/admin/angebot/'.$m[1]);
+}
+
+if (preg_match('#^/admin/versandschritt/(\d+)/loeschen$#',$path,$m) && $method==='POST') {
+    require_admin();
+    $q=db()->prepare("SELECT offer_id FROM offer_shipping_steps WHERE id=?");$q->execute([(int)$m[1]]);$offerId=$q->fetchColumn();if($offerId===false)not_found();
+    db()->prepare("DELETE FROM offer_shipping_steps WHERE id=?")->execute([(int)$m[1]]);
+    flash('success','Versandschritt aus der Angebotsvorlage entfernt. Bereits angenommene Aufträge behalten ihre gespeicherten Schritte.');redirect('/admin/angebot/'.(int)$offerId);
+}
