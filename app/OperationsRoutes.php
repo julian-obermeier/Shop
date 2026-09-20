@@ -145,6 +145,8 @@ if (preg_match('#^/admin/verkaeuferin/(\d+)/speichern$#',$path,$m) && $method===
       'phone'=>post('phone'),'email'=>strtolower(post('email')),
     ];
     if(!filter_var($new['email'],FILTER_VALIDATE_EMAIL)){flash('error','Ungültige E-Mail-Adresse.');redirect('/admin/verkaeuferin/'.$s['id']);}
+    try{$age=$new['birth_date']?date_diff(new DateTime($new['birth_date']),new DateTime('today'))->y:0;}catch(Throwable){$age=0;}
+    if($age<18){flash('error','Das Geburtsdatum muss eine volljährige Person ergeben.');redirect('/admin/verkaeuferin/'.$s['id']);}
     $sensitiveChanged=($new['email']!==strtolower($s['email']) || $new['birth_date']!==$s['birth_date']);
     if($sensitiveChanged && !isset($_POST['confirm_sensitive'])){flash('error','Änderungen an E-Mail oder Geburtsdatum müssen zusätzlich bestätigt werden.');redirect('/admin/verkaeuferin/'.$s['id']);}
 
@@ -169,25 +171,56 @@ if (preg_match('#^/admin/verkaeuferin/(\d+)/speichern$#',$path,$m) && $method===
 
 if (preg_match('#^/admin/verkaeuferin/(\d+)/loeschen$#',$path,$m) && $method==='POST') {
     require_admin();
-    $q=db()->prepare("SELECT * FROM sellers WHERE id=? AND deleted_at IS NULL");$q->execute([(int)$m[1]]);$s=$q->fetch();if(!$s)not_found();
-    $active=db()->prepare("SELECT COUNT(*) FROM orders WHERE seller_id=? AND status IN('precheck','running','shipping','review','payout')");$active->execute([$s['id']]);
-    if((int)$active->fetchColumn()>0){flash('error','Das Konto kann nicht anonymisiert werden, solange aktive Aufträge bestehen.');redirect('/admin/verkaeuferin/'.$s['id']);}
+    $q=db()->prepare("SELECT * FROM sellers WHERE id=? AND deleted_at IS NULL");
+    $q->execute([(int)$m[1]]);
+    $s=$q->fetch();
+    if(!$s) not_found();
 
-    $anon='deleted-'.$s['id'].'-'.bin2hex(random_bytes(4)).'@invalid.local';
+    $active=db()->prepare("SELECT COUNT(*) FROM orders WHERE seller_id=? AND status IN('precheck','running','shipping','review','payout')");
+    $active->execute([$s['id']]);
+    $openPayouts=db()->prepare("SELECT COUNT(*) FROM payout_requests WHERE seller_id=? AND status IN('requested','review','released')");
+    $openPayouts->execute([$s['id']]);
+
+    if((int)$active->fetchColumn()>0){
+        flash('error','Das Konto kann nicht anonymisiert werden, solange aktive Aufträge bestehen.');
+        redirect('/admin/verkaeuferin/'.$s['id']);
+    }
+    if((int)$openPayouts->fetchColumn()>0){
+        flash('error','Das Konto kann nicht anonymisiert werden, solange offene Auszahlungen bestehen.');
+        redirect('/admin/verkaeuferin/'.$s['id']);
+    }
+
+    $anon='deleted-'.$s['id'].'-'.bin2hex(random_bytes(6)).'@invalid.local';
+
     db()->beginTransaction();
     try{
-      db()->prepare("UPDATE sellers SET first_name='Gelöscht',last_name='Konto',birth_date='1900-01-01',street='gelöscht',postal_code='00000',city='gelöscht',phone='gelöscht',email=?,password_hash=?,email_verified_at=NULL,deleted_at=NOW(),updated_at=NOW() WHERE id=?")
+      db()->prepare("UPDATE payout_requests SET payment_snapshot_json=? WHERE seller_id=?")
+        ->execute(['{}',$s['id']]);
+
+      db()->prepare("UPDATE sellers
+        SET first_name='Gelöscht',last_name='Konto',birth_date='1900-01-01',
+            street='gelöscht',postal_code='00000',city='gelöscht',phone='gelöscht',
+            email=?,password_hash=?,email_verified_at=NULL,deleted_at=NOW(),updated_at=NOW()
+        WHERE id=?")
         ->execute([$anon,password_hash(bin2hex(random_bytes(32)),PASSWORD_DEFAULT),$s['id']]);
+
       db()->prepare("DELETE FROM email_verifications WHERE seller_id=?")->execute([$s['id']]);
       db()->prepare("DELETE FROM password_resets WHERE seller_id=?")->execute([$s['id']]);
-      db()->prepare("UPDATE payout_profiles SET iban=NULL,bic=NULL,account_holder=NULL,paypal=NULL WHERE seller_id=?")->execute([$s['id']]);
-      db()->prepare("UPDATE system_events SET payload_json=? WHERE seller_id=? AND event_type='seller.updated'")
+      db()->prepare("DELETE FROM notifications WHERE seller_id=?")->execute([$s['id']]);
+      db()->prepare("UPDATE payout_profiles SET iban=NULL,bic=NULL,account_holder=NULL,paypal=NULL,preferred_method=NULL WHERE seller_id=?")
+        ->execute([$s['id']]);
+
+      db()->prepare("UPDATE system_events SET payload_json=? WHERE seller_id=? AND event_type IN('seller.updated','seller.admin_updated')")
         ->execute([json_encode(['redacted'=>true],JSON_UNESCAPED_UNICODE),$s['id']]);
+
       log_event('seller.anonymized',(int)$s['id'],null,['seller_id'=>(int)$s['id']]);
       db()->commit();
-    }catch(Throwable $e){db()->rollBack();throw $e;}
+    }catch(Throwable $e){
+      if(db()->inTransaction()) db()->rollBack();
+      throw $e;
+    }
 
-    flash('success','Verkäuferinnenkonto wurde anonymisiert. Historische Auftrags-, Zahlungs- und Nachweisdaten bleiben erhalten.');
+    flash('success','Verkäuferinnenkonto wurde anonymisiert. Historische Auftrags-, Zahlungs- und Nachweisdaten bleiben erhalten; personenbezogene Profil- und Auszahlungsdaten wurden entfernt.');
     redirect('/admin/verkaeuferinnen');
 }
 
