@@ -45,6 +45,11 @@ jobs:
           --health-retries=20
     steps:
       - uses: actions/checkout@v4
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, pdo_mysql, fileinfo
       - name: Install MySQL client
         run: sudo apt-get update && sudo apt-get install -y default-mysql-client
       - name: Apply fresh schema
@@ -79,3 +84,60 @@ jobs:
             echo "Applied ".count($result["applied"])." migrations with ".count($result["warnings"])." tolerated existing-schema warnings\n";
           '
           mysql -N -h 127.0.0.1 -uroot shop_v1 -e "SELECT COUNT(*) FROM migrations" | grep -Eq "^[1-9][0-9]*$"
+      - name: Runtime HTTP smoke test
+        env:
+          MYSQL_PWD: root
+        run: |
+          mkdir -p config storage/private storage/logs
+          cat > config/app.php <<'PHP'
+          <?php
+          return [
+              'app'=>[
+                  'name'=>'Private Ankauf CI',
+                  'url'=>'http://127.0.0.1:8080',
+                  'timezone'=>'Europe/Berlin',
+                  'debug'=>false,
+              ],
+              'db'=>[
+                  'host'=>'127.0.0.1',
+                  'port'=>3306,
+                  'name'=>'shop_v1',
+                  'user'=>'root',
+                  'pass'=>'root',
+                  'charset'=>'utf8mb4',
+              ],
+              'mail'=>[
+                  'from'=>'ci@example.invalid',
+                  'name'=>'Private Ankauf CI',
+              ],
+          ];
+          PHP
+
+          mysql -h 127.0.0.1 -uroot shop_v1 <<'SQL'
+          INSERT INTO categories(name,slug,is_system,is_active,sort_order)
+          VALUES ('CI Kategorie','ci-kategorie',0,1,1);
+          INSERT INTO offers(category_id,title,slug,description,compensation,fulfillment_type,status,visibility,current_version)
+          VALUES ((SELECT id FROM categories WHERE slug='ci-kategorie' LIMIT 1),'CI Testangebot','ci-testangebot','Laufzeit-Smoke-Test',12.34,'one_time','active','public',1);
+          SQL
+
+          ORDER_NO="$(php -r 'require "app/Core.php"; echo order_number();')"
+          echo "$ORDER_NO" | grep -Eq '^[0-9]{8}
+
+          php -S 127.0.0.1:8080 tests/http_router.php >/tmp/shop-php-server.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:8080/ >/tmp/home.html; then break; fi
+            sleep 0.5
+          done
+
+          grep -q 'CI Testangebot' /tmp/home.html
+          curl -fsS http://127.0.0.1:8080/angebote | grep -q 'CI Testangebot'
+          curl -fsS http://127.0.0.1:8080/angebot/ci-testangebot | grep -q 'Laufzeit-Smoke-Test'
+          curl -fsS http://127.0.0.1:8080/registrieren | grep -q 'Registrieren'
+          curl -fsS http://127.0.0.1:8080/login | grep -q 'Willkommen zurück'
+          curl -fsS http://127.0.0.1:8080/admin/login | grep -q 'Admin-Login'
+          curl -fsS http://127.0.0.1:8080/regeln | grep -q 'Regeln'
+          curl -fsS http://127.0.0.1:8080/agb | grep -q 'Allgemeine'
+          test ! -s /tmp/shop-php-server.log || cat /tmp/shop-php-server.log
