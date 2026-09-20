@@ -109,3 +109,60 @@ function order_required_components_complete(int $orderId): bool {
     $q->execute([$orderId]);
     return (int)$q->fetchColumn()===0;
 }
+
+
+function order_precheck_component_progress(int $orderId, ?int $runId=null): array {
+    $runId=$runId ?? current_run_id($orderId);
+    $components=order_components($orderId);
+    $baseRules=offer_evidence_rules($orderId);
+    $rows=[];$requiredTotal=0;$acceptedTotal=0;$pendingTotal=0;
+
+    foreach($components as $component){
+        if(($component['component_type']??'physical')!=='physical') continue;
+        $isPrimary=empty($component['source_component_id']);
+        $required=$isPrimary
+            ? max(1,(int)$baseRules['precheck_required_count'])
+            : ((int)$component['required']===1 ? 1 : 0);
+
+        $sql="SELECT
+                SUM(status='accepted') accepted_count,
+                SUM(status='submitted') pending_count,
+                SUM(status='rejected') rejected_count
+              FROM evidences
+              WHERE order_id=? AND order_run_id<=>? AND evidence_type='precheck'
+                AND ";
+        $args=[$orderId,$runId];
+        if($isPrimary){
+            $sql.="(order_component_id=? OR order_component_id IS NULL)";
+            $args[]=$component['id'];
+        }else{
+            $sql.="order_component_id=?";
+            $args[]=$component['id'];
+        }
+        $q=db()->prepare($sql);$q->execute($args);$stats=$q->fetch()?:[];
+
+        $accepted=(int)($stats['accepted_count']??0);
+        $pending=(int)($stats['pending_count']??0);
+        $rejected=(int)($stats['rejected_count']??0);
+        $requiredTotal+=$required;
+        $acceptedTotal+=min($required,$accepted);
+        $pendingTotal+=$pending;
+
+        $rows[(int)$component['id']]=[
+            'component'=>$component,
+            'required'=>$required,
+            'accepted'=>$accepted,
+            'pending'=>$pending,
+            'rejected'=>$rejected,
+            'complete'=>$required===0 || $accepted >= $required,
+        ];
+    }
+
+    return [
+        'components'=>$rows,
+        'required_total'=>$requiredTotal,
+        'accepted_total'=>$acceptedTotal,
+        'pending_total'=>$pendingTotal,
+        'complete'=>$requiredTotal===0 || ($acceptedTotal >= $requiredTotal && $pendingTotal===0),
+    ];
+}
