@@ -279,6 +279,13 @@ if ($path==='/admin/einstellungen'&&$method==='GET') {
         <label>PayPal-Gebühr Typ<select name="payout_paypal_fee_type"><?php foreach(['none'=>'Keine','fixed'=>'Festbetrag','percent'=>'Prozent'] as $k=>$v):?><option value="<?=$k?>" <?=($set['payout_paypal_fee_type']??'none')===$k?'selected':''?>><?=e($v)?></option><?php endforeach;?></select></label>
         <label>PayPal-Gebühr Wert<input type="number" step=".01" min="0" name="payout_paypal_fee_value" value="<?=e($set['payout_paypal_fee_value']??'0')?>"></label>
       </div>
+      <h2>Betreiber / öffentliche Angaben</h2><div class="form-grid">
+        <label>Name / Firma<input name="operator_name" value="<?=e($set['operator_name']??'')?>"></label>
+        <label>Straße / Hausnummer<input name="operator_street" value="<?=e($set['operator_street']??'')?>"></label>
+        <label>PLZ / Ort<input name="operator_city" value="<?=e($set['operator_city']??'')?>"></label>
+        <label>Öffentliche E-Mail<input type="email" name="operator_email" value="<?=e($set['operator_email']??'')?>"></label>
+        <label>Telefon<input name="operator_phone" value="<?=e($set['operator_phone']??'')?>"></label>
+      </div>
       <h2>Fristen & Kommunikation</h2><div class="form-grid">
         <label>Support-E-Mail<input type="email" name="support_email" value="<?=e($set['support_email']??app_config('mail.from',''))?>"></label>
         <label>Grace Period Minuten<input type="number" min="0" name="grace_minutes" value="<?=e($set['grace_minutes']??'60')?>"></label>
@@ -299,6 +306,11 @@ if ($path==='/admin/einstellungen'&&$method==='POST') {
       'payout_bank_fee_value'=>post('payout_bank_fee_value','0'),
       'payout_paypal_fee_type'=>post('payout_paypal_fee_type','none'),
       'payout_paypal_fee_value'=>post('payout_paypal_fee_value','0'),
+      'operator_name'=>post('operator_name'),
+      'operator_street'=>post('operator_street'),
+      'operator_city'=>post('operator_city'),
+      'operator_email'=>post('operator_email'),
+      'operator_phone'=>post('operator_phone'),
       'support_email'=>post('support_email'),
       'window_morning'=>post('window_morning','06:00-10:00'),
       'window_midday'=>post('window_midday','12:00-16:00'),
