@@ -47,6 +47,34 @@
 </div>
 @endif
 
+@if($digitalComponents->count())
+<div class="panel"><h2>Digitale Bestandteile</h2>
+@foreach($digitalComponents as $component)
+<div class="operation-block"><div class="day-top"><strong>{{ $component->title }}</strong><span class="status">{{ strtoupper(str_replace('_',' ',$component->status)) }}</span></div>
+@foreach($digitalVersions->get($component->id,collect()) as $version)
+<div class="operation-row"><div><strong>V{{ $version->version_no }} · {{ strtoupper($version->submission_type) }}</strong><small>{{ $version->submitted_at ? \Carbon\Carbon::parse($version->submitted_at)->format('d.m.Y H:i') : '' }} @if($version->final_submission) · FINAL @endif</small></div>
+@if($version->submission_type==='text')<details><summary>Text ansehen</summary><div class="notice" style="white-space:pre-wrap">{{ $version->text_content }}</div></details>@else<a class="btn secondary" href="{{ route('admin.orders.digital.download',[$order,$version->id]) }}">Datei herunterladen</a>@endif
+</div>
+@endforeach
+
+@php($round=$revisionRounds->first(fn($r)=>$r->digital_component_id===$component->id && in_array($r->status,['open','submitted'],true)))
+@if($round)<h4>Revision {{ $round->round_no }}</h4>@foreach($revisionItems->get($round->id,collect()) as $item)<form method="post" action="{{ route('admin.digital.revision-item',$item->id) }}" class="operation-row">@csrf<div><strong>{{ $item->description }}</strong><small>{{ strtoupper($item->status) }}</small></div><select name="status"><option value="done">Erledigt</option><option value="insufficient">Nicht ausreichend</option><option value="change_again">Erneut ändern</option></select><input name="admin_comment" placeholder="Kommentar"><button class="btn secondary">Speichern</button></form>@endforeach@endif
+
+@if(in_array($component->status,['submitted','revision_required','draft'],true) && !$order->isTerminal())
+<form method="post" action="{{ route('admin.orders.digital.review',[$order,$component->id]) }}" class="stack-form">@csrf
+<label>Entscheidung<select name="decision"><option value="accepted">Akzeptieren</option><option value="revision">Revision anfordern</option><option value="partial">Teilweise akzeptieren</option><option value="rejected">Endgültig ablehnen</option></select></label>
+<label>Teilbetrag (€)<input type="number" name="amount" min="0" step="0.01"></label>
+<label>Grund / Anweisung<textarea name="reason" rows="3"></textarea></label>
+<label>Revisionspunkte – einer pro Zeile<textarea name="revision_items_text" rows="4"></textarea></label>
+<label>Revisionsfrist<input type="datetime-local" name="due_at"></label>
+<button class="btn primary">Digitale Prüfung speichern</button>
+</form>
+@endif
+</div>
+@endforeach
+</div>
+@endif
+
 @if($order->shipment)
 <div class="panel"><h2>Versand</h2><dl class="meta-list"><div><dt>Status</dt><dd>{{ strtoupper($order->shipment->status) }}</dd></div><div><dt>Dienstleister</dt><dd>{{ $order->shipment->carrier ?: '–' }}</dd></div><div><dt>Tracking</dt><dd>{{ $order->shipment->tracking_number ?: '–' }}</dd></div><div><dt>Nachweisprüfung</dt><dd>{{ strtoupper($order->shipment->review_status) }}</dd></div></dl>
 @foreach($order->shipment->evidences as $evidence)<a class="btn secondary" href="{{ route('admin.shipments.evidence',$evidence) }}">{{ $evidence->type==='package'?'Paketfoto':'Versandbeleg' }}</a>@endforeach
@@ -55,6 +83,18 @@
 
 @if(in_array($order->status,['shipped','received'],true))
 <div class="panel"><h2>Wareneingang</h2><form method="post" action="{{ route('admin.orders.goods-receipt',$order) }}" class="stack-form">@csrf<label>Status<select name="complete"><option value="1">Eingegangen</option><option value="0">Problem / unvollständig</option></select></label><label>Notiz<textarea name="note" rows="3"></textarea></label><button class="btn primary">Wareneingang speichern</button></form></div>
+@endif
+
+@if($order->status==='inspection')
+<div class="panel"><h2>Finale Warenprüfung</h2><p>Kein Punkte- oder KO-System. Entscheide den Auftrag direkt.</p>
+<form method="post" action="{{ route('admin.orders.goods-inspection',$order) }}" class="stack-form">@csrf
+<label>Entscheidung<select name="result"><option value="accepted">Vollständig akzeptieren</option><option value="partial">Teilweise akzeptieren</option><option value="rejected">Endgültig ablehnen</option></select></label>
+<label>Teilbetrag bei Teilannahme (€)<input type="number" name="amount" min="0" max="{{ $order->compensation_total }}" step="0.01"></label>
+<label>Begründung<textarea name="reason" rows="3"></textarea></label>
+<label>Mitteilung an Verkäuferin optional<textarea name="seller_message" rows="3"></textarea></label>
+<label>Interne Abschlussnotiz optional<textarea name="internal_note" rows="3"></textarea></label>
+<button class="btn primary">Abschlussprüfung speichern</button>
+</form></div>
 @endif
 
 <div class="panel"><h2>Statushistorie</h2><div class="timeline">@foreach($order->statusHistory->sortByDesc('created_at') as $event)<div><span>{{ $event->created_at->format('d.m.Y H:i') }}</span><strong>{{ strtoupper(str_replace('_',' ',$event->to_status)) }}</strong><small>{{ $event->reason }}</small></div>@endforeach</div></div>
