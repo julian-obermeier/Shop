@@ -254,8 +254,9 @@ if (preg_match('#^/admin/auftrag/(\\d{8})/nachweisplan$#',$path,$m) && $method==
             $days=$pdo->prepare("SELECT day_no,calendar_date FROM order_days WHERE order_id=? AND order_run_id=? AND day_no>=? ORDER BY day_no");
             $days->execute([$o['id'],$runId,$effective]);
             foreach($days->fetchAll() as $day){
+                $effectiveRules=order_evidence_rules_for_day((int)$o['id'],(int)$day['day_no']);
                 foreach($defs as $key=>$range){
-                    $required=(int)$rules['daily'][$key];
+                    $required=(int)$effectiveRules['daily'][$key];
                     $wq=$pdo->prepare("SELECT * FROM evidence_windows WHERE order_id=? AND order_run_id=? AND day_no=? AND window_key=? LIMIT 1");
                     $wq->execute([$o['id'],$runId,$day['day_no'],$key]);$window=$wq->fetch();
 
