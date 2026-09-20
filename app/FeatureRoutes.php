@@ -635,7 +635,7 @@ if (preg_match('#^/auftrag/(\d{8})/spontan/(\d+)$#',$path,$m) && $method==='POST
     try{
         $up=private_upload($_FILES['evidence']??[],'order-'.$r['order_id'].'/spontaneous');
         db()->prepare("INSERT INTO evidences(order_id,order_run_id,seller_id,evidence_type,source_type,source_id,file_path,mime_type,file_size,sha256) VALUES(?,?,?,'spontaneous','spontaneous',?,?,?,?,?)")
-          ->execute([$r['order_id'],current_run_id((int)$r['order_id']),$s['id'],$up['path'],$up['mime'],$up['size'],$up['sha256'],$r['id']]);
+          ->execute([$r['order_id'],current_run_id((int)$r['order_id']),$s['id'],$r['id'],$up['path'],$up['mime'],$up['size'],$up['sha256']]);
         $cnt=db()->prepare("SELECT COUNT(*) FROM evidences WHERE order_id=? AND evidence_type='spontaneous' AND source_type='spontaneous' AND source_id=? AND status IN('submitted','accepted')");
         $cnt->execute([$r['order_id'],$r['id']]);$submitted=(int)$cnt->fetchColumn();
         if($submitted >= (int)$r['required_count'])db()->prepare("UPDATE spontaneous_requests SET status='uploaded' WHERE id=?")->execute([$r['id']]);
