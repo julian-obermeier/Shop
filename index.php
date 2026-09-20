@@ -287,6 +287,7 @@ if(preg_match('#^/admin/auftrag/(\\d{8})$#',$path,$m)&&$method==='GET'){
  $st=db()->prepare("SELECT o.*,f.title,f.fulfillment_type,CONCAT(s.first_name,' ',s.last_name) seller_name,s.email FROM orders o JOIN offers f ON f.id=o.offer_id JOIN sellers s ON s.id=o.seller_id WHERE o.order_no=?");
  $st->execute([$m[1]]);$o=$st->fetch();if(!$o)not_found();
  $ev=db()->prepare("SELECT * FROM evidences WHERE order_id=? ORDER BY created_at");$ev->execute([$o['id']]);$evidences=$ev->fetchAll();
+ $rtq=db()->prepare("SELECT r.*,e.evidence_type original_type,e.day_no original_day,e.window_key original_window FROM evidence_retake_requests r JOIN evidences e ON e.id=r.original_evidence_id WHERE r.order_id=? ORDER BY r.created_at DESC");$rtq->execute([$o['id']]);$retakeRequests=$rtq->fetchAll();
  $dc=db()->prepare("SELECT * FROM damage_cases WHERE order_id=? ORDER BY created_at DESC");$dc->execute([$o['id']]);$damageCases=$dc->fetchAll();
  $vi=db()->prepare("SELECT * FROM violations WHERE order_id=? ORDER BY created_at DESC");$vi->execute([$o['id']]);$violations=$vi->fetchAll();
  $xd=db()->prepare("SELECT * FROM extra_days WHERE order_id=? ORDER BY created_at");$xd->execute([$o['id']]);$extraDays=$xd->fetchAll();
@@ -309,8 +310,15 @@ if(preg_match('#^/admin/auftrag/(\\d{8})$#',$path,$m)&&$method==='GET'){
  <div class="dashboard-head"><div><div class="eyebrow">Auftrag <?=e($o['order_no'])?></div><h1><?=e($o['title'])?></h1><p class="meta"><?=e($o['seller_name'])?> · <?=e($o['email'])?></p><?php if($o['archived_at']):?><p><span class="badge">ARCHIVIERT · <?=e(date('d.m.Y H:i',strtotime($o['archived_at'])))?></span></p><?php endif;?></div><div><span class="badge"><?=e($o['status'])?></span><div class="price"><?=money($o['total_compensation'])?></div><?php if(!$o['archived_at'] && in_array($o['status'],['completed','rejected'],true)):?><form method="post" action="<?=e(url('/admin/auftrag/'.$o['order_no'].'/archivieren'))?>" style="margin-top:8px"><?=csrf_field()?><button class="btn secondary">Archivieren</button></form><?php elseif($o['archived_at'] && $o['status']!=='rejected'):?><form method="post" action="<?=e(url('/admin/auftrag/'.$o['order_no'].'/wiederherstellen'))?>" style="margin-top:8px"><?=csrf_field()?><button class="btn secondary">Wiederherstellen</button></form><?php endif;?></div></div><?php if($o['archived_at']):?><div class="panel"><strong>Dieser Auftrag ist archiviert und vollständig schreibgeschützt.</strong></div><?php endif;?>
  <div class="grid two">
    <section class="panel"><h2>Nachweise</h2>
-   <?php foreach($evidences as $evd):?><div class="timeline"><div><strong><?=e($evd['evidence_type'])?></strong> · <?=e(date('d.m.Y H:i',strtotime($evd['created_at'])))?> · <span class="badge"><?=e($evd['status'])?></span><div class="actions" style="margin-top:8px"><a class="btn secondary" target="_blank" href="<?=e(url('/datei/'.$evd['id']))?>">Ansehen</a><?php if($evd['status']==='submitted'):?><form method="post" action="<?=e(url('/admin/nachweis/'.$evd['id'].'/freigeben'))?>"><?=csrf_field()?><button class="btn">Freigeben</button></form><form method="post" action="<?=e(url('/admin/nachweis/'.$evd['id'].'/ablehnen'))?>"><?=csrf_field()?><input name="reason" placeholder="Beanstandungsgrund" required><button class="btn danger">Beanstanden</button></form><?php elseif($evd['status']==='rejected'):?><span class="meta"><?=e($evd['rejection_reason']??'')?></span><?php endif;?></div></div></div><?php endforeach;?>
-   <?php if(!$evidences):?><p class="meta">Noch keine Nachweise.</p><?php endif;?></section>
+   <?php foreach($evidences as $evd):?><div class="timeline"><div><strong><?=e($evd['evidence_type'])?></strong> · <?=e(date('d.m.Y H:i',strtotime($evd['created_at'])))?> · <span class="badge"><?=e($evd['status'])?></span><div class="actions" style="margin-top:8px"><a class="btn secondary" target="_blank" href="<?=e(url('/datei/'.$evd['id']))?>">Ansehen</a><?php if($evd['status']==='submitted'):?><form method="post" action="<?=e(url('/admin/nachweis/'.$evd['id'].'/freigeben'))?>"><?=csrf_field()?><button class="btn">Freigeben</button></form><details><summary class="btn danger">Beanstanden</summary><form method="post" action="<?=e(url('/admin/nachweis/'.$evd['id'].'/ablehnen'))?>" style="margin-top:10px;min-width:280px"><?=csrf_field()?>
+<label>Beanstandungsgrund<input name="reason" placeholder="z. B. falscher Bildausschnitt" required></label>
+<label>Neuaufnahme-Frist (optional)<input type="datetime-local" name="retake_due_at" min="<?=e(date('Y-m-d\TH:i'))?>"></label>
+<label>Anweisung für Neuaufnahme<textarea name="retake_instructions" placeholder="Was genau soll neu aufgenommen werden?"></textarea></label>
+<label style="display:flex;gap:8px"><input type="checkbox" style="width:auto" name="create_violation" value="1" checked> Möglichen Verstoß mit provisorischem Zusatztag anlegen</label>
+<label style="display:flex;gap:8px"><input type="checkbox" style="width:auto" name="cure_violation" value="1" checked> Erfolgreiche Neuaufnahme hebt den offenen Verstoß automatisch auf</label>
+<button class="btn danger">Beanstandung speichern</button></form></details><?php elseif($evd['status']==='rejected'):?><span class="meta"><?=e($evd['rejection_reason']??'')?></span><?php endif;?></div></div></div><?php endforeach;?>
+   <?php if(!$evidences):?><p class="meta">Noch keine Nachweise.</p><?php endif;?>
+   <?php if($retakeRequests):?><hr><h3>Neuaufnahmen</h3><div class="timeline"><?php foreach($retakeRequests as $rt):?><div><strong><?=e($rt['original_type'])?><?= $rt['original_day']?' · Tag '.e($rt['original_day']):'' ?><?= $rt['original_window']?' · '.e($rt['original_window']):'' ?></strong> · <span class="badge"><?=e($rt['status'])?></span><p><?=e($rt['instructions'])?></p><span class="meta">Frist <?=e(date('d.m.Y H:i',strtotime($rt['due_at'])))?> · Nachfrist bis <?=e(date('d.m.Y H:i',strtotime($rt['grace_ends_at'])))?><?=$rt['cure_violation_on_success']?' · erfolgreicher Retake kann offenen Verstoß heilen':''?></span></div><?php endforeach;?></div><?php endif;?></section>
    <section class="panel"><h2>Vorabkontrolle & Start</h2><p>Akzeptierte Pflichtnachweise im aktuellen Durchlauf: <strong><?=$preAccepted?> / <?=$preRequired?></strong></p>
    <p>Geplantes Startdatum: <strong><?=e($o['planned_start_date']?date('d.m.Y',strtotime($o['planned_start_date'])):'noch nicht festgelegt')?></strong></p>
    <?php if($o['precheck_approved_at']):?><p><span class="badge">VORABKONTROLLE FREIGEGEBEN</span><br><span class="meta">Freigegeben am <?=e(date('d.m.Y H:i',strtotime($o['precheck_approved_at'])))?>. Der Auftrag startet automatisch am vereinbarten Datum.</span></p><?php endif;?>
@@ -402,23 +410,86 @@ if(preg_match('#^/admin/auftrag/(\\d{8})$#',$path,$m)&&$method==='GET'){
  <?php if($damageCases):?><h2>Beschädigungsvorgänge</h2><div class="table-wrap"><table><thead><tr><th>Zeit</th><th>Grund</th><th>Status</th><th>Aktion</th></tr></thead><tbody><?php foreach($damageCases as $d):?><tr><td><?=e(date('d.m.Y H:i',strtotime($d['created_at'])))?></td><td><?=e($d['reason'])?></td><td><?=e($d['status'])?></td><td><?php if(in_array($d['status'],['reported','evidence_requested','review'],true)):?><div class="actions"><form method="post" action="<?=e(url('/admin/beschaedigung/'.$d['id'].'/anerkennen'))?>"><?=csrf_field()?><button class="btn">Anerkennen & neu starten</button></form><form method="post" action="<?=e(url('/admin/beschaedigung/'.$d['id'].'/ablehnen'))?>"><?=csrf_field()?><button class="btn danger">Ablehnen</button></form></div><?php endif;?></td></tr><?php endforeach;?></tbody></table></div><?php endif;?>
  <?php render('Auftrag '.$o['order_no'],ob_get_clean());exit;
 }
-if(preg_match('#^/admin/nachweis/(\\d+)/freigeben$#',$path,$m)&&$method==='POST'){
+if(preg_match('#^/admin/nachweis/(\d+)/freigeben$#',$path,$m)&&$method==='POST'){
  require_admin();
- $st=db()->prepare("SELECT e.*,o.order_no,o.id order_id FROM evidences e JOIN orders o ON o.id=e.order_id WHERE e.id=?");
+ $st=db()->prepare("SELECT e.*,o.order_no,o.id order_id,o.seller_id FROM evidences e JOIN orders o ON o.id=e.order_id WHERE e.id=?");
  $st->execute([(int)$m[1]]);$ev=$st->fetch();if(!$ev)not_found();
- db()->prepare("UPDATE evidences SET status='accepted',reviewed_at=NOW(),rejection_reason=NULL WHERE id=?")->execute([$ev['id']]);
+
+ db()->beginTransaction();
+ try{
+   db()->prepare("UPDATE evidences SET status='accepted',reviewed_at=NOW(),rejection_reason=NULL WHERE id=?")->execute([$ev['id']]);
+
+   $rq=db()->prepare("SELECT * FROM evidence_retake_requests WHERE replacement_evidence_id=? AND status IN('uploaded','rejected') ORDER BY id DESC LIMIT 1");
+   $rq->execute([$ev['id']]);$retake=$rq->fetch();
+   if($retake){
+      db()->prepare("UPDATE evidence_retake_requests SET status='accepted',reviewed_at=NOW() WHERE id=?")->execute([$retake['id']]);
+      if($retake['cure_violation_on_success'] && $retake['violation_id']){
+         db()->prepare("UPDATE violations SET status='discarded',reviewed_at=NOW() WHERE id=? AND status IN('open','reviewed')")->execute([$retake['violation_id']]);
+         db()->prepare("UPDATE extra_days SET status='cancelled' WHERE source_type='violation' AND source_id=? AND status='provisional'")->execute([$retake['violation_id']]);
+      }
+      db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")
+        ->execute([$ev['order_id'],'Neuaufnahme erfolgreich geprüft und akzeptiert.'.($retake['cure_violation_on_success']?' Ein noch offener, verknüpfter Verstoß wurde verworfen.':'')]);
+   }
+   db()->commit();
+ }catch(Throwable $e){db()->rollBack();throw $e;}
+
+ notify_seller((int)$ev['seller_id'],'evidence.accepted','Nachweis freigegeben','Ein Nachweis in Auftrag '.$ev['order_no'].' wurde freigegeben.','/auftrag/'.$ev['order_no'],null,true);
  flash('success',$ev['evidence_type']==='precheck'?'Vorabnachweis freigegeben. Der Auftrag startet erst nach ausdrücklicher Gesamtfreigabe.':'Nachweis freigegeben.');
  redirect('/admin/auftrag/'.$ev['order_no']);
 }
-if(preg_match('#^/admin/nachweis/(\\d+)/ablehnen$#',$path,$m)&&$method==='POST'){
+if(preg_match('#^/admin/nachweis/(\d+)/ablehnen$#',$path,$m)&&$method==='POST'){
  require_admin();
- $st=db()->prepare("SELECT e.*,o.order_no FROM evidences e JOIN orders o ON o.id=e.order_id WHERE e.id=?");
+ $st=db()->prepare("SELECT e.*,o.order_no,o.seller_id FROM evidences e JOIN orders o ON o.id=e.order_id WHERE e.id=?");
  $st->execute([(int)$m[1]]);$ev=$st->fetch();if(!$ev)not_found();
  $reason=post('reason');
  if($reason===''){flash('error','Bitte einen Ablehnungsgrund angeben.');redirect('/admin/auftrag/'.$ev['order_no']);}
- db()->prepare("UPDATE evidences SET status='rejected',rejection_reason=?,reviewed_at=NOW() WHERE id=?")->execute([$reason,$ev['id']]);
- db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")->execute([$ev['order_id'],'Nachweis beanstandet: '.$reason.'. Bitte den geforderten Nachweis erneut einreichen.']);
- flash('success','Nachweis beanstandet. Die Verkäuferin kann eine neue Aufnahme einreichen.');
+
+ $retakeDue=post('retake_due_at');
+ $retakeInstructions=post('retake_instructions');
+ $createViolation=isset($_POST['create_violation']);
+ $cureViolation=isset($_POST['cure_violation']);
+ $violationId=null;$retakeId=null;
+ $tz=new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'));
+
+ if($retakeDue!==''){
+   try{$due=new DateTimeImmutable($retakeDue,$tz);}catch(Throwable){$due=false;}
+   if(!$due || $due<=new DateTimeImmutable('now',$tz)){flash('error','Die Neuaufnahme-Frist muss in der Zukunft liegen.');redirect('/admin/auftrag/'.$ev['order_no']);}
+ }
+
+ db()->beginTransaction();
+ try{
+   db()->prepare("UPDATE evidences SET status='rejected',rejection_reason=?,reviewed_at=NOW() WHERE id=?")->execute([$reason,$ev['id']]);
+
+   $existingRetake=db()->prepare("SELECT id FROM evidence_retake_requests WHERE replacement_evidence_id=? AND status='uploaded' ORDER BY id DESC LIMIT 1");
+   $existingRetake->execute([$ev['id']]);$parentRetakeId=$existingRetake->fetchColumn();
+   if($parentRetakeId){
+      db()->prepare("UPDATE evidence_retake_requests SET status='rejected',reviewed_at=NOW() WHERE id=?")->execute([$parentRetakeId]);
+   }
+
+   if($createViolation){
+      $violationId=ensure_provisional_violation((int)$ev['order_id'],'evidence-'.$ev['id'].'-insufficient','insufficient_evidence','Nachweis beanstandet: '.$reason);
+   }
+
+   if($retakeDue!==''){
+      $due=new DateTimeImmutable($retakeDue,$tz);
+      $grace=$due->modify('+'.max(0,(int)setting_value('grace_minutes','60')).' minutes');
+      $instructions=$retakeInstructions!==''?$retakeInstructions:$reason;
+      db()->prepare("INSERT INTO evidence_retake_requests(order_id,seller_id,original_evidence_id,violation_id,instructions,due_at,grace_ends_at,cure_violation_on_success) VALUES(?,?,?,?,?,?,?,?)")
+        ->execute([$ev['order_id'],$ev['seller_id'],$ev['id'],$violationId,$instructions,$due->format('Y-m-d H:i:s'),$grace->format('Y-m-d H:i:s'),$cureViolation?1:0]);
+      $retakeId=(int)db()->lastInsertId();
+   }
+
+   db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")
+     ->execute([$ev['order_id'],'Nachweis beanstandet: '.$reason.($retakeId?' Eine Neuaufnahme wurde mit eigener Frist angefordert.':'')]);
+   db()->commit();
+ }catch(Throwable $e){db()->rollBack();throw $e;}
+
+ if($retakeId){
+   notify_seller((int)$ev['seller_id'],'evidence.retake','Neuaufnahme erforderlich','Ein Nachweis wurde beanstandet. Bitte reiche die angeforderte Neuaufnahme fristgerecht ein.','/auftrag/'.$ev['order_no'].'/retake/'.$retakeId,null,true);
+ }else{
+   notify_seller((int)$ev['seller_id'],'evidence.rejected','Nachweis beanstandet','Ein Nachweis wurde beanstandet: '.$reason,'/auftrag/'.$ev['order_no'],null,true);
+ }
+ flash('success','Beanstandung gespeichert.'.($retakeId?' Neuaufnahme wurde angefordert.':'').($violationId?' Möglicher Verstoß wurde zur Prüfung angelegt.':''));
  redirect('/admin/auftrag/'.$ev['order_no']);
 }
 require __DIR__.'/app/FeatureRoutes.php';
