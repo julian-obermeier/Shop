@@ -97,8 +97,8 @@ if(preg_match('#^/angebot/([a-z0-9-]+)/annehmen$#',$path,$m)&&$method==='POST'){
  $firstQ=db()->prepare("SELECT COUNT(*) FROM orders WHERE seller_id=?");$firstQ->execute([$s['id']]);$isFirstOrder=(int)$firstQ->fetchColumn()===0;
  if($isFirstOrder && ($_POST['confirm_briefing']??'')!=='1'){flash('error','Vor dem ersten Auftrag muss das Kurzbriefing bestätigt werden.');redirect('/angebot/'.$m[1]);}
  $st=db()->prepare("SELECT * FROM offers WHERE slug=? AND status='active' AND visibility='public'");$st->execute([$m[1]]);$o=$st->fetch();if(!$o)not_found();
- $dupe=db()->prepare("SELECT COUNT(*) FROM orders x JOIN offers ox ON ox.id=x.offer_id WHERE x.seller_id=? AND ox.category_id=? AND x.status IN('precheck','running','shipping','review','payout')");
- $dupe->execute([$s['id'],$o['category_id']]); if((int)$dupe->fetchColumn()>0){flash('error','In dieser Kategorie besteht bereits ein aktiver Auftrag.');redirect('/angebote');}
+ $blockedCategories=offer_blocked_category_ids($o);
+ if(seller_has_category_conflict((int)$s['id'],$blockedCategories)){flash('error','Mindestens eine in diesem Angebot enthaltene Kategorie ist bereits durch einen aktiven Auftrag belegt.');redirect('/angebote');}
  $requested=array_values(array_unique(array_map('intval',(array)($_POST['option_ids']??[]))));
  $selected=[];$optionsTotal=0.0;
  if($requested){
@@ -111,7 +111,9 @@ if(preg_match('#^/angebot/([a-z0-9-]+)/annehmen$#',$path,$m)&&$method==='POST'){
  $shippingAllowance=$shippingSnapshot['cost_mode']==='fixed' ? max(0,(float)$shippingSnapshot['allowance']) : 0.0;
  $taskSummary=offer_task_plan_summary((int)$o['id'],$o['duration_days']!==null?(int)$o['duration_days']:1);
  $plannedTaskCompensation=(float)$taskSummary['compensation'];
- $total=(float)$o['compensation']+$optionsTotal+$shippingAllowance+$plannedTaskCompensation;$no=order_number();
+ $componentExtra=offer_component_extra_total($o);
+ $componentDefinitions=offer_component_definitions($o);
+ $total=(float)$o['compensation']+$componentExtra+$optionsTotal+$shippingAllowance+$plannedTaskCompensation;$no=order_number();
  db()->beginTransaction(); try{
    db()->prepare("INSERT INTO orders(order_no,seller_id,offer_id,offer_version,status,base_compensation,total_compensation,duration_days,shipping_snapshot_json) VALUES(?,?,?,?, 'precheck',?,?,?,?)")->execute([$no,$s['id'],$o['id'],$o['current_version'],$o['compensation'],$total,$o['duration_days'],json_encode($shippingSnapshot,JSON_UNESCAPED_UNICODE)]);
    $oid=(int)db()->lastInsertId();
@@ -137,6 +139,9 @@ if(preg_match('#^/angebot/([a-z0-9-]+)/annehmen$#',$path,$m)&&$method==='POST'){
      'fulfillment_type'=>(string)$o['fulfillment_type'],
      'duration_days'=>$o['duration_days']!==null?(int)$o['duration_days']:null,
      'base_compensation'=>(float)$o['compensation'],
+     'component_extra_compensation'=>$componentExtra,
+     'components'=>$componentDefinitions,
+     'blocked_category_ids'=>$blockedCategories,
      'options_total'=>$optionsTotal,
      'selected_options'=>$selectedOptionSnapshots,
      'evidence_rules'=>$acceptanceRules,
@@ -156,9 +161,10 @@ if(preg_match('#^/angebot/([a-z0-9-]+)/annehmen$#',$path,$m)&&$method==='POST'){
      ->execute([$oid,$s['id'],$o['current_version'],json_encode($confirmationPayload,JSON_UNESCAPED_UNICODE)]);
    snapshot_offer_task_plans((int)$o['id'],$oid);
    db()->prepare("INSERT INTO order_runs(order_id,run_no,status) VALUES(?,1,'precheck')")->execute([$oid]);
+   snapshot_order_components($oid,$o);
    foreach($selected as $opt)db()->prepare("INSERT INTO order_options(order_id,offer_option_id,label_snapshot,price_snapshot) VALUES(?,?,?,?)")->execute([$oid,$opt['id'],$opt['label'],$opt['price']]);
    db()->prepare("INSERT INTO wallet_entries(seller_id,order_id,entry_type,amount,description) VALUES(?,?,'reserved',?,'Auftragswert vorgemerkt')")->execute([$s['id'],$oid,$total]);
-   db()->prepare("INSERT INTO system_events(seller_id,order_id,event_type,payload_json) VALUES(?,?,'order.accepted',?)")->execute([$s['id'],$oid,json_encode(['offer_version'=>$o['current_version'],'option_ids'=>$requested,'shipping_allowance'=>$shippingAllowance,'planned_task_compensation'=>$plannedTaskCompensation,'planned_task_executions'=>$taskSummary['executions'],'total'=>$total],JSON_UNESCAPED_UNICODE)]);
+   db()->prepare("INSERT INTO system_events(seller_id,order_id,event_type,payload_json) VALUES(?,?,'order.accepted',?)")->execute([$s['id'],$oid,json_encode(['offer_version'=>$o['current_version'],'option_ids'=>$requested,'shipping_allowance'=>$shippingAllowance,'component_extra_compensation'=>$componentExtra,'blocked_category_ids'=>$blockedCategories,'planned_task_compensation'=>$plannedTaskCompensation,'planned_task_executions'=>$taskSummary['executions'],'total'=>$total],JSON_UNESCAPED_UNICODE)]);
    if(in_array($o['fulfillment_type'],['digital','mixed'],true))db()->prepare("INSERT INTO rights_acceptances(order_id,seller_id,terms_version,payload_json) VALUES(?,?,?,?)")->execute([$oid,$s['id'],'v1',json_encode(['scope'=>'technical_processing_and_order_terms'],JSON_UNESCAPED_UNICODE)]);
    db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")
      ->execute([$oid,'Auftrag '.$no.' verbindlich angenommen · Angebotsversion V'.$o['current_version'].' · Auftragswert '.money($total).'.']);
@@ -177,6 +183,7 @@ if(preg_match('#^/angebot/([a-z0-9-]+)/annehmen$#',$path,$m)&&$method==='POST'){
    '<p>Du hast das Angebot <strong>'.e($o['title']).'</strong> verbindlich angenommen.</p>'.
    '<p>Angebotsversion: <strong>V'.e($o['current_version']).'</strong><br>'.
    'Grundvergütung: <strong>'.money($o['compensation']).'</strong><br>'.
+   ($componentExtra>0?'Weitere Kombi-Bestandteile: <strong>+'.money($componentExtra).'</strong><br>':'').
    ($plannedTaskCompensation>0?'Geplante Aufgaben: <strong>+'.money($plannedTaskCompensation).'</strong><br>':'').
    ($shippingAllowance>0?'Versandzuschuss: <strong>+'.money($shippingAllowance).'</strong><br>':'').
    'Gesamtwert bei Annahme: <strong>'.money($total).'</strong></p>'.
