@@ -118,6 +118,9 @@ Route::prefix('admin')->name('admin.')->middleware(['auth','active','admin'])->g
     Route::get('/kategorien', [AdminCategoryController::class,'index'])->name('categories.index');
     Route::post('/kategorien', [AdminCategoryController::class,'store'])->name('categories.store');
     Route::put('/kategorien/{category}', [AdminCategoryController::class,'update'])->name('categories.update');
+    Route::delete('/kategorien/{category}', [AdminCategoryController::class,'destroy'])->name('categories.destroy');
+    Route::post('/kategorien/{category}/felder', [AdminCategoryController::class,'storeField'])->name('categories.fields.store');
+    Route::put('/kategorien/{category}/felder/{field}', [AdminCategoryController::class,'updateField'])->name('categories.fields.update');
 
     Route::get('/angebote', [AdminOfferController::class,'index'])->name('offers.index');
     Route::get('/angebote/neu', [AdminOfferController::class,'create'])->name('offers.create');
