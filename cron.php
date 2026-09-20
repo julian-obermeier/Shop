@@ -27,6 +27,51 @@ function cron_provisional_violation(int $orderId, int $sellerId, string $sourceK
 }
 
 
+
+function cron_configured_violation(
+    int $orderId,
+    int $sellerId,
+    string $sourceKey,
+    string $type,
+    string $reason,
+    int $extensionDays,
+    string $link
+): void {
+    $q=db()->prepare("SELECT id FROM violations WHERE source_key=? LIMIT 1");
+    $q->execute([$sourceKey]);
+    if($q->fetchColumn()) return;
+
+    $extensionDays=max(0,$extensionDays);
+    db()->beginTransaction();
+    try{
+        db()->prepare("INSERT INTO violations(order_id,violation_type,source_key,status,reason,extension_days) VALUES(?,?,?,'open',?,?)")
+          ->execute([$orderId,$type,$sourceKey,$reason,$extensionDays]);
+        $violationId=(int)db()->lastInsertId();
+
+        if($extensionDays>0){
+            db()->prepare("INSERT INTO extra_days(order_id,source_type,source_id,status,paid,amount,reason) VALUES(?,'violation',?,'provisional',0,0,?)")
+              ->execute([$orderId,$violationId,$reason]);
+        }
+        db()->commit();
+
+        $effect=$extensionDays>0
+          ? 'Bei Bestätigung wird die digitale Bearbeitungsfrist um '.$extensionDays.' Tag'.($extensionDays===1?'':'e').' verlängert.'
+          : 'Bei Bestätigung wird die Fristüberschreitung nur protokolliert; es entsteht kein zusätzlicher Tag.';
+        notify_seller(
+            $sellerId,
+            'violation.open',
+            'Digitale Fristüberschreitung wird geprüft',
+            $reason.' '.$effect,
+            $link,
+            'violation-'.$sourceKey,
+            true
+        );
+    }catch(Throwable $e){
+        if(db()->inTransaction())db()->rollBack();
+        throw $e;
+    }
+}
+
 function cron_log_only_deadline(int $orderId, int $sellerId, string $sourceKey, string $eventType, string $reason, string $link): void {
     $q=db()->prepare("SELECT COUNT(*) FROM system_events WHERE order_id=? AND event_type=? AND payload_json LIKE ?");
     $q->execute([$orderId,$eventType,'%"source_key":"'.$sourceKey.'"%']);
@@ -138,18 +183,27 @@ $digitalOrders=$pdo->query("SELECT o.* FROM orders o
       AND NOT EXISTS (SELECT 1 FROM digital_versions d WHERE d.order_id=o.id)")->fetchAll();
 foreach($digitalOrders as $o){
     $rules=offer_digital_rules((int)$o['id']);
-    $graceMinutes=max(0,(int)$rules['deadline']['grace_minutes']);
-    $graceEnd=(new DateTimeImmutable($o['digital_due_at'],new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'))))
-        ->modify('+'.$graceMinutes.' minutes');
+    $tz=new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'));
+    $due=new DateTimeImmutable($o['digital_due_at'],$tz);
+    $graceEnd=$due->modify('+'.max(0,(int)$rules['deadline']['grace_minutes']).' minutes');
+    $diff=$due->getTimestamp()-$now->getTimestamp();
+
+    if($diff>0 && $diff<=3600){
+        notify_seller((int)$o['seller_id'],'digital.deadline_reminder','Digitale Erstabgabe in weniger als 1 Stunde fällig','Die digitale Erstabgabe für Auftrag '.$o['order_no'].' ist bis '.$due->format('d.m.Y H:i').' fällig.','/auftrag/'.$o['order_no'].'/digital','digital-initial-'.$o['id'].'-1h',true);
+    }elseif($diff>3600 && $diff<=86400){
+        notify_seller((int)$o['seller_id'],'digital.deadline_reminder','Digitale Erstabgabe innerhalb von 24 Stunden fällig','Die digitale Erstabgabe für Auftrag '.$o['order_no'].' ist bis '.$due->format('d.m.Y H:i').' fällig.','/auftrag/'.$o['order_no'].'/digital','digital-initial-'.$o['id'].'-24h',true);
+    }
+
+    if($now>=$due && $now<=$graceEnd){
+        notify_seller((int)$o['seller_id'],'digital.deadline_grace','Nachfrist für digitale Erstabgabe läuft','Die reguläre Frist ist abgelaufen. Die Nachfrist endet am '.$graceEnd->format('d.m.Y H:i').'.','/auftrag/'.$o['order_no'].'/digital','digital-initial-'.$o['id'].'-grace-'.$due->getTimestamp(),true);
+        continue;
+    }
     if($graceEnd >= $now) continue;
 
-    $source='digital-initial-'.$o['id'];
+    $extension=(($rules['deadline']['violation_effect']??'log_only')==='extension_day')?1:0;
+    $source='digital-initial-'.$o['id'].'-deadline-'.$due->getTimestamp();
     $reason='Die digitale Erstabgabe für Auftrag '.$o['order_no'].' wurde nicht innerhalb der Frist einschließlich Nachfrist eingereicht.';
-    if(($rules['deadline']['violation_effect']??'log_only')==='extension_day'){
-        cron_provisional_violation((int)$o['id'],(int)$o['seller_id'],$source,'digital_deadline_missing',$reason);
-    }else{
-        cron_log_only_deadline((int)$o['id'],(int)$o['seller_id'],$source,'digital.deadline_missed',$reason,'/auftrag/'.$o['order_no'].'/digital');
-    }
+    cron_configured_violation((int)$o['id'],(int)$o['seller_id'],$source,'digital_deadline',$reason,$extension,'/auftrag/'.$o['order_no'].'/digital');
 }
 
 $digitalRevisions=$pdo->query("SELECT r.*,o.seller_id,o.order_no
@@ -158,19 +212,29 @@ $digitalRevisions=$pdo->query("SELECT r.*,o.seller_id,o.order_no
     WHERE r.status='open' AND r.due_at IS NOT NULL AND o.status IN('running','review')")->fetchAll();
 foreach($digitalRevisions as $r){
     $rules=offer_digital_rules((int)$r['order_id']);
+    $tz=new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'));
+    $due=new DateTimeImmutable($r['due_at'],$tz);
     $graceEnd=$r['grace_ends_at']
-        ? new DateTimeImmutable($r['grace_ends_at'],new DateTimeZone((string)app_config('app.timezone','Europe/Berlin')))
-        : (new DateTimeImmutable($r['due_at'],new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'))))
-            ->modify('+'.max(0,(int)$rules['revision']['grace_minutes']).' minutes');
+        ? new DateTimeImmutable($r['grace_ends_at'],$tz)
+        : $due->modify('+'.max(0,(int)$rules['revision']['grace_minutes']).' minutes');
+    $diff=$due->getTimestamp()-$now->getTimestamp();
+
+    if($diff>0 && $diff<=3600){
+        notify_seller((int)$r['seller_id'],'digital.revision_reminder','Revision in weniger als 1 Stunde fällig','Revision '.$r['round_no'].' für Auftrag '.$r['order_no'].' ist bis '.$due->format('d.m.Y H:i').' fällig.','/auftrag/'.$r['order_no'].'/digital','digital-revision-'.$r['id'].'-1h-'.$due->getTimestamp(),true);
+    }elseif($diff>3600 && $diff<=86400){
+        notify_seller((int)$r['seller_id'],'digital.revision_reminder','Revision innerhalb von 24 Stunden fällig','Revision '.$r['round_no'].' für Auftrag '.$r['order_no'].' ist bis '.$due->format('d.m.Y H:i').' fällig.','/auftrag/'.$r['order_no'].'/digital','digital-revision-'.$r['id'].'-24h-'.$due->getTimestamp(),true);
+    }
+
+    if($now>=$due && $now<=$graceEnd){
+        notify_seller((int)$r['seller_id'],'digital.revision_grace','Nachfrist für Revision läuft','Die reguläre Revisionsfrist ist abgelaufen. Die Nachfrist endet am '.$graceEnd->format('d.m.Y H:i').'.','/auftrag/'.$r['order_no'].'/digital','digital-revision-'.$r['id'].'-grace-'.$due->getTimestamp(),true);
+        continue;
+    }
     if($graceEnd >= $now) continue;
 
-    $source='digital-revision-'.$r['id'];
+    $extension=(($rules['revision']['violation_effect']??'log_only')==='extension_day')?1:0;
+    $source='digital-revision-'.$r['id'].'-deadline-'.$due->getTimestamp();
     $reason='Die Revision '.$r['round_no'].' für Auftrag '.$r['order_no'].' wurde nicht innerhalb der Frist einschließlich Nachfrist eingereicht.';
-    if(($rules['revision']['violation_effect']??'log_only')==='extension_day'){
-        cron_provisional_violation((int)$r['order_id'],(int)$r['seller_id'],$source,'digital_revision_missing',$reason);
-    }else{
-        cron_log_only_deadline((int)$r['order_id'],(int)$r['seller_id'],$source,'digital.revision_deadline_missed',$reason,'/auftrag/'.$r['order_no'].'/digital');
-    }
+    cron_configured_violation((int)$r['order_id'],(int)$r['seller_id'],$source,'digital_revision_deadline',$reason,$extension,'/auftrag/'.$r['order_no'].'/digital');
 }
 
 /* Genehmigte Vorabkontrollen am vereinbarten Startdatum starten. */
