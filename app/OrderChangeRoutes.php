@@ -323,6 +323,15 @@ if (preg_match('#^/admin/auftrag/(\\d{8})/fristen$#',$path,$m) && $method==='GET
         foreach($q->fetchAll() as $w)$windowsByDay[(int)$w['day_no']][]=$w;
     }
 
+    $q=db()->prepare("SELECT * FROM spontaneous_requests WHERE order_id=? AND status IN('requested','seen','confirmed') ORDER BY due_at");
+    $q->execute([$o['id']]);$deadlineSpontaneous=$q->fetchAll();
+    $q=db()->prepare("SELECT * FROM order_tasks WHERE order_id=? AND due_at IS NOT NULL AND status IN('open','rejected') ORDER BY due_at");
+    $q->execute([$o['id']]);$deadlineTasks=$q->fetchAll();
+    $q=db()->prepare("SELECT * FROM order_shipping_steps WHERE order_id=? AND due_at IS NOT NULL AND status='open' ORDER BY due_at");
+    $q->execute([$o['id']]);$deadlineShipping=$q->fetchAll();
+    $q=db()->prepare("SELECT * FROM revision_rounds WHERE order_id=? AND due_at IS NOT NULL AND status='open' ORDER BY due_at");
+    $q->execute([$o['id']]);$deadlineRevisions=$q->fetchAll();
+
     ob_start();?>
     <div class="dashboard-head"><div><div class="eyebrow">Auftrag <?=e($o['order_no'])?></div><h1>Fristen & Tagesplan</h1><p class="meta"><?=e($o['title'])?> · <?=e($o['seller_name'])?></p></div><div class="actions"><a class="btn secondary" href="<?=e(url('/admin/auftrag/'.$o['order_no'].'/nachweisplan'))?>">Nachweisanzahl</a><a class="btn secondary" href="<?=e(url('/admin/auftrag/'.$o['order_no']))?>">Zum Auftrag</a></div></div>
     <?php if(!$runId):?><div class="empty">Für diesen Auftrag existiert noch kein Durchführungslauf.</div><?php endif;?>
@@ -342,6 +351,29 @@ if (preg_match('#^/admin/auftrag/(\\d{8})/fristen$#',$path,$m) && $method==='GET
         </tbody></table></div>
       </section>
     <?php endforeach;?>
+    </div>
+
+    <h2>Weitere Einzelfristen</h2>
+    <div class="grid two">
+      <section class="panel"><h3>Spontane Nachweise</h3><div class="timeline">
+        <?php foreach($deadlineSpontaneous as $x):?><div><strong><?=e($x['instructions'])?></strong><br><span class="meta">Fällig <?=e(date('d.m.Y H:i',strtotime($x['due_at'])))?> · Nachfrist <?=e(date('d.m.Y H:i',strtotime($x['grace_ends_at']?:$x['due_at'])))?></span><details><summary>Frist ändern</summary><form method="post" action="<?=e(url('/admin/frist/spontan/'.$x['id'].'/aendern'))?>"><?=csrf_field()?><label>Fällig<input type="datetime-local" name="due_at" value="<?=e(date('Y-m-d\TH:i',strtotime($x['due_at'])))?>" required></label><label>Nachfrist bis<input type="datetime-local" name="grace_ends_at" value="<?=e(date('Y-m-d\TH:i',strtotime($x['grace_ends_at']?:$x['due_at'])))?>" required></label><label>Grund<textarea name="reason" required></textarea></label><button class="btn">Speichern</button></form></details></div><?php endforeach;?>
+        <?php if(!$deadlineSpontaneous):?><div class="empty">Keine offenen spontanen Fristen.</div><?php endif;?>
+      </div></section>
+
+      <section class="panel"><h3>Zusatzaufgaben</h3><div class="timeline">
+        <?php foreach($deadlineTasks as $x):?><div><strong><?=e($x['title'])?></strong><br><span class="meta">Fällig <?=e(date('d.m.Y H:i',strtotime($x['due_at'])))?></span><details><summary>Frist ändern</summary><form method="post" action="<?=e(url('/admin/frist/aufgabe/'.$x['id'].'/aendern'))?>"><?=csrf_field()?><label>Fällig<input type="datetime-local" name="due_at" value="<?=e(date('Y-m-d\TH:i',strtotime($x['due_at'])))?>" required></label><label>Grund<textarea name="reason" required></textarea></label><button class="btn">Speichern</button></form></details></div><?php endforeach;?>
+        <?php if(!$deadlineTasks):?><div class="empty">Keine offenen Aufgabenfristen.</div><?php endif;?>
+      </div></section>
+
+      <section class="panel"><h3>Versand-/Endschritte</h3><div class="timeline">
+        <?php foreach($deadlineShipping as $x):?><div><strong><?=e($x['title'])?></strong><br><span class="meta">Fällig <?=e(date('d.m.Y H:i',strtotime($x['due_at'])))?></span><details><summary>Frist ändern</summary><form method="post" action="<?=e(url('/admin/frist/versand/'.$x['id'].'/aendern'))?>"><?=csrf_field()?><label>Fällig<input type="datetime-local" name="due_at" value="<?=e(date('Y-m-d\TH:i',strtotime($x['due_at'])))?>" required></label><label>Grund<textarea name="reason" required></textarea></label><button class="btn">Speichern</button></form></details></div><?php endforeach;?>
+        <?php if(!$deadlineShipping):?><div class="empty">Keine offenen Versandfristen.</div><?php endif;?>
+      </div></section>
+
+      <section class="panel"><h3>Digitale Revisionen</h3><div class="timeline">
+        <?php foreach($deadlineRevisions as $x):?><div><strong>Revision <?=e($x['round_no'])?></strong><br><span class="meta">Fällig <?=e(date('d.m.Y H:i',strtotime($x['due_at'])))?> · Nachfrist <?=e(date('d.m.Y H:i',strtotime($x['grace_ends_at']?:$x['due_at'])))?></span><details><summary>Frist ändern</summary><form method="post" action="<?=e(url('/admin/frist/revision/'.$x['id'].'/aendern'))?>"><?=csrf_field()?><label>Fällig<input type="datetime-local" name="due_at" value="<?=e(date('Y-m-d\TH:i',strtotime($x['due_at'])))?>" required></label><label>Nachfrist bis<input type="datetime-local" name="grace_ends_at" value="<?=e(date('Y-m-d\TH:i',strtotime($x['grace_ends_at']?:$x['due_at'])))?>" required></label><label>Grund<textarea name="reason" required></textarea></label><button class="btn">Speichern</button></form></details></div><?php endforeach;?>
+        <?php if(!$deadlineRevisions):?><div class="empty">Keine offenen Revisionsfristen.</div><?php endif;?>
+      </div></section>
     </div>
     <?php render('Fristen & Tagesplan',ob_get_clean());exit;
 }
