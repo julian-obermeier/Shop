@@ -555,3 +555,156 @@ if (preg_match('#^/auftrag/(\d{8})/spontan/(\d+)$#',$path,$m) && $method==='POST
     }catch(Throwable $e){flash('error',$e->getMessage());}
     redirect('/auftrag/'.$r['order_no'].'/spontan/'.$r['id']);
 }
+
+
+/* ---------- V1 today search tasks and assignments ---------- */
+
+if ($path==='/heute' && $method==='GET') {
+    $s=require_seller();
+    $tz=new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'));
+    $now=new DateTimeImmutable('now',$tz);$today=$now->format('Y-m-d');
+
+    $q=db()->prepare("SELECT w.*,o.order_no,f.title,
+      (SELECT COUNT(*) FROM evidences e WHERE e.order_id=w.order_id AND e.order_run_id<=>w.order_run_id AND e.evidence_type='daily' AND e.day_no=w.day_no AND e.window_key=w.window_key AND e.status IN('submitted','accepted')) submitted_count
+      FROM evidence_windows w JOIN orders o ON o.id=w.order_id JOIN offers f ON f.id=o.offer_id
+      WHERE o.seller_id=? AND o.status='running' AND DATE(w.starts_at)=? ORDER BY w.starts_at");
+    $q->execute([$s['id'],$today]);$windows=$q->fetchAll();
+
+    $q=db()->prepare("SELECT r.*,o.order_no FROM spontaneous_requests r JOIN orders o ON o.id=r.order_id
+      WHERE o.seller_id=? AND o.status='running' AND r.status NOT IN('reviewed','missed') ORDER BY r.due_at");
+    $q->execute([$s['id']]);$spontaneous=$q->fetchAll();
+
+    $q=db()->prepare("SELECT t.*,o.order_no FROM order_tasks t JOIN orders o ON o.id=t.order_id
+      WHERE o.seller_id=? AND o.status IN('running','review') AND t.status='open' ORDER BY COALESCE(t.due_at,'9999-12-31')");
+    $q->execute([$s['id']]);$tasks=$q->fetchAll();
+
+    $q=db()->prepare("SELECT o.order_no,f.title FROM orders o JOIN offers f ON f.id=o.offer_id
+      WHERE o.seller_id=? AND o.status='shipping' ORDER BY o.updated_at");
+    $q->execute([$s['id']]);$shipping=$q->fetchAll();
+
+    $nowItems=[];$nextItems=[];$laterItems=[];
+    foreach($windows as $w){
+        $start=new DateTimeImmutable($w['starts_at'],$tz);$end=new DateTimeImmutable($w['ends_at'],$tz);$grace=new DateTimeImmutable($w['grace_ends_at'],$tz);
+        $remaining=max(0,(int)$w['required_count']-(int)$w['submitted_count']);
+        if($remaining<=0)continue;
+        $item=['kind'=>'window','title'=>$w['title'].' · '.window_label($w['window_key']),'text'=>'Tag '.$w['day_no'].' · '.$remaining.' Nachweis(e) offen · bis '.$end->format('H:i').' Uhr','link'=>'/auftrag/'.$w['order_no']];
+        if($now >= $start && $now <= $grace)$nowItems[]=$item;elseif($start>$now && $start<=$now->modify('+2 hours'))$nextItems[]=$item;else $laterItems[]=$item;
+    }
+    foreach($spontaneous as $r){
+        $due=new DateTimeImmutable($r['due_at'],$tz);
+        $item=['kind'=>'spontaneous','title'=>'Spontane Fotoanforderung · '.$r['order_no'],'text'=>$r['instructions'].' · Frist '.$due->format('H:i').' Uhr','link'=>'/auftrag/'.$r['order_no'].'/spontan/'.$r['id']];
+        if($due<=$now->modify('+1 hour'))$nowItems[]=$item;else $nextItems[]=$item;
+    }
+    foreach($tasks as $t){
+        $due=$t['due_at']?new DateTimeImmutable($t['due_at'],$tz):null;
+        $item=['kind'=>'task','title'=>'Zusatzaufgabe · '.$t['order_no'],'text'=>$t['title'].($due?' · Frist '.$due->format('d.m. H:i').' Uhr':''),'link'=>'/auftrag/'.$t['order_no'].'/aufgabe/'.$t['id']];
+        if($due && $due<=$now->modify('+1 hour'))$nowItems[]=$item;else $nextItems[]=$item;
+    }
+    foreach($shipping as $x)$nextItems[]=['kind'=>'shipping','title'=>'Versand · '.$x['order_no'],'text'=>$x['title'].' · Versandworkflow offen','link'=>'/auftrag/'.$x['order_no'].'/versand'];
+
+    $renderItems=function(array $items): string {
+        ob_start();?><div class="timeline"><?php foreach($items as $item):?><div><strong><?=e($item['title'])?></strong><p class="meta"><?=e($item['text'])?></p><a href="<?=e(url($item['link']))?>">Jetzt öffnen →</a></div><?php endforeach;?><?php if(!$items):?><div class="empty">Nichts offen.</div><?php endif;?></div><?php return ob_get_clean();
+    };
+    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Heute · <?=e($now->format('d.m.Y'))?></div><h1>Dein Tagesplan</h1></div><a class="btn secondary" href="<?=e(url('/dashboard'))?>">Alle Aufträge</a></div>
+    <div class="grid"><section class="panel"><h2>Jetzt erledigen</h2><?=$renderItems($nowItems)?></section><section class="panel"><h2>Als Nächstes</h2><?=$renderItems($nextItems)?></section><section class="panel"><h2>Heute später</h2><?=$renderItems($laterItems)?></section></div>
+    <?php render('Heute',ob_get_clean());exit;
+}
+
+if ($path==='/admin/suche' && $method==='GET') {
+    require_admin();$q=trim((string)($_GET['q']??''));$sellers=$orders=$offers=$shipments=$payouts=[];
+    if($q!==''){
+        $like='%'.$q.'%';
+        $st=db()->prepare("SELECT id,first_name,last_name,email,phone FROM sellers WHERE deleted_at IS NULL AND (first_name LIKE ? OR last_name LIKE ? OR email LIKE ? OR phone LIKE ?) LIMIT 25");$st->execute([$like,$like,$like,$like]);$sellers=$st->fetchAll();
+        $st=db()->prepare("SELECT o.order_no,o.status,f.title,CONCAT(s.first_name,' ',s.last_name) seller_name FROM orders o JOIN offers f ON f.id=o.offer_id JOIN sellers s ON s.id=o.seller_id WHERE o.order_no LIKE ? OR f.title LIKE ? LIMIT 25");$st->execute([$like,$like]);$orders=$st->fetchAll();
+        $st=db()->prepare("SELECT id,title,status,compensation FROM offers WHERE title LIKE ? OR description LIKE ? LIMIT 25");$st->execute([$like,$like]);$offers=$st->fetchAll();
+        $st=db()->prepare("SELECT sh.*,o.order_no FROM shipments sh JOIN orders o ON o.id=sh.order_id WHERE sh.tracking_number LIKE ? LIMIT 25");$st->execute([$like]);$shipments=$st->fetchAll();
+        if(is_numeric(str_replace(',','.',$q))){$amount=(float)str_replace(',','.',$q);$st=db()->prepare("SELECT p.*,CONCAT(s.first_name,' ',s.last_name) seller_name FROM payout_requests p JOIN sellers s ON s.id=p.seller_id WHERE p.amount=? LIMIT 25");$st->execute([$amount]);$payouts=$st->fetchAll();}
+    }
+    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Administration</div><h1>Globale Suche</h1></div></div><form class="panel" method="get"><label>Suche nach Name, E-Mail, Telefon, Auftrag, Angebot oder Tracking<input name="q" value="<?=e($q)?>" autofocus></label><button class="btn">Suchen</button></form>
+    <?php if($q!==''):?><h2>Verkäuferinnen</h2><div class="table-wrap"><table><tbody><?php foreach($sellers as $x):?><tr><td><?=e($x['first_name'].' '.$x['last_name'])?></td><td><?=e($x['email'])?></td><td><?=e($x['phone'])?></td><td><a href="<?=e(url('/admin/verkaeuferin/'.$x['id']))?>">Akte</a></td></tr><?php endforeach;?></tbody></table></div>
+    <h2>Aufträge</h2><div class="table-wrap"><table><tbody><?php foreach($orders as $x):?><tr><td><?=e($x['order_no'])?></td><td><?=e($x['seller_name'])?></td><td><?=e($x['title'])?></td><td><?=e($x['status'])?></td><td><a href="<?=e(url('/admin/auftrag/'.$x['order_no']))?>">Öffnen</a></td></tr><?php endforeach;?></tbody></table></div>
+    <h2>Angebote</h2><div class="table-wrap"><table><tbody><?php foreach($offers as $x):?><tr><td><?=e($x['title'])?></td><td><?=e($x['status'])?></td><td><?=money($x['compensation'])?></td><td><a href="<?=e(url('/admin/angebot/'.$x['id']))?>">Bearbeiten</a></td></tr><?php endforeach;?></tbody></table></div>
+    <?php if($shipments):?><h2>Tracking</h2><div class="table-wrap"><table><tbody><?php foreach($shipments as $x):?><tr><td><?=e($x['tracking_number'])?></td><td><?=e($x['order_no'])?></td><td><a href="<?=e(url('/admin/auftrag/'.$x['order_no']))?>">Auftrag</a></td></tr><?php endforeach;?></tbody></table></div><?php endif;?>
+    <?php endif;?><?php render('Globale Suche',ob_get_clean());exit;
+}
+
+if ($path==='/admin/aufgabenbibliothek' && $method==='GET') {
+    require_admin();$rows=db()->query("SELECT * FROM task_library ORDER BY active DESC,title")->fetchAll();
+    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Administration</div><h1>Aufgabenbibliothek</h1></div></div>
+    <form class="panel" method="post"><?=csrf_field()?><label>Titel<input name="title" required></label><label>Beschreibung<textarea name="description"></textarea></label><div class="form-grid"><label>Antworttyp<select name="response_type"><option value="text">Freitext</option><option value="number">Zahl</option><option value="scale10">Skala 1–10</option><option value="boolean">Ja/Nein</option></select></label><label>Standardvergütung (€)<input type="number" step=".01" min="0" name="default_compensation" value="0"></label></div><label><input style="width:auto" type="checkbox" name="violation_enabled" value="1" checked> Nichterfüllung kann Verstoß auslösen</label><button class="btn">Vorlage speichern</button></form>
+    <h2>Vorlagen</h2><div class="table-wrap"><table><thead><tr><th>Titel</th><th>Typ</th><th>Vergütung</th><th>Status</th></tr></thead><tbody><?php foreach($rows as $x):$fields=json_decode($x['fields_json']??'{}',true)?:[];?><tr><td><?=e($x['title'])?></td><td><?=e($fields['response_type']??'text')?></td><td><?=money($x['default_compensation'])?></td><td><?=$x['active']?'Aktiv':'Inaktiv'?></td></tr><?php endforeach;?></tbody></table></div>
+    <?php render('Aufgabenbibliothek',ob_get_clean());exit;
+}
+if ($path==='/admin/aufgabenbibliothek' && $method==='POST') {
+    require_admin();$fields=json_encode(['response_type'=>post('response_type','text')],JSON_UNESCAPED_UNICODE);
+    db()->prepare("INSERT INTO task_library(title,description,fields_json,default_compensation,violation_enabled,active) VALUES(?,?,?,?,?,1)")
+      ->execute([post('title'),post('description'),$fields,max(0,(float)post('default_compensation')),($_POST['violation_enabled']??'')==='1'?1:0]);
+    flash('success','Aufgabenvorlage gespeichert.');redirect('/admin/aufgabenbibliothek');
+}
+
+if (preg_match('#^/admin/auftrag/(\d{8})/aufgabe$#',$path,$m) && $method==='POST') {
+    require_admin();$q=db()->prepare("SELECT * FROM orders WHERE order_no=? AND status IN('running','review')");$q->execute([$m[1]]);$o=$q->fetch();if(!$o)not_found();
+    $fields=json_encode(['response_type'=>post('response_type','text')],JSON_UNESCAPED_UNICODE);$comp=max(0,(float)post('compensation'));
+    db()->prepare("INSERT INTO order_tasks(order_id,title,description,due_at,fields_json,compensation,violation_enabled) VALUES(?,?,?,?,?,?,?)")
+      ->execute([$o['id'],post('title'),post('description'),post('due_at')?:null,$fields,$comp,($_POST['violation_enabled']??'')==='1'?1:0]);
+    $taskId=(int)db()->lastInsertId();
+    if($comp>0){db()->prepare("UPDATE orders SET total_compensation=total_compensation+? WHERE id=?")->execute([$comp,$o['id']]);db()->prepare("INSERT INTO wallet_entries(seller_id,order_id,entry_type,amount,description) VALUES(?,?,'reserved',?,'Vergütung Zusatzaufgabe')")->execute([$o['seller_id'],$o['id'],$comp]);}
+    notify_seller((int)$o['seller_id'],'task.created','Neue Zusatzaufgabe','Für Auftrag '.$o['order_no'].' wurde eine Zusatzaufgabe hinzugefügt: '.post('title'),'/auftrag/'.$o['order_no'].'/aufgabe/'.$taskId,'task-created-'.$taskId,true);
+    flash('success','Zusatzaufgabe hinzugefügt.');redirect('/admin/auftrag/'.$o['order_no']);
+}
+if (preg_match('#^/admin/auftrag/(\d{8})/aufgabe-aus-vorlage$#',$path,$m) && $method==='POST') {
+    require_admin();$q=db()->prepare("SELECT * FROM orders WHERE order_no=? AND status IN('running','review')");$q->execute([$m[1]]);$o=$q->fetch();if(!$o)not_found();
+    $q=db()->prepare("SELECT * FROM task_library WHERE id=? AND active=1");$q->execute([(int)post('template_id')]);$t=$q->fetch();if(!$t)not_found();
+    $comp=(float)$t['default_compensation'];db()->prepare("INSERT INTO order_tasks(order_id,title,description,due_at,fields_json,compensation,violation_enabled) VALUES(?,?,?,?,?,?,?)")
+      ->execute([$o['id'],$t['title'],$t['description'],post('due_at')?:null,$t['fields_json'],$comp,$t['violation_enabled']]);
+    $taskId=(int)db()->lastInsertId();
+    if($comp>0){db()->prepare("UPDATE orders SET total_compensation=total_compensation+? WHERE id=?")->execute([$comp,$o['id']]);db()->prepare("INSERT INTO wallet_entries(seller_id,order_id,entry_type,amount,description) VALUES(?,?,'reserved',?,'Vergütung Zusatzaufgabe')")->execute([$o['seller_id'],$o['id'],$comp]);}
+    notify_seller((int)$o['seller_id'],'task.created','Neue Zusatzaufgabe','Für Auftrag '.$o['order_no'].' wurde eine Zusatzaufgabe hinzugefügt: '.$t['title'],'/auftrag/'.$o['order_no'].'/aufgabe/'.$taskId,'task-created-'.$taskId,true);
+    flash('success','Aufgabe aus Vorlage hinzugefügt.');redirect('/admin/auftrag/'.$o['order_no']);
+}
+
+if (preg_match('#^/auftrag/(\d{8})/aufgabe/(\d+)$#',$path,$m) && $method==='GET') {
+    $s=require_seller();$q=db()->prepare("SELECT t.*,o.order_no FROM order_tasks t JOIN orders o ON o.id=t.order_id WHERE o.order_no=? AND t.id=? AND o.seller_id=?");$q->execute([$m[1],(int)$m[2],$s['id']]);$t=$q->fetch();if(!$t)not_found();
+    $fields=json_decode($t['fields_json']??'{}',true)?:[];$type=$fields['response_type']??'text';
+    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Zusatzaufgabe · <?=e($t['order_no'])?></div><h1><?=e($t['title'])?></h1></div><a class="btn secondary" href="<?=e(url('/auftrag/'.$t['order_no']))?>">Zum Auftrag</a></div><div class="grid two"><section class="panel"><h2>Aufgabe</h2><p><?=nl2br(e($t['description']??''))?></p><p class="meta">Frist: <?=e($t['due_at']?date('d.m.Y H:i',strtotime($t['due_at'])):'keine feste Frist')?><?php if((float)$t['compensation']>0):?><br>Zusatzvergütung: <?=money($t['compensation'])?><?php endif;?></p></section><form class="panel" method="post"><?=csrf_field()?><h2>Antwort</h2><?php if($type==='number'):?><input type="number" step="any" name="value" required><?php elseif($type==='scale10'):?><select name="value"><?php for($n=1;$n<=10;$n++):?><option value="<?=$n?>"><?=$n?></option><?php endfor;?></select><?php elseif($type==='boolean'):?><select name="value"><option value="Ja">Ja</option><option value="Nein">Nein</option></select><?php else:?><textarea name="value" required></textarea><?php endif;?><button class="btn" <?=$t['status']!=='open'?'disabled':''?>>Aufgabe einreichen</button></form></div><?php render('Zusatzaufgabe',ob_get_clean());exit;
+}
+if (preg_match('#^/auftrag/(\d{8})/aufgabe/(\d+)$#',$path,$m) && $method==='POST') {
+    $s=require_seller();$q=db()->prepare("SELECT t.*,o.seller_id,o.order_no FROM order_tasks t JOIN orders o ON o.id=t.order_id WHERE o.order_no=? AND t.id=? AND o.seller_id=? AND t.status='open'");$q->execute([$m[1],(int)$m[2],$s['id']]);$t=$q->fetch();if(!$t)not_found();
+    $payload=json_encode(['value'=>post('value')],JSON_UNESCAPED_UNICODE);db()->prepare("UPDATE order_tasks SET submission_json=?,status='submitted',submitted_at=NOW() WHERE id=?")->execute([$payload,$t['id']]);
+    flash('success','Zusatzaufgabe wurde eingereicht.');redirect('/auftrag/'.$t['order_no']);
+}
+if (preg_match('#^/admin/aufgabe/(\d+)/(akzeptieren|ablehnen)$#',$path,$m) && $method==='POST') {
+    require_admin();$q=db()->prepare("SELECT t.*,o.order_no,o.seller_id FROM order_tasks t JOIN orders o ON o.id=t.order_id WHERE t.id=?");$q->execute([(int)$m[1]]);$t=$q->fetch();if(!$t)not_found();
+    if($m[2]==='akzeptieren'){db()->prepare("UPDATE order_tasks SET status='accepted' WHERE id=?")->execute([$t['id']]);notify_seller((int)$t['seller_id'],'task.accepted','Zusatzaufgabe akzeptiert','Die Zusatzaufgabe „'.$t['title'].'“ wurde akzeptiert.','/auftrag/'.$t['order_no'],null,false);}
+    else{db()->prepare("UPDATE order_tasks SET status='rejected' WHERE id=?")->execute([$t['id']]);if((int)$t['violation_enabled']===1){$source='task:'.$t['id'];$ins=db()->prepare("INSERT IGNORE INTO violations(order_id,violation_type,status,reason,source_key,extension_days) VALUES(?,'task_incomplete','open',?,?,1)");$ins->execute([$t['order_id'],'Zusatzaufgabe nicht erfüllt: '.$t['title'],$source]);if($ins->rowCount()){ $vid=(int)db()->lastInsertId();db()->prepare("INSERT INTO extra_days(order_id,source_type,source_id,status,paid,amount,reason) VALUES(?,'violation',?,'provisional',0,0,?)")->execute([$t['order_id'],$vid,'Zusatzaufgabe nicht erfüllt: '.$t['title']]); }}notify_seller((int)$t['seller_id'],'task.rejected','Zusatzaufgabe beanstandet','Die Zusatzaufgabe „'.$t['title'].'“ wurde beanstandet.','/auftrag/'.$t['order_no'],null,true);}
+    flash('success','Aufgabe geprüft.');redirect('/admin/auftrag/'.$t['order_no']);
+}
+if (preg_match('#^/admin/spontan/(\d+)/abschliessen$#',$path,$m) && $method==='POST') {
+    require_admin();$q=db()->prepare("SELECT r.*,o.order_no FROM spontaneous_requests r JOIN orders o ON o.id=r.order_id WHERE r.id=?");$q->execute([(int)$m[1]]);$r=$q->fetch();if(!$r)not_found();db()->prepare("UPDATE spontaneous_requests SET status='reviewed' WHERE id=?")->execute([$r['id']]);flash('success','Spontane Anforderung als geprüft abgeschlossen.');redirect('/admin/auftrag/'.$r['order_no']);
+}
+
+if ($path==='/admin/einzelangebote' && $method==='GET') {
+    require_admin();$offers=db()->query("SELECT id,title FROM offers WHERE status IN('active','draft') ORDER BY title")->fetchAll();$sellers=db()->query("SELECT id,first_name,last_name,email FROM sellers WHERE deleted_at IS NULL ORDER BY first_name,last_name")->fetchAll();
+    $rows=db()->query("SELECT a.*,f.title,CONCAT(s.first_name,' ',s.last_name) seller_name FROM offer_assignments a JOIN offers f ON f.id=a.offer_id JOIN sellers s ON s.id=a.seller_id ORDER BY a.created_at DESC")->fetchAll();
+    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Administration</div><h1>Individuelle Angebote</h1></div></div><form class="panel" method="post"><?=csrf_field()?><label>Angebot<select name="offer_id"><?php foreach($offers as $o):?><option value="<?=$o['id']?>"><?=e($o['title'])?></option><?php endforeach;?></select></label><label>Verkäuferin<select name="seller_id"><?php foreach($sellers as $x):?><option value="<?=$x['id']?>"><?=e($x['first_name'].' '.$x['last_name'].' · '.$x['email'])?></option><?php endforeach;?></select></label><label>Annahmefrist<input type="datetime-local" name="acceptance_deadline" required></label><button class="btn">Privat zuweisen</button></form><h2>Zuweisungen</h2><div class="table-wrap"><table><thead><tr><th>Verkäuferin</th><th>Angebot</th><th>Frist</th><th>Status</th></tr></thead><tbody><?php foreach($rows as $r):?><tr><td><?=e($r['seller_name'])?></td><td><?=e($r['title'])?></td><td><?=e(date('d.m.Y H:i',strtotime($r['acceptance_deadline'])))?></td><td><?=e($r['status'])?></td></tr><?php endforeach;?></tbody></table></div><?php render('Individuelle Angebote',ob_get_clean());exit;
+}
+if ($path==='/admin/einzelangebote' && $method==='POST') {
+    require_admin();$deadline=post('acceptance_deadline');db()->prepare("INSERT INTO offer_assignments(offer_id,seller_id,acceptance_deadline,status) VALUES(?,?,?,'assigned') ON DUPLICATE KEY UPDATE acceptance_deadline=VALUES(acceptance_deadline),status='assigned',decline_reason=NULL,updated_at=NOW()")->execute([(int)post('offer_id'),(int)post('seller_id'),$deadline]);
+    $id=(int)db()->lastInsertId();$q=db()->prepare("SELECT f.title,s.id seller_id FROM offers f JOIN sellers s ON s.id=? WHERE f.id=?");$q->execute([(int)post('seller_id'),(int)post('offer_id')]);$x=$q->fetch();if($x)notify_seller((int)$x['seller_id'],'offer.assignment','Individuelles Angebot','Dir wurde das individuelle Angebot „'.$x['title'].'“ zugewiesen.','/individuelle-angebote',null,true);
+    flash('success','Individuelles Angebot zugewiesen.');redirect('/admin/einzelangebote');
+}
+if ($path==='/individuelle-angebote' && $method==='GET') {
+    $s=require_seller();$q=db()->prepare("SELECT a.*,f.title,f.compensation,f.duration_days FROM offer_assignments a JOIN offers f ON f.id=a.offer_id WHERE a.seller_id=? ORDER BY a.created_at DESC");$q->execute([$s['id']]);$rows=$q->fetchAll();
+    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Privat</div><h1>Individuelle Angebote</h1></div></div><div class="grid"><?php foreach($rows as $r):?><div class="card"><span class="badge"><?=e($r['status'])?></span><h2><?=e($r['title'])?></h2><div class="price"><?=money($r['compensation'])?></div><p class="meta">Annahmefrist: <?=e(date('d.m.Y H:i',strtotime($r['acceptance_deadline'])))?></p><?php if($r['status']==='assigned'&&strtotime($r['acceptance_deadline'])>time()):?><div class="actions"><form method="post" action="<?=e(url('/individuelle-angebote/'.$r['id'].'/annehmen'))?>"><?=csrf_field()?><button class="btn">Annehmen</button></form><form method="post" action="<?=e(url('/individuelle-angebote/'.$r['id'].'/ablehnen'))?>"><?=csrf_field()?><input name="reason" required placeholder="Grund für Ablehnung"><button class="btn secondary">Ablehnen</button></form></div><?php endif;?></div><?php endforeach;?><?php if(!$rows):?><div class="empty">Keine individuellen Angebote.</div><?php endif;?></div><?php render('Individuelle Angebote',ob_get_clean());exit;
+}
+if (preg_match('#^/individuelle-angebote/(\d+)/(annehmen|ablehnen)$#',$path,$m) && $method==='POST') {
+    $s=require_seller();$q=db()->prepare("SELECT a.*,f.* FROM offer_assignments a JOIN offers f ON f.id=a.offer_id WHERE a.id=? AND a.seller_id=? AND a.status='assigned'");$q->execute([(int)$m[1],$s['id']]);$a=$q->fetch();if(!$a)not_found();
+    if(strtotime($a['acceptance_deadline'])<=time()){db()->prepare("UPDATE offer_assignments SET status='expired',updated_at=NOW() WHERE id=?")->execute([$a['id']]);flash('error','Die Annahmefrist ist abgelaufen.');redirect('/individuelle-angebote');}
+    if($m[2]==='ablehnen'){$reason=post('reason');if($reason===''){flash('error','Bitte einen Ablehnungsgrund angeben.');redirect('/individuelle-angebote');}db()->prepare("UPDATE offer_assignments SET status='declined',decline_reason=?,updated_at=NOW() WHERE id=?")->execute([$reason,$a['id']]);flash('success','Angebot abgelehnt.');redirect('/individuelle-angebote');}
+    if(!$s['email_verified_at']){flash('error','Bitte bestätige zuerst deine E-Mail-Adresse.');redirect('/individuelle-angebote');}
+    $no=order_number();db()->beginTransaction();try{
+        db()->prepare("INSERT INTO orders(order_no,seller_id,offer_id,offer_version,status,base_compensation,total_compensation,duration_days) VALUES(?,?,?,?, 'precheck',?,?,?)")->execute([$no,$s['id'],$a['offer_id'],$a['current_version'],$a['compensation'],$a['compensation'],$a['duration_days']]);
+        $oid=(int)db()->lastInsertId();db()->prepare("INSERT INTO order_runs(order_id,run_no,status) VALUES(?,1,'precheck')")->execute([$oid]);db()->prepare("INSERT INTO wallet_entries(seller_id,order_id,entry_type,amount,description) VALUES(?,?,'reserved',?,'Individueller Auftragswert vorgemerkt')")->execute([$s['id'],$oid,$a['compensation']]);db()->prepare("UPDATE offer_assignments SET status='accepted',updated_at=NOW() WHERE id=?")->execute([$a['id']]);db()->commit();
+    }catch(Throwable $e){db()->rollBack();throw $e;}
+    flash('success','Individuelles Angebot angenommen. Auftrag '.$no.' wurde erstellt.');redirect('/auftrag/'.$no);
+}
