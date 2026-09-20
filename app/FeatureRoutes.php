@@ -667,7 +667,15 @@ if (preg_match('#^/admin/auftrag/(\d{8})/versanderstattung$#',$path,$m)&&$method
 
 if (preg_match('#^/admin/auftrag/(\\d{8})/wareneingang$#',$path,$m)&&$method==='POST') {
     require_admin();$st=db()->prepare("SELECT * FROM orders WHERE order_no=?");$st->execute([$m[1]]);$o=$st->fetch();if(!$o)not_found();
-    db()->prepare("UPDATE shipments SET status='received',received_at=NOW() WHERE order_id=?")->execute([$o['id']]);db()->prepare("UPDATE orders SET status='review',updated_at=NOW() WHERE id=?")->execute([$o['id']]);db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system','Sendung ist eingegangen und befindet sich in der Abschlussprüfung.')")->execute([$o['id']]);flash('success','Wareneingang bestätigt.');redirect('/admin/auftrag/'.$o['order_no']);
+    db()->beginTransaction();
+    try{
+        db()->prepare("UPDATE shipments SET status='received',received_at=NOW() WHERE order_id=?")->execute([$o['id']]);
+        db()->prepare("UPDATE orders SET status='review',updated_at=NOW() WHERE id=?")->execute([$o['id']]);
+        db()->prepare("UPDATE order_components SET status='review',updated_at=NOW() WHERE order_id=? AND component_type='physical' AND status IN('execution','shipping')")->execute([$o['id']]);
+        db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system','Sendung ist eingegangen und befindet sich in der Abschlussprüfung.')")->execute([$o['id']]);
+        db()->commit();
+    }catch(Throwable $e){db()->rollBack();throw $e;}
+    flash('success','Wareneingang bestätigt. Physische Kombi-Bestandteile befinden sich jetzt in der Prüfung.');redirect('/admin/auftrag/'.$o['order_no']);
 }
 if (preg_match('#^/auftrag/(\d{8})/digital$#',$path,$m)&&$method==='GET') {
     $s=require_seller();
