@@ -114,7 +114,15 @@ if(preg_match('#^/angebot/([a-z0-9-]+)/annehmen$#',$path,$m)&&$method==='POST'){
  db()->beginTransaction(); try{
    db()->prepare("INSERT INTO orders(order_no,seller_id,offer_id,offer_version,status,base_compensation,total_compensation,duration_days,shipping_snapshot_json) VALUES(?,?,?,?, 'precheck',?,?,?,?)")->execute([$no,$s['id'],$o['id'],$o['current_version'],$o['compensation'],$total,$o['duration_days'],json_encode($shippingSnapshot,JSON_UNESCAPED_UNICODE)]);
    $oid=(int)db()->lastInsertId();
+   $acceptanceRules=offer_evidence_rules($o);
+   $selectedOptionSnapshots=array_map(fn($opt)=>[
+     'id'=>(int)$opt['id'],
+     'label'=>(string)$opt['label'],
+     'price'=>(float)$opt['price'],
+   ],$selected);
    $confirmationPayload=[
+     'order_no'=>$no,
+     'accepted_at'=>date(DATE_ATOM),
      'personal_fulfillment'=>true,
      'effort_reviewed'=>true,
      'rules_accepted'=>true,
@@ -122,14 +130,25 @@ if(preg_match('#^/angebot/([a-z0-9-]+)/annehmen$#',$path,$m)&&$method==='POST'){
      'first_order_briefing'=>$isFirstOrder,
      'offer_id'=>(int)$o['id'],
      'offer_version'=>(int)$o['current_version'],
+     'title'=>(string)$o['title'],
+     'description'=>(string)$o['description'],
+     'category_id'=>(int)$o['category_id'],
+     'fulfillment_type'=>(string)$o['fulfillment_type'],
      'duration_days'=>$o['duration_days']!==null?(int)$o['duration_days']:null,
-     'precheck_photos'=>(int)offer_evidence_rules($o)['precheck_required_count'],
-     'daily_photos_per_day'=>array_sum(offer_evidence_rules($o)['daily']),
+     'base_compensation'=>(float)$o['compensation'],
+     'options_total'=>$optionsTotal,
+     'selected_options'=>$selectedOptionSnapshots,
+     'evidence_rules'=>$acceptanceRules,
+     'precheck_photos'=>(int)$acceptanceRules['precheck_required_count'],
+     'daily_photos_per_day'=>array_sum($acceptanceRules['daily']),
      'planned_task_executions'=>(int)$taskSummary['executions'],
      'planned_task_photos'=>(int)$taskSummary['required_photos'],
-     'selected_option_ids'=>$requested,
+     'planned_task_compensation'=>$plannedTaskCompensation,
      'shipping_step_count'=>count($shippingSnapshot['steps']??[]),
+     'shipping_cost_mode'=>$shippingSnapshot['cost_mode']??'seller',
      'shipping_allowance'=>$shippingAllowance,
+     'preferred_carrier'=>$shippingSnapshot['preferred_carrier']??null,
+     'shipping_instructions'=>$shippingSnapshot['instructions']??null,
      'total_compensation'=>$total,
    ];
    db()->prepare("INSERT INTO order_acceptance_confirmations(order_id,seller_id,offer_version,payload_json) VALUES(?,?,?,?)")
@@ -140,9 +159,36 @@ if(preg_match('#^/angebot/([a-z0-9-]+)/annehmen$#',$path,$m)&&$method==='POST'){
    db()->prepare("INSERT INTO wallet_entries(seller_id,order_id,entry_type,amount,description) VALUES(?,?,'reserved',?,'Auftragswert vorgemerkt')")->execute([$s['id'],$oid,$total]);
    db()->prepare("INSERT INTO system_events(seller_id,order_id,event_type,payload_json) VALUES(?,?,'order.accepted',?)")->execute([$s['id'],$oid,json_encode(['offer_version'=>$o['current_version'],'option_ids'=>$requested,'shipping_allowance'=>$shippingAllowance,'planned_task_compensation'=>$plannedTaskCompensation,'planned_task_executions'=>$taskSummary['executions'],'total'=>$total],JSON_UNESCAPED_UNICODE)]);
    if(in_array($o['fulfillment_type'],['digital','mixed'],true))db()->prepare("INSERT INTO rights_acceptances(order_id,seller_id,terms_version,payload_json) VALUES(?,?,?,?)")->execute([$oid,$s['id'],'v1',json_encode(['scope'=>'technical_processing_and_order_terms'],JSON_UNESCAPED_UNICODE)]);
+   db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")
+     ->execute([$oid,'Auftrag '.$no.' verbindlich angenommen · Angebotsversion V'.$o['current_version'].' · Auftragswert '.money($total).'.']);
    db()->commit();
  }catch(Throwable $e){db()->rollBack();throw $e;}
- flash('success','Auftrag '.$no.' wurde angenommen. Gesamtwert: '.money($total).'. Bitte Vorabkontrolle bzw. Auftragsvorbereitung durchführen.');redirect('/auftrag/'.$no);
+ $optionsHtml=$selected
+   ? '<ul>'.implode('',array_map(fn($opt)=>'<li>'.e($opt['label']).' · '.money($opt['price']).'</li>',$selected)).'</ul>'
+   : '<p>Keine Zusatzoptionen gewählt.</p>';
+ $shippingText=($shippingSnapshot['cost_mode']??'seller')==='fixed'
+   ? 'Fester Versandzuschuss: '.money($shippingAllowance)
+   : ((($shippingSnapshot['cost_mode']??'seller')==='reimburse')?'Versandkosten: Erstattung gegen Nachweis':'Versandkosten trägt die Verkäuferin');
+ send_app_mail(
+   (string)$s['email'],
+   'Auftragsbestätigung '.$no,
+   '<h1>Auftragsbestätigung '.$no.'</h1>'.
+   '<p>Du hast das Angebot <strong>'.e($o['title']).'</strong> verbindlich angenommen.</p>'.
+   '<p>Angebotsversion: <strong>V'.e($o['current_version']).'</strong><br>'.
+   'Grundvergütung: <strong>'.money($o['compensation']).'</strong><br>'.
+   ($plannedTaskCompensation>0?'Geplante Aufgaben: <strong>+'.money($plannedTaskCompensation).'</strong><br>':'').
+   ($shippingAllowance>0?'Versandzuschuss: <strong>+'.money($shippingAllowance).'</strong><br>':'').
+   'Gesamtwert bei Annahme: <strong>'.money($total).'</strong></p>'.
+   '<h2>Gewählte Zusatzoptionen</h2>'.$optionsHtml.
+   '<p>Dauer: '.($o['duration_days']!==null?e($o['duration_days']).' Tage':'individueller Umfang').'<br>'.
+   'Vorabnachweise: '.e($acceptanceRules['precheck_required_count']).' Foto(s)<br>'.
+   'Regel-Nachweise pro Tag: '.e(array_sum($acceptanceRules['daily'])).' Foto(s)<br>'.
+   'Geplante Zusatzaufgaben: '.e($taskSummary['executions']).'<br>'.
+   'Versand: '.e($shippingText).'</p>'.
+   '<p>Bestätigte Verstöße können zusätzliche unbezahlte Durchführungstage auslösen. Spontane Nachweise oder Neuaufnahmen können zusätzliche Nachweise erforderlich machen.</p>'.
+   '<p><a href="'.e(url('/auftrag/'.$no)).'">Auftragsbestätigung in der Plattform öffnen</a></p>'
+ );
+ flash('success','Auftrag '.$no.' wurde angenommen. Gesamtwert: '.money($total).'. Eine Auftragsbestätigung wurde per E-Mail versendet.');redirect('/auftrag/'.$no);
 }
 if($path==='/registrieren'&&$method==='GET'){
  ob_start();?><div class="grid two"><section><div class="eyebrow">Verkäuferinnenkonto</div><h1>Registrieren</h1><p>Nur für Volljährige ab 18 Jahren. Es gibt kein öffentliches Verkäuferinnenprofil.</p></section><form class="panel" method="post"><?=csrf_field()?><div class="form-grid"><label>Vorname<input name="first_name" required></label><label>Nachname<input name="last_name" required></label><label>Geburtsdatum<input type="date" name="birth_date" required></label><label>Telefon<input name="phone" required></label><label>Straße / Hausnummer<input name="street" required></label><label>PLZ<input name="postal_code" required></label><label>Ort<input name="city" required></label><label>E-Mail<input type="email" name="email" required></label></div><label>Passwort<input type="password" name="password" minlength="10" required></label><label><input type="checkbox" name="adult" value="1" required style="width:auto"> Ich bestätige, dass ich mindestens 18 Jahre alt bin und die Plattformregeln akzeptiere.</label><button class="btn">Konto erstellen</button></form></div><?php render('Registrieren',ob_get_clean());exit;
@@ -201,6 +247,11 @@ if($path==='/dashboard'&&$method==='GET'){
 }
 if(preg_match('#^/auftrag/(\d{8})$#',$path,$m)&&$method==='GET'){
  $s=require_seller();$st=db()->prepare("SELECT o.*,f.title,f.description,f.evidence_rules_json,f.fulfillment_type,c.id category_id,c.name category_name FROM orders o JOIN offers f ON f.id=o.offer_id JOIN categories c ON c.id=f.category_id WHERE o.order_no=? AND o.seller_id=?");$st->execute([$m[1],$s['id']]);$o=$st->fetch();if(!$o)not_found();
+ $offerSnapshot=order_offer_snapshot($o);
+ foreach(['title','description','fulfillment_type'] as $snapshotKey){if(array_key_exists($snapshotKey,$offerSnapshot))$o[$snapshotKey]=$offerSnapshot[$snapshotKey];}
+ if(isset($offerSnapshot['category_id'])){$o['category_id']=(int)$offerSnapshot['category_id'];$cn=db()->prepare("SELECT name FROM categories WHERE id=?");$cn->execute([$o['category_id']]);$o['category_name']=$cn->fetchColumn()?:$o['category_name'];}
+ $acq=db()->prepare("SELECT * FROM order_acceptance_confirmations WHERE order_id=? LIMIT 1");$acq->execute([$o['id']]);$acceptanceConfirmation=$acq->fetch()?:null;
+ $acceptanceData=$acceptanceConfirmation?(json_decode($acceptanceConfirmation['payload_json']??'{}',true)?:[]):[];
  $currentRunId=current_run_id((int)$o['id']);
  $itq=db()->prepare("SELECT * FROM order_items WHERE order_id=? AND order_run_id<=>? ORDER BY id DESC LIMIT 1");$itq->execute([$o['id'],$currentRunId]);$orderItem=$itq->fetch()?:null;
  $cfq=db()->prepare("SELECT * FROM category_fields WHERE category_id=? AND is_active=1 ORDER BY sort_order,id");$cfq->execute([$o['category_id']]);$categoryFields=$cfq->fetchAll();
@@ -212,12 +263,15 @@ if(preg_match('#^/auftrag/(\d{8})$#',$path,$m)&&$method==='GET'){
  $pendingStartDateRequest=null;foreach($startDateRequests as $sdr){if($sdr['status']==='pending'){$pendingStartDateRequest=$sdr;break;}}
  $ocq=db()->prepare("SELECT field_name,old_value,new_value,reason,effective_day_no,created_at FROM order_changes WHERE order_id=? ORDER BY created_at DESC,id DESC");$ocq->execute([$o['id']]);$orderChanges=$ocq->fetchAll();
  $ev=db()->prepare("SELECT * FROM evidences WHERE order_id=? ORDER BY created_at DESC");$ev->execute([$o['id']]);$evidences=$ev->fetchAll();
- $rules=offer_evidence_rules($o);$preRequired=max(1,(int)$rules['precheck_required_count']);
+ $rules=offer_evidence_rules((int)$o['id']);$preRequired=max(1,(int)$rules['precheck_required_count']);
  $preAccepted=count(array_filter($evidences,fn($x)=>$x['evidence_type']==='precheck'&&(int)($x['order_run_id']??0)===(int)$currentRunId&&$x['status']==='accepted'));
  $prePending=count(array_filter($evidences,fn($x)=>$x['evidence_type']==='precheck'&&(int)($x['order_run_id']??0)===(int)$currentRunId&&$x['status']==='submitted'));
  $ow=db()->prepare("SELECT w.*,(SELECT COUNT(*) FROM evidences e WHERE e.order_id=w.order_id AND e.order_run_id<=>w.order_run_id AND e.evidence_type='daily' AND e.day_no=w.day_no AND e.window_key=w.window_key AND e.status IN('submitted','accepted')) submitted_count FROM evidence_windows w WHERE w.order_id=? AND w.order_run_id<=>? AND w.starts_at<=NOW() AND COALESCE(w.grace_ends_at,w.ends_at)>=NOW() AND w.status IN('planned','open','submitted') ORDER BY w.starts_at");
  $ow->execute([$o['id'],$currentRunId]);$openWindows=$ow->fetchAll();
- ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Auftrag <?=e($o['order_no'])?></div><h1><?=e($o['title'])?></h1><span class="badge"><?=e($o['status'])?></span></div><div class="price"><?=money($o['total_compensation'])?></div></div><div class="grid two"><section class="panel"><h2>Ablauf</h2><div class="timeline"><div>1. Vorbereitung / Vorabkontrolle <?= $o['status']==='precheck'?'← aktuell':''?></div><div>2. Durchführung</div><div>3. Versand / digitale Abgabe</div><div>4. Prüfung</div><div>5. Auszahlung</div><div>6. Archiv</div></div></section><section class="panel"><h2>Vorabkontrolle</h2><?php if($o['status']==='precheck'):?><p>Lade die für den konkreten Artikel erforderlichen Startnachweise direkt über die Kamera hoch.</p><p><strong><?=e($preAccepted)?> / <?=e($preRequired)?></strong> Pflichtnachweise freigegeben<?php if($prePending):?> · <?=e($prePending)?> warten auf Prüfung<?php endif;?></p><div class="progress"><span style="width:<?=e((string)min(100,round(($preAccepted/$preRequired)*100)))?>%"></span></div><br><form method="post" action="<?=e(url('/auftrag/'.$o['order_no'].'/nachweis'))?>" enctype="multipart/form-data"><?=csrf_field()?><input type="hidden" name="type" value="precheck">
+ ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Auftrag <?=e($o['order_no'])?></div><h1><?=e($o['title'])?></h1><span class="badge"><?=e($o['status'])?></span></div><div class="price"><?=money($o['total_compensation'])?></div></div>
+ <?php if($acceptanceConfirmation):?><section class="panel"><h2>Originale Auftragsbestätigung</h2><p><strong>Verbindlich angenommen:</strong> <?=e(date('d.m.Y H:i',strtotime($acceptanceConfirmation['accepted_at'])))?> · Angebotsversion V<?=e($acceptanceConfirmation['offer_version'])?></p><div class="form-grid"><div><span class="meta">Grundvergütung</span><br><strong><?=money($acceptanceData['base_compensation']??$o['base_compensation'])?></strong></div><div><span class="meta">Optionen bei Annahme</span><br><strong><?=money($acceptanceData['options_total']??0)?></strong></div><div><span class="meta">Geplante Aufgaben</span><br><strong><?=money($acceptanceData['planned_task_compensation']??0)?></strong></div><div><span class="meta">Versandzuschuss</span><br><strong><?=money($acceptanceData['shipping_allowance']??0)?></strong></div><div><span class="meta">Gesamtwert bei Annahme</span><br><strong><?=money($acceptanceData['total_compensation']??$o['total_compensation'])?></strong></div></div>
+ <?php if(!empty($acceptanceData['selected_options'])):?><h3>Gewählte Optionen</h3><div class="timeline"><?php foreach($acceptanceData['selected_options'] as $confirmedOption):?><div><?=e($confirmedOption['label']??'Option')?> · <?=money($confirmedOption['price']??0)?></div><?php endforeach;?></div><?php endif;?>
+ <p class="meta">Vorabnachweise: <?=e($acceptanceData['precheck_photos']??'–')?> · Regel-Nachweise pro Tag: <?=e($acceptanceData['daily_photos_per_day']??'–')?> · geplante Zusatzaufgaben: <?=e($acceptanceData['planned_task_executions']??0)?> · Versand-/Endschritte: <?=e($acceptanceData['shipping_step_count']??0)?>.</p><p class="meta">Diese Bestätigung bleibt historisch unverändert. Spätere genehmigte Änderungen werden separat am Auftrag dokumentiert.</p></section><?php endif;?><div class="grid two"><section class="panel"><h2>Ablauf</h2><div class="timeline"><div>1. Vorbereitung / Vorabkontrolle <?= $o['status']==='precheck'?'← aktuell':''?></div><div>2. Durchführung</div><div>3. Versand / digitale Abgabe</div><div>4. Prüfung</div><div>5. Auszahlung</div><div>6. Archiv</div></div></section><section class="panel"><h2>Vorabkontrolle</h2><?php if($o['status']==='precheck'):?><p>Lade die für den konkreten Artikel erforderlichen Startnachweise direkt über die Kamera hoch.</p><p><strong><?=e($preAccepted)?> / <?=e($preRequired)?></strong> Pflichtnachweise freigegeben<?php if($prePending):?> · <?=e($prePending)?> warten auf Prüfung<?php endif;?></p><div class="progress"><span style="width:<?=e((string)min(100,round(($preAccepted/$preRequired)*100)))?>%"></span></div><br><form method="post" action="<?=e(url('/auftrag/'.$o['order_no'].'/nachweis'))?>" enctype="multipart/form-data"><?=csrf_field()?><input type="hidden" name="type" value="precheck">
 <label>Kurze Artikelbezeichnung<input name="item_label" value="<?=e($orderItem['label']??'')?>" required placeholder="z. B. schwarze Sportsocken"></label>
 <div class="form-grid"><label>Größe (optional)<input name="size_value" value="<?=e($orderItem['size_value']??'')?>"></label><label>Farbe (optional)<input name="color_value" value="<?=e($orderItem['color_value']??'')?>"></label><label>Marke (optional)<input name="brand_value" value="<?=e($orderItem['brand_value']??'')?>"></label><label>Material (optional)<input name="material_value" value="<?=e($orderItem['material_value']??'')?>"></label></div>
 <?php foreach($categoryFields as $fld): $key=$fld['field_key'];$val=$itemAttributes[$key]??'';$opts=json_decode($fld['options_json']??'[]',true)?:[]; ?>
