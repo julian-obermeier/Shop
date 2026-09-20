@@ -114,12 +114,64 @@ $challenge=$order->proofChallenges->first(fn($c)=>$c->order_day_id===$day->id &&
 </div>
 @endif
 
-@if($isDigital)
+@if($isDigital && $digitalComponent)
 <section class="panel">
 <span class="eyebrow">Digitale Ausführung</span>
 <h2>Digitale Leistung</h2>
-<p>Dieser Auftrag wird digital erfüllt. Versionen, technische Anforderungen und Revisionen werden im digitalen Abgabebereich des Auftrags geführt.</p>
-@if($digitalComponent)<div class="notice">Status: <strong>{{ strtoupper($digitalComponent->status) }}</strong></div>@endif
+<div class="notice">Status: <strong>{{ strtoupper(str_replace('_',' ',$digitalComponent->status)) }}</strong>. Jede gespeicherte Fassung bleibt als eigene Version erhalten.</div>
+
+@php($activeRevision=$revisionRounds->first(fn($r)=>in_array($r->status,['open','submitted'],true)))
+@if($activeRevision)
+<h3>Revision {{ $activeRevision->round_no }}</h3>
+<p>Frist: {{ $activeRevision->due_at ? \Carbon\Carbon::parse($activeRevision->due_at)->format('d.m.Y H:i') : 'keine feste Frist' }}</p>
+<div class="timeline">@foreach($revisionItems->get($activeRevision->id,collect()) as $item)<div><span>{{ strtoupper($item->status) }}</span><strong>{{ $item->description }}</strong>@if($item->admin_comment)<small>{{ $item->admin_comment }}</small>@endif</div>@endforeach</div>
+@endif
+
+@if(!$order->isTerminal())
+<form method="post" enctype="multipart/form-data" action="{{ route('orders.digital.store',[$order,$digitalComponent->id]) }}" class="stack-form" style="margin-top:16px">@csrf
+<label>Abgabeformat<select name="submission_type" required><option value="text">Text</option><option value="audio">Audio</option><option value="video">Video</option></select></label>
+<label>Textinhalt<textarea name="text_content" rows="8" placeholder="Nur bei Text-Abgabe"></textarea></label>
+<label>Audio-/Videodatei<input type="file" name="file" accept="audio/*,video/*"><small>Nur erforderlich, wenn Audio oder Video ausgewählt wurde.</small></label>
+<label class="check"><input type="checkbox" name="final_submission" value="1"><span>Diese Version final zur Prüfung einreichen</span></label>
+<button class="btn primary">Neue Version speichern</button>
+</form>
+@endif
+
+@if($digitalVersions->count())
+<h3 style="margin-top:22px">Versionshistorie</h3>
+@foreach($digitalVersions as $version)
+<article class="version-card"><div class="day-top"><strong>V{{ $version->version_no }} · {{ strtoupper($version->submission_type) }}</strong><span>{{ $version->submitted_at ? \Carbon\Carbon::parse($version->submitted_at)->format('d.m.Y H:i') : '' }}</span></div>
+@if($version->submission_type==='text')<div class="notice" style="white-space:pre-wrap">{{ $version->text_content }}</div>
+@elseif($version->submission_type==='audio')<audio controls preload="metadata" src="{{ route('orders.digital.stream',[$order,$version->id]) }}" style="width:100%"></audio>
+@elseif($version->submission_type==='video')<video controls preload="metadata" src="{{ route('orders.digital.stream',[$order,$version->id]) }}" style="width:100%;max-height:520px"></video>
+@endif
+@if($version->final_submission)<small class="positive">Final eingereicht</small>@endif
+</article>
+@endforeach
+@endif
+</section>
+@endif
+
+@if($order->status==='active' && !$isDigital)
+<section class="panel" style="margin-top:18px"><h2>Artikel beschädigt oder unbrauchbar?</h2><p>Eine Meldung pausiert den Auftrag nicht. Fristen laufen bis zur Adminentscheidung weiter.</p>
+<form method="post" enctype="multipart/form-data" action="{{ route('orders.damage',$order) }}" class="stack-form">@csrf
+<label>Was ist passiert?<textarea name="reason" rows="3" required></textarea></label>
+<label>Pflichtfoto über Live-Kamera<input type="file" name="photo" accept="image/jpeg" required data-live-camera data-camera-context="damage:{{ $order->id }}:{{ $currentSeries }}" hidden></label>
+<button class="btn secondary">Beschädigung melden</button>
+</form></section>
+@endif
+
+@if($damageCases->count())
+<section class="panel" style="margin-top:18px"><h2>Beschädigungsvorgänge</h2>
+@foreach($damageCases as $case)<div class="operation-block"><div class="day-top"><strong>Vorgang #{{ $case->id }}</strong><span class="status">{{ strtoupper($case->status) }}</span></div><p>{{ $case->reason }}</p>
+@foreach($damageEvidenceRequests->get($case->id,collect()) as $req)<div class="notice"><strong>{{ strtoupper($req->type) }}</strong> · {{ $req->instructions }}<br><small>Frist: {{ $req->due_at ? \Carbon\Carbon::parse($req->due_at)->format('d.m.Y H:i') : '–' }} · {{ strtoupper($req->status) }}</small></div>
+@if($req->status==='open')<form method="post" enctype="multipart/form-data" action="{{ route('orders.damage-evidence-submit',[$order,$case->id,$req->id]) }}" class="stack-form">@csrf
+@if(in_array($req->type,['text','field'],true))<label>Nachweis<textarea name="value" rows="3" required></textarea></label>
+@elseif($req->type==='photo')<label>Live-Foto<input type="file" name="file" accept="image/jpeg" required data-live-camera data-camera-context="damage-request:{{ $order->id }}:{{ $case->id }}:{{ $req->id }}" hidden></label>
+@else<label>Video<input type="file" name="file" accept="video/*" required></label>@endif
+<button class="btn primary">Nachforderung einreichen</button></form>@endif
+@endforeach
+</div>@endforeach
 </section>
 @endif
 
