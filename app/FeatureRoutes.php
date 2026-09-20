@@ -852,8 +852,15 @@ if (preg_match('#^/auftrag/(\d{8})/digital$#',$path,$m)&&$method==='POST') {
             if((int)($file['size']??0)>$maxBytes) throw new RuntimeException(ucfirst($type).' überschreitet die erlaubten '.(int)$rules['media']['max_file_mb'].' MB.');
 
             $up=private_upload($file,'order-'.$o['id'].'/digital');
-            if($type==='audio' && !str_starts_with((string)$up['mime'],'audio/')) throw new RuntimeException('Die hochgeladene Audiodatei hat kein erlaubtes Audioformat.');
-            if($type==='video' && !str_starts_with((string)$up['mime'],'video/')) throw new RuntimeException('Die hochgeladene Videodatei hat kein erlaubtes Videoformat.');
+            $mimeValid=($type==='audio' && str_starts_with((string)$up['mime'],'audio/'))
+                || ($type==='video' && str_starts_with((string)$up['mime'],'video/'));
+            if(!$mimeValid){
+                $invalidReal=__DIR__.'/../storage/private/'.ltrim((string)$up['path'],'/');
+                if(is_file($invalidReal))@unlink($invalidReal);
+                throw new RuntimeException($type==='audio'
+                    ? 'Die hochgeladene Audiodatei hat kein erlaubtes Audioformat.'
+                    : 'Die hochgeladene Videodatei hat kein erlaubtes Videoformat.');
+            }
 
             $assets[]=[
               'type'=>$type,
