@@ -56,7 +56,7 @@ foreach($windows as $w){
 /* Spontane Nachweise: Halbzeit-/Enderinnerung und fehlende Bilder einzeln als mögliche Verstöße. */
 $spontaneous=$pdo->query("SELECT sr.*,o.seller_id,o.order_no FROM spontaneous_requests sr JOIN orders o ON o.id=sr.order_id WHERE sr.status NOT IN('reviewed','missed') AND o.status IN('running','shipping','review')")->fetchAll();
 foreach($spontaneous as $r){
-    $cnt=$pdo->prepare("SELECT COUNT(*) FROM evidences WHERE source_type='spontaneous' AND source_id=? AND status<>'rejected'");$cnt->execute([$r['id']]);$submitted=(int)$cnt->fetchColumn();
+    $cnt=$pdo->prepare("SELECT COUNT(*) FROM evidences WHERE ((source_type='spontaneous' AND source_id=?) OR (reference_type='spontaneous_request' AND reference_id=?)) AND status<>'rejected'");$cnt->execute([$r['id'],$r['id']]);$submitted=(int)$cnt->fetchColumn();
     if($submitted>=(int)$r['required_count']){
         $pdo->prepare("UPDATE spontaneous_requests SET status='uploaded' WHERE id=?")->execute([$r['id']]);
         continue;
