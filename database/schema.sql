@@ -347,6 +347,7 @@ CREATE TABLE IF NOT EXISTS order_days (
 CREATE TABLE IF NOT EXISTS evidence_windows (
  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
  order_id BIGINT UNSIGNED NOT NULL,
+ order_run_id BIGINT UNSIGNED NULL,
  day_no INT NOT NULL,
  window_key ENUM('morning','midday','evening','custom') NOT NULL,
  starts_at DATETIME NOT NULL,
@@ -356,7 +357,8 @@ CREATE TABLE IF NOT EXISTS evidence_windows (
  status ENUM('planned','open','submitted','missed','waived') NOT NULL DEFAULT 'planned',
  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
  FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE,
- INDEX(order_id,day_no,status)
+ FOREIGN KEY(order_run_id) REFERENCES order_runs(id) ON DELETE SET NULL,
+ INDEX(order_id,order_run_id,day_no,status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS spontaneous_requests (
@@ -417,6 +419,7 @@ CREATE TABLE IF NOT EXISTS notifications (
  title VARCHAR(190) NOT NULL,
  body TEXT NULL,
  link VARCHAR(255) NULL,
+ dedupe_key VARCHAR(190) NULL UNIQUE,
  read_at DATETIME NULL,
  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
  INDEX(seller_id,read_at)
