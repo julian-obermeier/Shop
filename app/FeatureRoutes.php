@@ -797,27 +797,100 @@ if (preg_match('#^/admin/spontan/(\d+)/abschliessen$#',$path,$m) && $method==='P
 }
 
 if ($path==='/admin/einzelangebote' && $method==='GET') {
-    require_admin();$offers=db()->query("SELECT id,title FROM offers WHERE status IN('active','draft') ORDER BY title")->fetchAll();$sellers=db()->query("SELECT id,first_name,last_name,email FROM sellers WHERE deleted_at IS NULL ORDER BY first_name,last_name")->fetchAll();
-    $rows=db()->query("SELECT a.*,f.title,CONCAT(s.first_name,' ',s.last_name) seller_name FROM offer_assignments a JOIN offers f ON f.id=a.offer_id JOIN sellers s ON s.id=a.seller_id ORDER BY a.created_at DESC")->fetchAll();
-    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Administration</div><h1>Individuelle Angebote</h1></div></div><form class="panel" method="post"><?=csrf_field()?><label>Angebot<select name="offer_id"><?php foreach($offers as $o):?><option value="<?=$o['id']?>"><?=e($o['title'])?></option><?php endforeach;?></select></label><label>Verkäuferin<select name="seller_id"><?php foreach($sellers as $x):?><option value="<?=$x['id']?>"><?=e($x['first_name'].' '.$x['last_name'].' · '.$x['email'])?></option><?php endforeach;?></select></label><label>Annahmefrist<input type="datetime-local" name="acceptance_deadline" required></label><button class="btn">Privat zuweisen</button></form><h2>Zuweisungen</h2><div class="table-wrap"><table><thead><tr><th>Verkäuferin</th><th>Angebot</th><th>Frist</th><th>Status</th></tr></thead><tbody><?php foreach($rows as $r):?><tr><td><?=e($r['seller_name'])?></td><td><?=e($r['title'])?></td><td><?=e(date('d.m.Y H:i',strtotime($r['acceptance_deadline'])))?></td><td><?=e($r['status'])?></td></tr><?php endforeach;?></tbody></table></div><?php render('Individuelle Angebote',ob_get_clean());exit;
+    require_admin();
+    $sellers=db()->query("SELECT id,first_name,last_name,email FROM sellers WHERE deleted_at IS NULL ORDER BY last_name,first_name")->fetchAll();
+    $cats=db()->query("SELECT id,name FROM categories WHERE is_active=1 ORDER BY sort_order,name")->fetchAll();
+    $rows=db()->query("SELECT a.*,f.title,f.compensation,f.fulfillment_type,CONCAT(s.first_name,' ',s.last_name) seller_name FROM offer_assignments a JOIN offers f ON f.id=a.offer_id JOIN sellers s ON s.id=a.seller_id ORDER BY a.created_at DESC")->fetchAll();
+    ob_start();?>
+    <div class="dashboard-head"><div><div class="eyebrow">Administration</div><h1>Individuelle Angebote</h1><p class="meta">Private Angebote sind ausschließlich der ausgewählten Verkäuferin sichtbar.</p></div></div>
+    <form class="panel" method="post"><?=csrf_field()?>
+      <div class="form-grid">
+        <label>Verkäuferin<select name="seller_id" required><?php foreach($sellers as $x):?><option value="<?=$x['id']?>"><?=e($x['last_name'].', '.$x['first_name'].' · '.$x['email'])?></option><?php endforeach;?></select></label>
+        <label>Kategorie<select name="category_id" required><?php foreach($cats as $cat):?><option value="<?=$cat['id']?>"><?=e($cat['name'])?></option><?php endforeach;?></select></label>
+        <label>Titel<input name="title" required></label>
+        <label>Vergütung (€)<input type="number" step=".01" min="0" name="compensation" required></label>
+        <label>Erfüllungsart<select name="fulfillment_type"><option value="days">Tage</option><option value="units">Einheiten</option><option value="one_time">Einmalig</option><option value="digital">Digital</option><option value="mixed">Kombiniert</option></select></label>
+        <label>Dauer in Tagen<input type="number" min="1" name="duration_days"></label>
+        <label>Annahmefrist<input type="datetime-local" name="acceptance_deadline" required></label>
+        <label>Vorab-Pflichtfotos<input type="number" min="1" max="50" name="precheck_required_count" value="1"></label>
+        <label>Morgen-Fotos<input type="number" min="0" max="20" name="morning_count" value="1"></label>
+        <label>Mittag-Fotos<input type="number" min="0" max="20" name="midday_count" value="1"></label>
+        <label>Abend-Fotos<input type="number" min="0" max="20" name="evening_count" value="1"></label>
+      </div>
+      <label>Beschreibung / individuelle Bedingungen<textarea name="description" required></textarea></label>
+      <button class="btn">Privates Einzelangebot senden</button>
+    </form>
+    <h2>Zuweisungen</h2>
+    <div class="table-wrap"><table><thead><tr><th>Verkäuferin</th><th>Angebot</th><th>Vergütung</th><th>Frist</th><th>Status</th></tr></thead><tbody>
+    <?php foreach($rows as $r):?><tr><td><?=e($r['seller_name'])?></td><td><?=e($r['title'])?></td><td><?=money($r['compensation'])?></td><td><?=e(date('d.m.Y H:i',strtotime($r['acceptance_deadline'])))?></td><td><?=e($r['status'])?></td></tr><?php endforeach;?>
+    </tbody></table></div>
+    <?php render('Individuelle Angebote',ob_get_clean());exit;
 }
 if ($path==='/admin/einzelangebote' && $method==='POST') {
-    require_admin();$deadline=post('acceptance_deadline');db()->prepare("INSERT INTO offer_assignments(offer_id,seller_id,acceptance_deadline,status) VALUES(?,?,?,'assigned') ON DUPLICATE KEY UPDATE acceptance_deadline=VALUES(acceptance_deadline),status='assigned',decline_reason=NULL,updated_at=NOW()")->execute([(int)post('offer_id'),(int)post('seller_id'),$deadline]);
-    $id=(int)db()->lastInsertId();$q=db()->prepare("SELECT f.title,s.id seller_id FROM offers f JOIN sellers s ON s.id=? WHERE f.id=?");$q->execute([(int)post('seller_id'),(int)post('offer_id')]);$x=$q->fetch();if($x)notify_seller((int)$x['seller_id'],'offer.assignment','Individuelles Angebot','Dir wurde das individuelle Angebot „'.$x['title'].'“ zugewiesen.','/individuelle-angebote',null,true);
-    flash('success','Individuelles Angebot zugewiesen.');redirect('/admin/einzelangebote');
+    require_admin();
+    $sellerId=(int)post('seller_id');$categoryId=(int)post('category_id');$title=post('title');$description=post('description');
+    $comp=max(0,(float)post('compensation'));$type=post('fulfillment_type','days');$days=post('duration_days')!==''?(int)post('duration_days'):null;$deadlineRaw=post('acceptance_deadline');
+    if($title===''||$description===''||$sellerId<1||$categoryId<1||$deadlineRaw===''){flash('error','Bitte alle Pflichtfelder ausfüllen.');redirect('/admin/einzelangebote');}
+    $deadline=new DateTimeImmutable($deadlineRaw,new DateTimeZone((string)app_config('app.timezone','Europe/Berlin')));
+    if($deadline<=new DateTimeImmutable('now',$deadline->getTimezone())){flash('error','Die Annahmefrist muss in der Zukunft liegen.');redirect('/admin/einzelangebote');}
+    $rules=['precheck_required_count'=>max(1,(int)post('precheck_required_count','1')),'daily'=>['morning'=>max(0,(int)post('morning_count','1')),'midday'=>max(0,(int)post('midday_count','1')),'evening'=>max(0,(int)post('evening_count','1'))]];
+    $slug='privat-'.date('YmdHis').'-'.substr(bin2hex(random_bytes(6)),0,10);
+    db()->beginTransaction();
+    try{
+        db()->prepare("INSERT INTO offers(category_id,title,slug,description,compensation,duration_days,fulfillment_type,evidence_rules_json,status,visibility,current_version) VALUES(?,?,?,?,?,?,?,?,'active','private',1)")
+          ->execute([$categoryId,$title,$slug,$description,$comp,$days,$type,json_encode($rules,JSON_UNESCAPED_UNICODE)]);
+        $offerId=(int)db()->lastInsertId();
+        $snapshot=['title'=>$title,'category_id'=>$categoryId,'description'=>$description,'compensation'=>$comp,'duration_days'=>$days,'fulfillment_type'=>$type,'evidence_rules'=>$rules,'visibility'=>'private'];
+        db()->prepare("INSERT INTO offer_versions(offer_id,version_no,snapshot_json) VALUES(?,1,?)")->execute([$offerId,json_encode($snapshot,JSON_UNESCAPED_UNICODE)]);
+        db()->prepare("INSERT INTO offer_assignments(offer_id,seller_id,acceptance_deadline,status) VALUES(?,?,?,'assigned')")->execute([$offerId,$sellerId,$deadline->format('Y-m-d H:i:s')]);
+        $assignmentId=(int)db()->lastInsertId();
+        db()->commit();
+    }catch(Throwable $e){db()->rollBack();throw $e;}
+    notify_seller($sellerId,'offer.assignment','Individuelles Angebot','Dir wurde das individuelle Angebot „'.$title.'“ zugewiesen. Annahmefrist: '.$deadline->format('d.m.Y H:i').'.','/individuelle-angebote','assignment-'.$assignmentId.'-created',true);
+    flash('success','Individuelles Angebot wurde privat zugewiesen.');redirect('/admin/einzelangebote');
 }
 if ($path==='/individuelle-angebote' && $method==='GET') {
-    $s=require_seller();$q=db()->prepare("SELECT a.*,f.title,f.compensation,f.duration_days FROM offer_assignments a JOIN offers f ON f.id=a.offer_id WHERE a.seller_id=? ORDER BY a.created_at DESC");$q->execute([$s['id']]);$rows=$q->fetchAll();
-    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Privat</div><h1>Individuelle Angebote</h1></div></div><div class="grid"><?php foreach($rows as $r):?><div class="card"><span class="badge"><?=e($r['status'])?></span><h2><?=e($r['title'])?></h2><div class="price"><?=money($r['compensation'])?></div><p class="meta">Annahmefrist: <?=e(date('d.m.Y H:i',strtotime($r['acceptance_deadline'])))?></p><?php if($r['status']==='assigned'&&strtotime($r['acceptance_deadline'])>time()):?><div class="actions"><form method="post" action="<?=e(url('/individuelle-angebote/'.$r['id'].'/annehmen'))?>"><?=csrf_field()?><button class="btn">Annehmen</button></form><form method="post" action="<?=e(url('/individuelle-angebote/'.$r['id'].'/ablehnen'))?>"><?=csrf_field()?><input name="reason" required placeholder="Grund für Ablehnung"><button class="btn secondary">Ablehnen</button></form></div><?php endif;?></div><?php endforeach;?><?php if(!$rows):?><div class="empty">Keine individuellen Angebote.</div><?php endif;?></div><?php render('Individuelle Angebote',ob_get_clean());exit;
+    $s=require_seller();
+    $q=db()->prepare("SELECT a.id assignment_id,a.acceptance_deadline,a.status assignment_status,a.decline_reason,a.created_at,f.id offer_id,f.title,f.description,f.compensation,f.duration_days,f.fulfillment_type FROM offer_assignments a JOIN offers f ON f.id=a.offer_id WHERE a.seller_id=? ORDER BY a.created_at DESC");
+    $q->execute([$s['id']]);$rows=$q->fetchAll();
+    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Privat</div><h1>Individuelle Angebote</h1></div></div><div class="grid">
+    <?php foreach($rows as $r):?><article class="card"><span class="badge"><?=e($r['assignment_status'])?></span><h2><?=e($r['title'])?></h2><p><?=nl2br(e($r['description']))?></p><div class="price"><?=money($r['compensation'])?></div><p class="meta"><?=e($r['duration_days']?$r['duration_days'].' Tage':ucfirst($r['fulfillment_type']))?> · Annahmefrist <?=e(date('d.m.Y H:i',strtotime($r['acceptance_deadline'])))?></p>
+      <?php if($r['assignment_status']==='assigned'&&strtotime($r['acceptance_deadline'])>time()):?><div class="actions"><form method="post" action="<?=e(url('/individuelle-angebote/'.$r['assignment_id'].'/annehmen'))?>"><?=csrf_field()?><button class="btn">Verbindlich annehmen</button></form><form method="post" action="<?=e(url('/individuelle-angebote/'.$r['assignment_id'].'/ablehnen'))?>"><?=csrf_field()?><input name="reason" required placeholder="Grund für Ablehnung"><button class="btn secondary">Ablehnen</button></form></div><?php endif;?>
+      <?php if($r['assignment_status']==='declined'&&$r['decline_reason']):?><p class="meta">Ablehnungsgrund: <?=e($r['decline_reason'])?></p><?php endif;?>
+    </article><?php endforeach;?><?php if(!$rows):?><div class="empty">Keine individuellen Angebote.</div><?php endif;?></div><?php render('Individuelle Angebote',ob_get_clean());exit;
 }
 if (preg_match('#^/individuelle-angebote/(\d+)/(annehmen|ablehnen)$#',$path,$m) && $method==='POST') {
-    $s=require_seller();$q=db()->prepare("SELECT a.*,f.* FROM offer_assignments a JOIN offers f ON f.id=a.offer_id WHERE a.id=? AND a.seller_id=? AND a.status='assigned'");$q->execute([(int)$m[1],$s['id']]);$a=$q->fetch();if(!$a)not_found();
-    if(strtotime($a['acceptance_deadline'])<=time()){db()->prepare("UPDATE offer_assignments SET status='expired',updated_at=NOW() WHERE id=?")->execute([$a['id']]);flash('error','Die Annahmefrist ist abgelaufen.');redirect('/individuelle-angebote');}
-    if($m[2]==='ablehnen'){$reason=post('reason');if($reason===''){flash('error','Bitte einen Ablehnungsgrund angeben.');redirect('/individuelle-angebote');}db()->prepare("UPDATE offer_assignments SET status='declined',decline_reason=?,updated_at=NOW() WHERE id=?")->execute([$reason,$a['id']]);flash('success','Angebot abgelehnt.');redirect('/individuelle-angebote');}
+    $s=require_seller();
+    $q=db()->prepare("SELECT a.id assignment_id,a.acceptance_deadline,a.status assignment_status,a.offer_id,f.* FROM offer_assignments a JOIN offers f ON f.id=a.offer_id WHERE a.id=? AND a.seller_id=? AND a.status='assigned'");
+    $q->execute([(int)$m[1],$s['id']]);$a=$q->fetch();if(!$a)not_found();
+    if(strtotime($a['acceptance_deadline'])<=time()){db()->prepare("UPDATE offer_assignments SET status='expired',updated_at=NOW() WHERE id=?")->execute([$a['assignment_id']]);flash('error','Die Annahmefrist ist abgelaufen.');redirect('/individuelle-angebote');}
+    if($m[2]==='ablehnen'){
+        $reason=post('reason');if($reason===''){flash('error','Bitte einen Ablehnungsgrund angeben.');redirect('/individuelle-angebote');}
+        db()->prepare("UPDATE offer_assignments SET status='declined',decline_reason=?,updated_at=NOW() WHERE id=?")->execute([$reason,$a['assignment_id']]);
+        log_event('private_offer.declined',(int)$s['id'],null,['assignment_id'=>(int)$a['assignment_id'],'reason'=>$reason]);
+        flash('success','Individuelles Angebot abgelehnt.');redirect('/individuelle-angebote');
+    }
     if(!$s['email_verified_at']){flash('error','Bitte bestätige zuerst deine E-Mail-Adresse.');redirect('/individuelle-angebote');}
-    $no=order_number();db()->beginTransaction();try{
-        db()->prepare("INSERT INTO orders(order_no,seller_id,offer_id,offer_version,status,base_compensation,total_compensation,duration_days) VALUES(?,?,?,?, 'precheck',?,?,?)")->execute([$no,$s['id'],$a['offer_id'],$a['current_version'],$a['compensation'],$a['compensation'],$a['duration_days']]);
-        $oid=(int)db()->lastInsertId();db()->prepare("INSERT INTO order_runs(order_id,run_no,status) VALUES(?,1,'precheck')")->execute([$oid]);db()->prepare("INSERT INTO wallet_entries(seller_id,order_id,entry_type,amount,description) VALUES(?,?,'reserved',?,'Individueller Auftragswert vorgemerkt')")->execute([$s['id'],$oid,$a['compensation']]);db()->prepare("UPDATE offer_assignments SET status='accepted',updated_at=NOW() WHERE id=?")->execute([$a['id']]);db()->commit();
+    $dupe=db()->prepare("SELECT COUNT(*) FROM orders x JOIN offers ox ON ox.id=x.offer_id WHERE x.seller_id=? AND ox.category_id=? AND x.status IN('precheck','running','shipping','review','payout')");
+    $dupe->execute([$s['id'],$a['category_id']]);if((int)$dupe->fetchColumn()>0){flash('error','In dieser Kategorie besteht bereits ein aktiver Auftrag.');redirect('/individuelle-angebote');}
+
+    $no=order_number();
+    db()->beginTransaction();
+    try{
+        db()->prepare("INSERT INTO orders(order_no,seller_id,offer_id,offer_version,status,base_compensation,total_compensation,duration_days) VALUES(?,?,?,?, 'precheck',?,?,?)")
+          ->execute([$no,$s['id'],$a['offer_id'],$a['current_version'],$a['compensation'],$a['compensation'],$a['duration_days']]);
+        $oid=(int)db()->lastInsertId();
+        db()->prepare("INSERT INTO order_runs(order_id,run_no,status) VALUES(?,1,'precheck')")->execute([$oid]);
+        db()->prepare("INSERT INTO wallet_entries(seller_id,order_id,entry_type,amount,description) VALUES(?,?,'reserved',?,'Individueller Auftragswert vorgemerkt')")->execute([$s['id'],$oid,$a['compensation']]);
+        if(in_array($a['fulfillment_type'],['digital','mixed'],true)){
+            db()->prepare("INSERT INTO rights_acceptances(order_id,seller_id,terms_version,payload_json) VALUES(?,?,?,?)")
+              ->execute([$oid,$s['id'],'v1',json_encode(['scope'=>'technical_processing_and_order_terms','private_offer'=>true],JSON_UNESCAPED_UNICODE)]);
+        }
+        db()->prepare("UPDATE offer_assignments SET status='accepted',updated_at=NOW() WHERE id=?")->execute([$a['assignment_id']]);
+        db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")->execute([$oid,'Individuelles Angebot wurde angenommen. Auftrag '.$no.' wurde angelegt.']);
+        log_event('private_offer.accepted',(int)$s['id'],$oid,['assignment_id'=>(int)$a['assignment_id']]);
+        db()->commit();
     }catch(Throwable $e){db()->rollBack();throw $e;}
     flash('success','Individuelles Angebot angenommen. Auftrag '.$no.' wurde erstellt.');redirect('/auftrag/'.$no);
 }
+
