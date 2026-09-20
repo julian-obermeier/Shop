@@ -125,7 +125,10 @@ foreach($tasks as $t){
 $startable=$pdo->prepare("SELECT id FROM orders WHERE status='precheck' AND precheck_approved_at IS NOT NULL AND planned_start_date IS NOT NULL AND planned_start_date<=?");
 $startable->execute([$now->format('Y-m-d')]);
 foreach($startable->fetchAll() as $row){
-    start_order_on_planned_date((int)$row['id'],$now);
+    $orderId=(int)$row['id'];
+    start_order_on_planned_date($orderId,$now);
+    $pdo->prepare("UPDATE order_components SET status='execution',updated_at=NOW() WHERE order_id=? AND status='preparation'")
+        ->execute([$orderId]);
 }
 
 /* Auftragstage abschließen und bei vollständig erledigter Durchführung in den Versand wechseln. */
@@ -183,6 +186,11 @@ foreach($runningOrders as $row){
         }
     }
     advance_order_to_shipping_if_ready($orderId);
+    $statusQ=$pdo->prepare("SELECT status FROM orders WHERE id=?");$statusQ->execute([$orderId]);$currentStatus=$statusQ->fetchColumn();
+    if($currentStatus==='shipping'){
+        $pdo->prepare("UPDATE order_components SET status='shipping',updated_at=NOW() WHERE order_id=? AND component_type='physical' AND status='execution'")
+            ->execute([$orderId]);
+    }
 }
 
 /* Versandschritt-Fristen: ein unvollständiger Schritt zählt als ein möglicher Verstoß. */
