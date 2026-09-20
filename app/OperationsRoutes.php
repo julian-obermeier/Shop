@@ -736,39 +736,3 @@ if (preg_match('#^/admin/angebotsvorlage/(\d+)/umschalten$#',$path,$m) && $metho
     db()->prepare("UPDATE offer_templates SET active=IF(active=1,0,1),updated_at=NOW() WHERE id=?")->execute([(int)$m[1]]);
     flash('success','Vorlagenstatus geändert.');redirect('/admin/angebotsvorlagen');
 }
-
-
-if (preg_match('#^/admin/auftrag/(\d{8})/versanderstattung$#',$path,$m) && $method==='POST') {
-    require_admin();
-    $q=db()->prepare("SELECT o.*,s.id shipment_id,s.claimed_shipping_cost,s.approved_reimbursement,s.proof_evidence_id FROM orders o JOIN shipments s ON s.order_id=o.id WHERE o.order_no=?");
-    $q->execute([$m[1]]);$o=$q->fetch();if(!$o)not_found();
-
-    $cfg=order_shipping_snapshot($o);
-    if(($cfg['cost_mode']??'seller')!=='reimburse'){flash('error','Für diesen Auftrag ist keine Versandkostenerstattung vereinbart.');redirect('/admin/auftrag/'.$o['order_no']);}
-    if($o['approved_reimbursement']!==null){flash('error','Die Versandkosten wurden bereits freigegeben.');redirect('/admin/auftrag/'.$o['order_no']);}
-
-    $amount=max(0,(float)$o['claimed_shipping_cost']);
-    if($amount<=0 || empty($o['proof_evidence_id'])){flash('error','Kostenbetrag oder Versandkostennachweis fehlt.');redirect('/admin/auftrag/'.$o['order_no']);}
-
-    db()->beginTransaction();
-    try{
-        $upd=db()->prepare("UPDATE shipments SET approved_reimbursement=? WHERE id=? AND approved_reimbursement IS NULL");
-        $upd->execute([$amount,$o['shipment_id']]);
-        if($upd->rowCount()!==1) throw new RuntimeException('Die Versandkostenerstattung wurde bereits bearbeitet.');
-
-        db()->prepare("UPDATE orders SET total_compensation=total_compensation+?,updated_at=NOW() WHERE id=?")->execute([$amount,$o['id']]);
-        db()->prepare("INSERT INTO wallet_entries(seller_id,order_id,entry_type,amount,description) VALUES(?,?,'reserved',?,'Versandkostenerstattung gegen Nachweis')")
-            ->execute([$o['seller_id'],$o['id'],$amount]);
-        db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")
-            ->execute([$o['id'],'Versandkostenerstattung freigegeben: '.money($amount).'.']);
-        log_event('shipping.reimbursement_approved',(int)$o['seller_id'],(int)$o['id'],['amount'=>$amount,'shipment_id'=>(int)$o['shipment_id']]);
-        db()->commit();
-    }catch(Throwable $e){
-        if(db()->inTransaction()) db()->rollBack();
-        flash('error',$e->getMessage());redirect('/admin/auftrag/'.$o['order_no']);
-    }
-
-    notify_seller((int)$o['seller_id'],'shipping.reimbursement','Versandkosten freigegeben','Für Auftrag '.$o['order_no'].' wurden '.money($amount).' Versandkosten zum vorgemerkten Auftragswert hinzugefügt.','/auftrag/'.$o['order_no'],null,true);
-    flash('success','Versandkosten von '.money($amount).' wurden freigegeben.');
-    redirect('/admin/auftrag/'.$o['order_no']);
-}
