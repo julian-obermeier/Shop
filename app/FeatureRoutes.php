@@ -323,6 +323,7 @@ if ($path==='/admin/einstellungen'&&$method==='GET') {
         <label>Morgenfenster<input name="window_morning" value="<?=e($set['window_morning']??'06:00-10:00')?>"></label>
         <label>Mittagsfenster<input name="window_midday" value="<?=e($set['window_midday']??'12:00-16:00')?>"></label>
         <label>Abendfenster<input name="window_evening" value="<?=e($set['window_evening']??'18:00-23:59')?>"></label>
+        <label>Zwischenstand alle X abgeschlossenen Tage<select name="interim_summary_interval"><?php foreach([0=>'Aus',5=>'5 Tage',7=>'7 Tage',10=>'10 Tage',14=>'14 Tage'] as $k=>$label):?><option value="<?=$k?>" <?=((string)($set['interim_summary_interval']??'7')===(string)$k)?'selected':''?>><?=e($label)?></option><?php endforeach;?></select></label>
       </div><button class="btn">Speichern</button>
     </form><?php render('Einstellungen',ob_get_clean());exit;
 }
@@ -347,6 +348,7 @@ if ($path==='/admin/einstellungen'&&$method==='POST') {
       'window_midday'=>post('window_midday','12:00-16:00'),
       'window_evening'=>post('window_evening','18:00-23:59'),
       'grace_minutes'=>post('grace_minutes','60'),
+      'interim_summary_interval'=>post('interim_summary_interval','7'),
     ];
     foreach($values as $k=>$v) db()->prepare("INSERT INTO settings(setting_key,setting_value) VALUES(?,?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)")->execute([$k,$v]);
     flash('success','Einstellungen gespeichert.');redirect('/admin/einstellungen');
