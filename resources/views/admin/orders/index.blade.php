@@ -1,7 +1,0 @@
-@extends('layouts.app')
-@section('title','Aufträge verwalten')
-@section('content')
-<div class="page-head"><div><span class="eyebrow">Administration</span><h1>Aufträge</h1><p>Alle Aufträge mit Status, Anbieterin und Vergütung.</p></div></div>
-<form class="filters" method="get"><select name="status"><option value="">Alle Status</option>@foreach(['requested','awaiting_date_confirmation','request_rejected','precheck','approved','active','paused','waiting_shipping','shipping_overdue','shipped','received','inspection','accepted','completed','cancelled','rejected','not_started'] as $status)<option value="{{ $status }}" @selected(request('status')===$status)>{{ strtoupper(str_replace('_',' ',$status)) }}</option>@endforeach</select><button class="btn secondary">Filtern</button></form>
-<div class="table-card"><table><thead><tr><th>Auftrag</th><th>Anbieterin</th><th>Angebot</th><th>Status</th><th>Vergütung</th><th></th></tr></thead><tbody>@forelse($orders as $order)<tr><td><strong>#{{ $order->order_number }}</strong></td><td>{{ $order->user->first_name }} {{ $order->user->last_name }}</td><td>{{ data_get($order->offer_snapshot,'title') }}</td><td><span class="status {{ $order->status }}">{{ strtoupper(str_replace('_',' ',$order->status)) }}</span></td><td>{{ number_format($order->compensation_total,2,',','.') }} €</td><td><a href="{{ route('admin.orders.show',$order) }}">Öffnen →</a></td></tr>@empty<tr><td colspan="6" class="empty">Keine Aufträge gefunden.</td></tr>@endforelse</tbody></table></div>{{ $orders->links() }}
-@endsection
