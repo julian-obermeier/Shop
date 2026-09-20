@@ -2172,6 +2172,19 @@ if (preg_match('#^/individuelle-angebote/(\d+)/(annehmen|ablehnen)$#',$path,$m) 
     $no=order_number();
     db()->beginTransaction();
     try{
+        $sellerLock=db()->prepare("SELECT id FROM sellers WHERE id=? FOR UPDATE");$sellerLock->execute([$s['id']]);
+        if(seller_has_category_conflict((int)$s['id'],$blockedCategories)){
+            db()->rollBack();
+            flash('error','Mindestens eine in diesem individuellen Angebot enthaltene Kategorie wurde zwischenzeitlich durch einen anderen aktiven Auftrag belegt.');
+            redirect('/individuelle-angebote');
+        }
+        $assignmentLock=db()->prepare("SELECT status,acceptance_deadline FROM offer_assignments WHERE id=? FOR UPDATE");
+        $assignmentLock->execute([$a['assignment_id']]);$freshAssignment=$assignmentLock->fetch();
+        if(!$freshAssignment || $freshAssignment['status']!=='assigned' || strtotime($freshAssignment['acceptance_deadline'])<=time()){
+            if(db()->inTransaction())db()->rollBack();
+            flash('error','Dieses individuelle Angebot ist nicht mehr annehmbar.');
+            redirect('/individuelle-angebote');
+        }
         db()->prepare("INSERT INTO orders(order_no,seller_id,offer_id,offer_version,status,base_compensation,total_compensation,duration_days,shipping_snapshot_json,digital_rules_snapshot_json,digital_due_at,started_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)")
           ->execute([$no,$s['id'],$a['offer_id'],$a['current_version'],$initialStatus,$a['compensation'],$total,$a['duration_days'],json_encode($shippingSnapshot,JSON_UNESCAPED_UNICODE),$digitalRulesJson,$digitalDueAt,$startedAt]);
         $oid=(int)db()->lastInsertId();
