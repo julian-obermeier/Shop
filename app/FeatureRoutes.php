@@ -1266,30 +1266,77 @@ if (preg_match('#^/admin/verstoss/(\d+)/(bestaetigen|verwerfen)$#',$path,$m) && 
     require_admin();
     $q=db()->prepare("SELECT v.*,o.order_no,o.seller_id FROM violations v JOIN orders o ON o.id=v.order_id WHERE v.id=?");
     $q->execute([(int)$m[1]]);$v=$q->fetch();if(!$v)not_found();
+
     if($m[2]==='bestaetigen'){
+        $extensionDays=max(0,(int)($v['extension_days']??0));
+        $isDigitalDeadline=in_array((string)$v['violation_type'],['digital_deadline','digital_revision_deadline'],true);
+        $extraId=null;
+
         db()->beginTransaction();
         try{
             db()->prepare("UPDATE violations SET status='confirmed',reviewed_at=NOW() WHERE id=? AND status IN('open','reviewed')")->execute([$v['id']]);
-            $q=db()->prepare("SELECT id FROM extra_days WHERE source_type='violation' AND source_id=? AND status='provisional' LIMIT 1");
-            $q->execute([$v['id']]);$extraId=$q->fetchColumn();
-            if($extraId){
-                db()->prepare("UPDATE extra_days SET status='confirmed' WHERE id=?")->execute([$extraId]);
-            }else{
-                db()->prepare("INSERT INTO extra_days(order_id,source_type,source_id,status,paid,amount,reason) VALUES(?,'violation',?,'confirmed',0,0,?)")->execute([$v['order_id'],$v['id'],$v['reason']]);
-                $extraId=(int)db()->lastInsertId();
+
+            if($extensionDays>0){
+                $q=db()->prepare("SELECT id FROM extra_days WHERE source_type='violation' AND source_id=? AND status='provisional' LIMIT 1");
+                $q->execute([$v['id']]);$extraId=$q->fetchColumn();
+                if($extraId){
+                    db()->prepare("UPDATE extra_days SET status='confirmed' WHERE id=?")->execute([$extraId]);
+                }else{
+                    db()->prepare("INSERT INTO extra_days(order_id,source_type,source_id,status,paid,amount,reason) VALUES(?,'violation',?,'confirmed',0,0,?)")
+                      ->execute([$v['order_id'],$v['id'],$v['reason']]);
+                    $extraId=(int)db()->lastInsertId();
+                }
+
+                if($isDigitalDeadline){
+                    if($v['violation_type']==='digital_deadline'){
+                        db()->prepare("UPDATE orders SET digital_due_at=DATE_ADD(GREATEST(COALESCE(digital_due_at,NOW()),NOW()),INTERVAL ? DAY),updated_at=NOW() WHERE id=?")
+                          ->execute([$extensionDays,$v['order_id']]);
+                    }elseif(preg_match('/^digital-revision-(\d+)-deadline$/',(string)$v['source_key'],$roundMatch)){
+                        $roundId=(int)$roundMatch[1];
+                        $rules=offer_digital_rules((int)$v['order_id']);
+                        $newDue=(new DateTimeImmutable('now',new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'))))
+                          ->modify('+'.$extensionDays.' day');
+                        $newGrace=$newDue->modify('+'.(int)$rules['revision']['grace_minutes'].' minutes');
+                        db()->prepare("UPDATE revision_rounds SET due_at=?,grace_ends_at=?,status='open' WHERE id=? AND order_id=?")
+                          ->execute([$newDue->format('Y-m-d H:i:s'),$newGrace->format('Y-m-d H:i:s'),$roundId,$v['order_id']]);
+                    }
+                }
             }
+
             db()->commit();
-            schedule_extra_day((int)$extraId);
-        }catch(Throwable $e){db()->rollBack();throw $e;}
-        db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")->execute([$v['order_id'],'Verstoß bestätigt: '.($v['reason']?:$v['violation_type']).' · +1 zusätzlicher Durchführungstag.']);
-        notify_seller((int)$v['seller_id'],'violation.confirmed','Verstoß bestätigt','Im Auftrag '.$v['order_no'].' wurde ein Verstoß bestätigt. Ein zusätzlicher Durchführungstag wurde angehängt.','/auftrag/'.$v['order_no'],'violation-confirmed-'.$v['id'],true);
-        flash('success','Verstoß bestätigt; der Zusatztag ist jetzt verbindlich terminiert.');
+
+            if($extensionDays>0 && !$isDigitalDeadline && $extraId){
+                schedule_extra_day((int)$extraId);
+            }
+        }catch(Throwable $e){
+            if(db()->inTransaction())db()->rollBack();
+            throw $e;
+        }
+
+        $effectText=$extensionDays>0
+          ? ($isDigitalDeadline
+              ? 'Die digitale Bearbeitungsfrist wurde um '.$extensionDays.' Tag'.($extensionDays===1?'':'e').' verlängert.'
+              : '+'.$extensionDays.' zusätzlicher Durchführungstag'.($extensionDays===1?'':'e').' wurde verbindlich.')
+          : 'Der Verstoß wurde bestätigt und ausschließlich protokolliert; es entsteht kein zusätzlicher Durchführungstag.';
+
+        db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")
+          ->execute([$v['order_id'],'Verstoß bestätigt: '.($v['reason']?:$v['violation_type']).' · '.$effectText]);
+        notify_seller(
+            (int)$v['seller_id'],
+            'violation.confirmed',
+            'Verstoß bestätigt',
+            'Im Auftrag '.$v['order_no'].' wurde ein Verstoß bestätigt. '.$effectText,
+            '/auftrag/'.$v['order_no'],
+            'violation-confirmed-'.$v['id'],
+            true
+        );
+        flash('success','Verstoß bestätigt. '.$effectText);
     }else{
         db()->prepare("UPDATE violations SET status='discarded',reviewed_at=NOW() WHERE id=? AND status IN('open','reviewed')")->execute([$v['id']]);
         db()->prepare("UPDATE extra_days SET status='cancelled' WHERE source_type='violation' AND source_id=? AND status='provisional'")->execute([$v['id']]);
         db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")->execute([$v['order_id'],'Möglicher Verstoß wurde nach Prüfung verworfen.']);
         notify_seller((int)$v['seller_id'],'violation.discarded','Verstoß verworfen','Der mögliche Verstoß im Auftrag '.$v['order_no'].' wurde verworfen.','/auftrag/'.$v['order_no'],'violation-discarded-'.$v['id'],false);
-        flash('success','Verstoß verworfen; der provisorische Zusatztag wurde storniert.');
+        flash('success','Verstoß verworfen; ein eventuell provisorisch vorgemerkter Zusatztag wurde storniert.');
     }
     redirect('/admin/entscheidungen');
 }
