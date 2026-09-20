@@ -1501,3 +1501,55 @@ function rate_limit_consume(string $scope, string $identifier='', int $limit=5, 
 function rate_limit_clear(string $scope, string $identifier=''): void {
     try{db()->prepare('DELETE FROM rate_limits WHERE rate_key=?')->execute([rate_limit_key($scope,$identifier)]);}catch(Throwable){}
 }
+
+
+function order_value_breakdown(array|int $order): array {
+    if(is_int($order)){
+        $q=db()->prepare('SELECT * FROM orders WHERE id=?');
+        $q->execute([$order]);
+        $order=$q->fetch() ?: [];
+    }
+    if(empty($order['id'])) return [];
+
+    $orderId=(int)$order['id'];
+    $base=(float)($order['base_compensation']??0);
+
+    $q=db()->prepare("SELECT COALESCE(SUM(compensation_snapshot),0) FROM order_components WHERE order_id=? AND source_component_id IS NOT NULL");
+    $q->execute([$orderId]);$components=(float)$q->fetchColumn();
+
+    $q=db()->prepare("SELECT COALESCE(SUM(price_snapshot),0) FROM order_options WHERE order_id=?");
+    $q->execute([$orderId]);$options=(float)$q->fetchColumn();
+
+    $q=db()->prepare("SELECT COALESCE(SUM(compensation),0) FROM order_tasks WHERE order_id=?");
+    $q->execute([$orderId]);$tasks=(float)$q->fetchColumn();
+
+    $shipping=order_shipping_snapshot($order);
+    $fixedShipping=($shipping['cost_mode']??'seller')==='fixed' ? max(0,(float)($shipping['allowance']??0)) : 0.0;
+
+    $q=db()->prepare("SELECT COALESCE(SUM(approved_reimbursement),0) FROM shipments WHERE order_id=?");
+    $q->execute([$orderId]);$shippingReimbursement=(float)$q->fetchColumn();
+
+    $q=db()->prepare("SELECT COALESCE(SUM(amount),0) FROM order_bonuses WHERE order_id=? AND status IN('reserved','released')");
+    $q->execute([$orderId]);$bonus=(float)$q->fetchColumn();
+
+    $q=db()->prepare("SELECT COALESCE(SUM(amount),0) FROM extra_days WHERE order_id=? AND paid=1 AND status='confirmed'");
+    $q->execute([$orderId]);$paidExtraDays=(float)$q->fetchColumn();
+
+    $known=round($base+$components+$options+$tasks+$fixedShipping+$shippingReimbursement+$bonus+$paidExtraDays,2);
+    $total=round((float)($order['total_compensation']??$known),2);
+    $other=round($total-$known,2);
+
+    return [
+        'base'=>round($base,2),
+        'components'=>round($components,2),
+        'options'=>round($options,2),
+        'tasks'=>round($tasks,2),
+        'shipping_fixed'=>round($fixedShipping,2),
+        'shipping_reimbursement'=>round($shippingReimbursement,2),
+        'bonus'=>round($bonus,2),
+        'paid_extra_days'=>round($paidExtraDays,2),
+        'other_adjustments'=>$other,
+        'total'=>$total,
+        'released_amount'=>$order['released_amount']!==null?round((float)$order['released_amount'],2):null,
+    ];
+}
