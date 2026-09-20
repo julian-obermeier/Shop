@@ -278,6 +278,7 @@ CREATE TABLE IF NOT EXISTS order_items (
  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
  order_id BIGINT UNSIGNED NOT NULL,
  order_run_id BIGINT UNSIGNED NULL,
+ order_component_id BIGINT UNSIGNED NULL,
  label VARCHAR(190) NOT NULL,
  size_value VARCHAR(100) NULL,
  color_value VARCHAR(100) NULL,
@@ -286,13 +287,16 @@ CREATE TABLE IF NOT EXISTS order_items (
  attributes_json JSON NULL,
  locked_at DATETIME NULL,
  FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE,
- FOREIGN KEY(order_run_id) REFERENCES order_runs(id) ON DELETE SET NULL
+ FOREIGN KEY(order_run_id) REFERENCES order_runs(id) ON DELETE SET NULL,
+ FOREIGN KEY(order_component_id) REFERENCES order_components(id) ON DELETE SET NULL,
+ INDEX(order_id,order_run_id,order_component_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS evidences (
  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
  order_id BIGINT UNSIGNED NOT NULL,
  order_run_id BIGINT UNSIGNED NULL,
+ order_component_id BIGINT UNSIGNED NULL,
  seller_id BIGINT UNSIGNED NOT NULL,
  evidence_type ENUM('precheck','daily','spontaneous','task','damage','shipping','digital') NOT NULL,
  day_no INT NULL,
@@ -312,7 +316,8 @@ CREATE TABLE IF NOT EXISTS evidences (
  reviewed_at DATETIME NULL,
  FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE,
  FOREIGN KEY(seller_id) REFERENCES sellers(id),
- INDEX(source_type,source_id)
+ FOREIGN KEY(order_component_id) REFERENCES order_components(id) ON DELETE SET NULL,
+ INDEX(source_type,source_id), INDEX(order_id,order_run_id,order_component_id,evidence_type)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS evidence_retake_requests (
@@ -367,11 +372,14 @@ CREATE TABLE IF NOT EXISTS extra_days (
 CREATE TABLE IF NOT EXISTS damage_cases (
  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
  order_id BIGINT UNSIGNED NOT NULL,
+ order_component_id BIGINT UNSIGNED NULL,
  reason TEXT NOT NULL,
  status ENUM('reported','evidence_requested','review','approved','rejected','restarted') NOT NULL DEFAULT 'reported',
  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
  decided_at DATETIME NULL,
- FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE
+ FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE,
+ FOREIGN KEY(order_component_id) REFERENCES order_components(id) ON DELETE SET NULL,
+ INDEX(order_id,order_component_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS order_bonuses (
