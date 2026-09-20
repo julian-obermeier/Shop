@@ -663,18 +663,21 @@ if(preg_match('#^/admin/auftrag/(\\d{8})$#',$path,$m)&&$method==='GET'){
  <?php if($digitalVersions || $o['fulfillment_type']==='digital' || $o['fulfillment_type']==='mixed'):?>
  <h2>Digitale Versionen</h2>
  <div class="timeline">
- <?php foreach($digitalVersions as $dv):?>
+ <?php foreach($digitalVersions as $dv):
+   $dvAssets=json_decode((string)($dv['assets_json']??''),true);
+   if(!is_array($dvAssets))$dvAssets=[];
+   if(!$dvAssets && $dv['file_path'])$dvAssets=[['type'=>str_starts_with((string)$dv['mime_type'],'audio/')?'audio':(str_starts_with((string)$dv['mime_type'],'video/')?'video':'file'),'path'=>$dv['file_path'],'mime'=>$dv['mime_type'],'sha256'=>$dv['sha256']]];
+ ?>
    <article class="panel">
      <div class="dashboard-head"><div><strong>V<?=e($dv['version_no'])?></strong> · <span class="badge"><?=e($dv['status'])?></span></div><span class="meta"><?=e(date('d.m.Y H:i',strtotime($dv['created_at'])))?></span></div>
      <?php if($dv['text_content']):?><div style="white-space:pre-wrap"><?=e($dv['text_content'])?></div><?php endif;?>
-     <?php if($dv['file_path']):?>
-       <?php $mediaUrl=url('/digitale-datei/'.$dv['id']); $mime=(string)($dv['mime_type']??''); ?>
-       <?php if(str_starts_with($mime,'audio/')):?><audio controls preload="metadata" style="width:100%"><source src="<?=e($mediaUrl)?>" type="<?=e($mime)?>"></audio>
-       <?php elseif(str_starts_with($mime,'video/')):?><video controls preload="metadata" playsinline style="width:100%;max-height:520px;border-radius:12px"><source src="<?=e($mediaUrl)?>" type="<?=e($mime)?>"></video>
-       <?php elseif(str_starts_with($mime,'image/')):?><img src="<?=e($mediaUrl)?>" alt="Digitale Version V<?=e($dv['version_no'])?>" style="max-width:100%;max-height:560px;border-radius:12px">
-       <?php else:?><a class="btn secondary" target="_blank" href="<?=e($mediaUrl)?>">Datei öffnen</a><?php endif;?>
-       
-     <?php endif;?>
+     <?php foreach($dvAssets as $dvAssetIndex=>$dvAsset): $mediaUrl=url('/digitale-datei/'.$dv['id'].'/'.$dvAssetIndex); $mime=(string)($dvAsset['mime']??'application/octet-stream'); ?>
+       <?php if(str_starts_with($mime,'audio/')):?><audio controls preload="metadata" style="width:100%;margin-top:12px"><source src="<?=e($mediaUrl)?>" type="<?=e($mime)?>"></audio>
+       <?php elseif(str_starts_with($mime,'video/')):?><video controls preload="metadata" playsinline style="width:100%;max-height:520px;border-radius:12px;margin-top:12px"><source src="<?=e($mediaUrl)?>" type="<?=e($mime)?>"></video>
+       <?php endif;?>
+       <details class="meta" style="margin-top:6px"><summary>Medientechnik <?=e($dvAsset['type']??'Datei')?></summary><div style="overflow-wrap:anywhere"><?php if(isset($dvAsset['size'])):?>Größe: <?=e(number_format(((int)$dvAsset['size'])/1024/1024,2,',','.'))?> MB<br><?php endif;?>MIME: <?=e($mime)?><?php if(!empty($dvAsset['sha256'])):?><br>SHA-256: <code><?=e($dvAsset['sha256'])?></code><?php endif;?></div></details>
+     <?php endforeach;?>
+     <?php if($dvAssets):?><p class="meta">Medien werden ausschließlich inline wiedergegeben; es gibt keine Download-Schaltfläche.</p><?php endif;?>
      <?php if($dv['review_note']):?><p><strong>Prüfnotiz:</strong> <?=e($dv['review_note'])?></p><?php endif;?>
      <?php if(!$o['archived_at']):?>
        <form method="post" action="<?=e(url('/admin/digital-version/'.$dv['id'].'/pruefen'))?>" style="margin-top:12px">
