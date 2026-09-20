@@ -416,3 +416,75 @@ if (preg_match('#^/admin/auftrag/(\d{8})/optionen$#',$path,$m) && $method==='POS
     flash('success','Zusatzoptionen aktualisiert. Neuer Auftragswert: '.money((float)$o['total_compensation']+$delta).'.');
     redirect('/admin/auftrag/'.$o['order_no']);
 }
+
+
+if (preg_match('#^/admin/auftrag/(\d{8})/bonus$#',$path,$m) && $method==='POST') {
+    require_admin();
+    $q=db()->prepare("SELECT * FROM orders WHERE order_no=?");$q->execute([$m[1]]);$o=$q->fetch();if(!$o)not_found();
+    if(!in_array($o['status'],['precheck','running','shipping','review','payout'],true) || $o['archived_at']){
+        flash('error','Für diesen Auftrag kann kein Bonus mehr vorgemerkt werden.');redirect('/admin/auftrag/'.$o['order_no']);
+    }
+    $amount=round((float)post('amount'),2);
+    if($amount<=0){flash('error','Der Bonus muss größer als 0 € sein.');redirect('/admin/auftrag/'.$o['order_no']);}
+
+    db()->beginTransaction();
+    try{
+      db()->prepare("INSERT INTO order_bonuses(order_id,amount,status,note) VALUES(?,?,'reserved',?)")
+        ->execute([$o['id'],$amount,post('note')?:null]);
+      $bonusId=(int)db()->lastInsertId();
+      db()->prepare("INSERT INTO wallet_entries(seller_id,order_id,bonus_id,entry_type,amount,description) VALUES(?,?,?,'reserved',?,'Bonus vorgemerkt')")
+        ->execute([$o['seller_id'],$o['id'],$bonusId,$amount]);
+      db()->prepare("UPDATE orders SET total_compensation=total_compensation+?,updated_at=NOW() WHERE id=?")->execute([$amount,$o['id']]);
+      db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")
+        ->execute([$o['id'],'Bonus vorgemerkt: '.money($amount).(post('note')!==''?' · '.post('note'):'')]);
+      log_event('order.bonus_added',(int)$o['seller_id'],(int)$o['id'],['bonus_id'=>$bonusId,'amount'=>$amount]);
+      db()->commit();
+    }catch(Throwable $e){db()->rollBack();throw $e;}
+
+    notify_seller((int)$o['seller_id'],'order.bonus','Bonus vorgemerkt','Für Auftrag '.$o['order_no'].' wurde ein Bonus von '.money($amount).' vorgemerkt.','/auftrag/'.$o['order_no'],null,true);
+    flash('success','Bonus vorgemerkt.');redirect('/admin/auftrag/'.$o['order_no']);
+}
+
+if (preg_match('#^/admin/bonus/(\d+)/entfernen$#',$path,$m) && $method==='POST') {
+    require_admin();
+    $q=db()->prepare("SELECT b.*,o.order_no,o.seller_id,o.id order_id,o.status order_status,o.archived_at FROM order_bonuses b JOIN orders o ON o.id=b.order_id WHERE b.id=?");
+    $q->execute([(int)$m[1]]);$b=$q->fetch();if(!$b)not_found();
+    if($b['status']!=='reserved' || $b['archived_at'] || in_array($b['order_status'],['completed','rejected'],true)){
+        flash('error','Dieser Bonus kann nicht mehr entfernt werden.');redirect('/admin/auftrag/'.$b['order_no']);
+    }
+
+    db()->beginTransaction();
+    try{
+      db()->prepare("UPDATE order_bonuses SET status='cancelled',cancelled_at=NOW() WHERE id=? AND status='reserved'")->execute([$b['id']]);
+      db()->prepare("UPDATE wallet_entries SET entry_type='cancelled',description='Bonus vor Freigabe entfernt' WHERE bonus_id=? AND entry_type='reserved'")->execute([$b['id']]);
+      db()->prepare("UPDATE orders SET total_compensation=GREATEST(0,total_compensation-?),updated_at=NOW() WHERE id=?")->execute([$b['amount'],$b['order_id']]);
+      db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")->execute([$b['order_id'],'Vorgemerkter Bonus von '.money($b['amount']).' wurde vor Freigabe entfernt.']);
+      log_event('order.bonus_cancelled',(int)$b['seller_id'],(int)$b['order_id'],['bonus_id'=>(int)$b['id'],'amount'=>(float)$b['amount']]);
+      db()->commit();
+    }catch(Throwable $e){db()->rollBack();throw $e;}
+
+    notify_seller((int)$b['seller_id'],'order.bonus_cancelled','Bonus entfernt','Der noch nicht freigegebene Bonus von '.money($b['amount']).' wurde aus Auftrag '.$b['order_no'].' entfernt.','/auftrag/'.$b['order_no'],null,true);
+    flash('success','Bonus entfernt.');redirect('/admin/auftrag/'.$b['order_no']);
+}
+
+if (preg_match('#^/admin/verkaeuferin/(\d+)/wallet-korrektur$#',$path,$m) && $method==='POST') {
+    $a=require_admin();
+    $q=db()->prepare("SELECT * FROM sellers WHERE id=? AND deleted_at IS NULL");$q->execute([(int)$m[1]]);$s=$q->fetch();if(!$s)not_found();
+
+    $amount=round(abs((float)post('amount')),2);
+    $direction=post('direction');
+    if($amount<=0 || !in_array($direction,['credit','debit'],true)){flash('error','Bitte eine gültige Wallet-Korrektur eingeben.');redirect('/admin/verkaeuferin/'.$s['id']);}
+    $signed=$direction==='credit'?$amount:-$amount;
+
+    db()->prepare("INSERT INTO wallet_entries(seller_id,entry_type,amount,description) VALUES(?,'adjustment',?,'Administrative Wallet-Korrektur')")
+      ->execute([$s['id'],$signed]);
+    log_event('wallet.adjustment',(int)$s['id'],null,['amount'=>$signed,'admin_id'=>(int)$a['id']]);
+
+    // Verkäuferin sieht bewusst nur den neuen Saldo, nicht die interne Korrekturbuchung.
+    $q=db()->prepare("SELECT COALESCE(SUM(CASE WHEN entry_type='available' THEN amount WHEN entry_type='adjustment' THEN amount WHEN entry_type='paid' THEN -amount ELSE 0 END),0) FROM wallet_entries WHERE seller_id=?");
+    $q->execute([$s['id']]);$balance=(float)$q->fetchColumn();
+    notify_seller((int)$s['id'],'wallet.balance_changed','Wallet-Saldo aktualisiert','Dein aktuell verfügbarer Wallet-Saldo beträgt '.money($balance).'.','/wallet',null,true);
+
+    flash('success','Wallet korrigiert. Neuer verfügbarer Saldo: '.money($balance).'.');
+    redirect('/admin/verkaeuferin/'.$s['id']);
+}
