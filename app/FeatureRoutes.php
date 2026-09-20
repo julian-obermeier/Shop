@@ -182,18 +182,21 @@ if (preg_match('#^/admin/auszahlung/(\d+)/bezahlt$#',$path,$m)&&$method==='POST'
 
             $remaining=(float)$r['amount'];
             $entries=db()->prepare("
-                SELECT we.order_id,we.amount,
-                       COALESCE((SELECT SUM(p.amount) FROM wallet_entries p WHERE p.order_id=we.order_id AND p.entry_type='paid'),0) paid_for_order
+                SELECT we.order_id,
+                       SUM(we.amount) available_for_order,
+                       COALESCE((SELECT SUM(p.amount) FROM wallet_entries p WHERE p.order_id=we.order_id AND p.entry_type='paid'),0) paid_for_order,
+                       MIN(we.created_at) first_available_at
                 FROM wallet_entries we
                 JOIN orders o ON o.id=we.order_id
                 WHERE we.seller_id=? AND we.entry_type='available' AND we.order_id IS NOT NULL
-                ORDER BY we.created_at,we.id
+                GROUP BY we.order_id
+                ORDER BY first_available_at,we.order_id
             ");
             $entries->execute([$r['seller_id']]);
 
             foreach($entries->fetchAll() as $entry){
                 if($remaining<=0) break;
-                $unpaid=max(0,(float)$entry['amount']-(float)$entry['paid_for_order']);
+                $unpaid=max(0,(float)$entry['available_for_order']-(float)$entry['paid_for_order']);
                 if($unpaid<=0) continue;
                 $allocate=min($remaining,$unpaid);
                 db()->prepare("INSERT INTO wallet_entries(seller_id,order_id,entry_type,amount,description) VALUES(?,?,'paid',?,'Auszahlung #".$r['id']."')")
