@@ -466,6 +466,8 @@ if (preg_match('#^/admin/verkaeuferin/(\d+)/loeschen$#',$path,$m) && $method==='
         db()->prepare("DELETE FROM email_verifications WHERE seller_id=?")->execute([$s['id']]);
         db()->prepare("DELETE FROM password_resets WHERE seller_id=?")->execute([$s['id']]);
         db()->prepare("DELETE FROM payout_profiles WHERE seller_id=?")->execute([$s['id']]);
+        db()->prepare("UPDATE system_events SET payload_json=? WHERE seller_id=? AND event_type='seller.admin_updated'")
+          ->execute([json_encode(['redacted'=>true],JSON_UNESCAPED_UNICODE),$s['id']]);
         $anonEmail='deleted-'.$s['id'].'-'.bin2hex(random_bytes(6)).'@invalid.local';
         $randomPassword=password_hash(bin2hex(random_bytes(32)),PASSWORD_DEFAULT);
         db()->prepare("UPDATE sellers SET first_name='Gelöscht',last_name='Konto',birth_date='1900-01-01',street='anonymisiert',postal_code='00000',city='anonymisiert',phone='',email=?,password_hash=?,email_verified_at=NULL,deleted_at=NOW(),updated_at=NOW() WHERE id=?")
