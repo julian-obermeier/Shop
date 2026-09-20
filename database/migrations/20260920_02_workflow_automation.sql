@@ -1,0 +1,27 @@
+ALTER TABLE evidences ADD COLUMN reference_type VARCHAR(60) NULL AFTER rejection_reason;
+ALTER TABLE evidences ADD COLUMN reference_id BIGINT UNSIGNED NULL AFTER reference_type;
+ALTER TABLE violations ADD COLUMN source_key VARCHAR(190) NULL UNIQUE AFTER reason;
+
+CREATE TABLE IF NOT EXISTS task_library (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ title VARCHAR(190) NOT NULL,
+ description TEXT NULL,
+ fields_json JSON NULL,
+ default_compensation DECIMAL(10,2) NOT NULL DEFAULT 0,
+ violation_enabled TINYINT(1) NOT NULL DEFAULT 1,
+ is_active TINYINT(1) NOT NULL DEFAULT 1,
+ created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ updated_at DATETIME NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS task_submissions (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ order_task_id BIGINT UNSIGNED NOT NULL,
+ seller_id BIGINT UNSIGNED NOT NULL,
+ payload_json JSON NULL,
+ status ENUM('submitted','accepted','rejected') NOT NULL DEFAULT 'submitted',
+ created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ reviewed_at DATETIME NULL,
+ FOREIGN KEY(order_task_id) REFERENCES order_tasks(id) ON DELETE CASCADE,
+ FOREIGN KEY(seller_id) REFERENCES sellers(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
