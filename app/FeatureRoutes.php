@@ -391,8 +391,9 @@ if (preg_match('#^/auftrag/(\d{8})/versand$#',$path,$m)&&$method==='GET') {
             <?php for($i=1;$i<=(int)$step['required_photos'];$i++):?><label>Pflichtfoto <?=$i?><input data-camera-input type="file" name="evidence_<?=$i?>" required></label><?php endfor;?>
             <?php if($step['is_dispatch_step']):?>
               <div class="form-grid"><label>Versanddienstleister<input name="carrier" placeholder="z. B. DHL"></label><label>Trackingnummer<input name="tracking_number"></label></div>
-              <label>Einlieferungsbeleg / Versandnachweis (falls keine Trackingnummer)<input data-camera-input type="file" name="dispatch_proof"></label>
-              <p class="meta">Für den finalen Versandnachweis ist mindestens eine Trackingnummer oder ein Einlieferungsnachweis erforderlich.</p>
+              <label>Einlieferungsbeleg / Versandnachweis<?=($shippingSnapshot['cost_mode']??'seller')==='reimburse'?' (für Erstattung erforderlich)':' (falls keine Trackingnummer)'?><input data-camera-input type="file" name="dispatch_proof"></label>
+              <?php if(($shippingSnapshot['cost_mode']??'seller')==='reimburse'):?><label>Tatsächliche Versandkosten (€)<input type="number" step=".01" min="0.01" name="shipping_cost" required></label><?php endif;?>
+              <p class="meta"><?=($shippingSnapshot['cost_mode']??'seller')==='reimburse'?'Für die Erstattung müssen Kostenbetrag und Einlieferungs-/Kostenbeleg eingereicht werden.':'Für den finalen Versandnachweis ist mindestens eine Trackingnummer oder ein Einlieferungsnachweis erforderlich.'?></p>
             <?php endif;?>
             <button class="btn">Schritt abschließen</button>
           </form>
@@ -413,6 +414,7 @@ if (preg_match('#^/auftrag/(\d{8})/versand-schritt/(\d+)$#',$path,$m)&&$method==
 
     $q=db()->prepare("SELECT * FROM order_shipping_steps WHERE id=? AND order_id=? AND status='open'");
     $q->execute([(int)$m[2],$o['id']]);$step=$q->fetch();if(!$step){flash('error','Dieser Versandschritt ist nicht freigeschaltet.');redirect('/auftrag/'.$o['order_no'].'/versand');}
+    $shippingSnapshot=order_shipping_snapshot($o);
 
     if($step['requires_text'] && post('text_value')===''){flash('error','Die erforderliche Angabe fehlt.');redirect('/auftrag/'.$o['order_no'].'/versand');}
     if($step['requires_checkbox'] && ($_POST['confirmed']??'')!=='1'){flash('error','Bitte bestätige die Durchführung des Schritts.');redirect('/auftrag/'.$o['order_no'].'/versand');}
@@ -437,18 +439,22 @@ if (preg_match('#^/auftrag/(\d{8})/versand-schritt/(\d+)$#',$path,$m)&&$method==
                 $dispatchProofId=(int)db()->lastInsertId();
             }
             if($tracking==='' && !$dispatchProofId && !$uploadedIds) throw new RuntimeException('Bitte Trackingnummer oder Einlieferungsnachweis angeben.');
+            $shippingCost=max(0,(float)post('shipping_cost','0'));
+            if(($shippingSnapshot['cost_mode']??'seller')==='reimburse' && (!$dispatchProofId || $shippingCost<=0)) throw new RuntimeException('Für die Versandkostenerstattung sind Kostenbetrag und Einlieferungs-/Kostenbeleg erforderlich.');
+        }else{
+            $shippingCost=0.0;
         }
 
-        $payload=json_encode(['text'=>post('text_value'),'confirmed'=>(($_POST['confirmed']??'')==='1'),'carrier'=>$carrier,'tracking_number'=>$tracking],JSON_UNESCAPED_UNICODE);
+        $payload=json_encode(['text'=>post('text_value'),'confirmed'=>(($_POST['confirmed']??'')==='1'),'carrier'=>$carrier,'tracking_number'=>$tracking,'shipping_cost'=>$shippingCost],JSON_UNESCAPED_UNICODE);
         db()->beginTransaction();
         db()->prepare("UPDATE order_shipping_steps SET status='completed',submission_json=?,completed_at=NOW() WHERE id=?")->execute([$payload,$step['id']]);
         unlock_next_shipping_step((int)$o['id'],(int)$step['sort_order']);
 
         if($step['is_dispatch_step']){
             $proof=$dispatchProofId ?: ($uploadedIds[0]??null);
-            db()->prepare("INSERT INTO shipments(order_id,tracking_number,carrier,proof_evidence_id,status,shipped_at) VALUES(?,?,?,?,'shipped',NOW())
-                           ON DUPLICATE KEY UPDATE tracking_number=VALUES(tracking_number),carrier=VALUES(carrier),proof_evidence_id=VALUES(proof_evidence_id),status='shipped',shipped_at=NOW()")
-              ->execute([$o['id'],$tracking?:null,$carrier?:null,$proof]);
+            db()->prepare("INSERT INTO shipments(order_id,tracking_number,carrier,claimed_shipping_cost,proof_evidence_id,status,shipped_at) VALUES(?,?,?,?,?,'shipped',NOW())
+                           ON DUPLICATE KEY UPDATE tracking_number=VALUES(tracking_number),carrier=VALUES(carrier),claimed_shipping_cost=VALUES(claimed_shipping_cost),proof_evidence_id=VALUES(proof_evidence_id),status='shipped',shipped_at=NOW()")
+              ->execute([$o['id'],$tracking?:null,$carrier?:null,($shippingSnapshot['cost_mode']??'seller')==='reimburse'?$shippingCost:null,$proof]);
             db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system','Versand nachgewiesen – wartet auf Eingang.')")->execute([$o['id']]);
         }else{
             db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")->execute([$o['id'],'Versandschritt abgeschlossen: '.$step['title']]);
