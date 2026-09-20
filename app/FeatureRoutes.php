@@ -509,31 +509,6 @@ if ($path==='/email-bestaetigung-neu' && $method==='POST') {
     flash('success','Bestätigungs-E-Mail wurde erneut versendet.');redirect('/dashboard');
 }
 
-if (preg_match('#^/admin/angebot/(\\d+)$#',$path,$m) && $method==='GET') {
-    require_admin();
-    $q=db()->prepare("SELECT * FROM offers WHERE id=?");$q->execute([(int)$m[1]]);$o=$q->fetch();if(!$o)not_found();
-    $cats=db()->query("SELECT id,name FROM categories WHERE is_active=1 ORDER BY sort_order,name")->fetchAll();
-    $v=db()->prepare("SELECT version_no,created_at FROM offer_versions WHERE offer_id=? ORDER BY version_no DESC");$v->execute([$o['id']]);$versions=$v->fetchAll();
-    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Angebot</div><h1><?=e($o['title'])?></h1></div><a class="btn secondary" href="<?=e(url('/admin/angebote'))?>">Zurück</a></div>
-    <div class="grid two"><form class="panel" method="post"><?=csrf_field()?><h2>Angebot bearbeiten</h2><label>Titel<input name="title" value="<?=e($o['title'])?>" required></label><label>Kategorie<select name="category_id"><?php foreach($cats as $cat):?><option value="<?=$cat['id']?>" <?=$cat['id']==$o['category_id']?'selected':''?>><?=e($cat['name'])?></option><?php endforeach;?></select></label><div class="form-grid"><label>Vergütung (€)<input type="number" step=".01" min="0" name="compensation" value="<?=e($o['compensation'])?>" required></label><label>Dauer Tage<input type="number" min="1" name="duration_days" value="<?=e($o['duration_days']??'')?>"></label></div><label>Erfüllungsart<select name="fulfillment_type"><?php foreach(['days'=>'Tage','units'=>'Einheiten','one_time'=>'Einmalig','digital'=>'Digital','mixed'=>'Kombiniert'] as $k=>$label):?><option value="<?=$k?>" <?=$o['fulfillment_type']===$k?'selected':''?>><?=e($label)?></option><?php endforeach;?></select></label><label>Beschreibung<textarea name="description" required><?=e($o['description'])?></textarea></label><label>Status<select name="status"><?php foreach(['draft'=>'Entwurf','active'=>'Aktiv','inactive'=>'Deaktiviert'] as $k=>$label):?><option value="<?=$k?>" <?=$o['status']===$k?'selected':''?>><?=e($label)?></option><?php endforeach;?></select></label><button class="btn">Neue Version speichern</button></form>
-    <aside class="panel"><h2>Versionen</h2><p>Aktuelle Version: <strong>V<?=e($o['current_version'])?></strong></p><div class="timeline"><?php foreach($versions as $ver):?><div>V<?=e($ver['version_no'])?> · <?=e(date('d.m.Y H:i',strtotime($ver['created_at'])))?></div><?php endforeach;?></div><hr><form method="post" action="<?=e(url('/admin/angebot/'.$o['id'].'/duplizieren'))?>"><?=csrf_field()?><button class="btn secondary">Angebot duplizieren</button></form></aside></div>
-    <?php render('Angebot bearbeiten',ob_get_clean());exit;
-}
-if (preg_match('#^/admin/angebot/(\\d+)$#',$path,$m) && $method==='POST') {
-    require_admin();
-    $q=db()->prepare("SELECT * FROM offers WHERE id=?");$q->execute([(int)$m[1]]);$o=$q->fetch();if(!$o)not_found();
-    $newVersion=(int)$o['current_version']+1;
-    $days=post('duration_days')!==''?(int)post('duration_days'):null;
-    $snapshot=['category_id'=>(int)post('category_id'),'title'=>post('title'),'description'=>post('description'),'compensation'=>(float)post('compensation'),'duration_days'=>$days,'fulfillment_type'=>post('fulfillment_type'),'status'=>post('status')];
-    db()->beginTransaction();
-    try{
-        db()->prepare("UPDATE offers SET category_id=?,title=?,description=?,compensation=?,duration_days=?,fulfillment_type=?,status=?,current_version=?,updated_at=NOW() WHERE id=?")
-            ->execute([$snapshot['category_id'],$snapshot['title'],$snapshot['description'],$snapshot['compensation'],$days,$snapshot['fulfillment_type'],$snapshot['status'],$newVersion,$o['id']]);
-        db()->prepare("INSERT INTO offer_versions(offer_id,version_no,snapshot_json) VALUES(?,?,?)")->execute([$o['id'],$newVersion,json_encode($snapshot,JSON_UNESCAPED_UNICODE)]);
-        db()->commit();
-    }catch(Throwable $e){db()->rollBack();throw $e;}
-    flash('success','Angebot als Version V'.$newVersion.' gespeichert. Bestehende Aufträge behalten ihre ursprüngliche Version.');redirect('/admin/angebot/'.$o['id']);
-}
 if (preg_match('#^/admin/angebot/(\\d+)/duplizieren$#',$path,$m) && $method==='POST') {
     require_admin();
     $q=db()->prepare("SELECT * FROM offers WHERE id=?");$q->execute([(int)$m[1]]);$o=$q->fetch();if(!$o)not_found();
