@@ -274,7 +274,7 @@ if(preg_match('#^/admin/auftrag/(\\d{8})$#',$path,$m)&&$method==='GET'){
        <?php elseif(str_starts_with($mime,'video/')):?><video controls preload="metadata" playsinline style="width:100%;max-height:520px;border-radius:12px"><source src="<?=e($mediaUrl)?>" type="<?=e($mime)?>"></video>
        <?php elseif(str_starts_with($mime,'image/')):?><img src="<?=e($mediaUrl)?>" alt="Digitale Version V<?=e($dv['version_no'])?>" style="max-width:100%;max-height:560px;border-radius:12px">
        <?php else:?><a class="btn secondary" target="_blank" href="<?=e($mediaUrl)?>">Datei öffnen</a><?php endif;?>
-       <div class="actions" style="margin-top:10px"><a class="btn secondary" href="<?=e(url('/admin/digitale-datei/'.$dv['id'].'/download'))?>">Original herunterladen</a></div>
+       
      <?php endif;?>
    </article>
  <?php endforeach;?>
