@@ -223,7 +223,7 @@ if (preg_match('#^/digitale-datei/(\d+)/(\d+)$#',$path,$m) && $method==='GET') {
 
     $allow=false;
     if(admin()) $allow=true;
-    elseif(($s=seller()) && (int)$s['id']===(int)$d['seller_id'] && $d['order_status']!=='rejected') $allow=true;
+    elseif(($s=seller()) && (int)$s['id']===(int)$d['seller_id']) $allow=true;
     if(!$allow){http_response_code(403);exit('Zugriff verweigert.');}
 
     $assets=json_decode((string)($d['assets_json']??''),true);
@@ -255,7 +255,7 @@ if (preg_match('#^/digitale-datei/(\d+)$#',$path,$m) && $method==='GET') {
 
     $allow=false;
     if(admin()) $allow=true;
-    elseif(($s=seller()) && (int)$s['id']===(int)$d['seller_id'] && $d['order_status']!=='rejected') $allow=true;
+    elseif(($s=seller()) && (int)$s['id']===(int)$d['seller_id']) $allow=true;
     if(!$allow){http_response_code(403);exit('Zugriff verweigert.');}
 
     $relative=ltrim((string)$d['file_path'],'/');
