@@ -255,8 +255,68 @@ if (preg_match('#^/admin/beschaedigung/(\d+)/(anerkennen|ablehnen)$#',$path,$m)&
 }
 if (preg_match('#^/admin/auftrag/(\d{8})/abschliessen$#',$path,$m)&&$method==='POST') {
     require_admin();
-    $st=db()->prepare("SELECT * FROM orders WHERE order_no=?");$st->execute([$m[1]]);$o=$st->fetch();if(!$o)not_found();
+    $st=db()->prepare("SELECT o.*,f.fulfillment_type FROM orders o JOIN offers f ON f.id=o.offer_id WHERE o.order_no=?");$st->execute([$m[1]]);$o=$st->fetch();if(!$o)not_found();
     $decision=post('decision');$reason=post('reason');
+
+    if(in_array($decision,['accept','partial'],true)){
+        if($o['status']!=='review'){
+            flash('error','Eine Vergütung kann erst in der Abschlussprüfung freigegeben werden.');
+            redirect('/admin/auftrag/'.$o['order_no']);
+        }
+
+        $q=db()->prepare("SELECT COUNT(*) FROM violations WHERE order_id=? AND status IN('open','reviewed')");
+        $q->execute([$o['id']]);
+        if((int)$q->fetchColumn()>0){
+            flash('error','Vor einer Vergütungsfreigabe müssen alle offenen möglichen Verstöße entschieden sein.');
+            redirect('/admin/auftrag/'.$o['order_no']);
+        }
+
+        $q=db()->prepare("SELECT COUNT(*) FROM evidences WHERE order_id=? AND status='submitted'");
+        $q->execute([$o['id']]);
+        if((int)$q->fetchColumn()>0){
+            flash('error','Vor einer Vergütungsfreigabe müssen alle eingereichten Nachweise geprüft sein.');
+            redirect('/admin/auftrag/'.$o['order_no']);
+        }
+
+        $q=db()->prepare("SELECT COUNT(*) FROM order_tasks WHERE order_id=? AND status<>'accepted'");
+        $q->execute([$o['id']]);
+        if((int)$q->fetchColumn()>0){
+            flash('error','Vor einer Vergütungsfreigabe müssen alle Zusatzaufgaben abschließend geprüft sein.');
+            redirect('/admin/auftrag/'.$o['order_no']);
+        }
+
+        if($o['fulfillment_type']==='digital'){
+            $q=db()->prepare("SELECT * FROM digital_versions WHERE order_id=? ORDER BY version_no DESC LIMIT 1");
+            $q->execute([$o['id']]);$latestDigital=$q->fetch();
+            $allowedDigital=$decision==='accept' ? ['accepted'] : ['accepted','partial'];
+            if(!$latestDigital || !in_array((string)$latestDigital['status'],$allowedDigital,true)){
+                flash('error',$decision==='accept'
+                    ? 'Die aktuelle digitale Version muss vor der vollständigen Freigabe ausdrücklich akzeptiert sein.'
+                    : 'Die aktuelle digitale Version muss vor der Teilfreigabe abschließend geprüft sein.');
+                redirect('/admin/auftrag/'.$o['order_no']);
+            }
+            $q=db()->prepare("SELECT COUNT(*) FROM revision_rounds WHERE order_id=? AND status IN('open','submitted')");
+            $q->execute([$o['id']]);
+            if((int)$q->fetchColumn()>0){
+                flash('error','Es ist noch eine digitale Revision offen oder zur Prüfung eingereicht.');
+                redirect('/admin/auftrag/'.$o['order_no']);
+            }
+        }else{
+            $q=db()->prepare("SELECT * FROM shipments WHERE order_id=?");
+            $q->execute([$o['id']]);$shipment=$q->fetch();
+            if(!$shipment || $shipment['status']!=='received'){
+                flash('error','Bei physischen Aufträgen ist eine Vergütungsfreigabe erst nach bestätigtem Wareneingang möglich.');
+                redirect('/admin/auftrag/'.$o['order_no']);
+            }
+            $shippingSnapshot=order_shipping_snapshot($o);
+            if(($shippingSnapshot['cost_mode']??'seller')==='reimburse'
+                && $shipment['claimed_shipping_cost']!==null
+                && $shipment['approved_reimbursement']===null){
+                flash('error','Bitte zuerst über die beantragte Versandkostenerstattung entscheiden.');
+                redirect('/admin/auftrag/'.$o['order_no']);
+            }
+        }
+    }
 
     if($decision==='accept'){
         db()->beginTransaction();
