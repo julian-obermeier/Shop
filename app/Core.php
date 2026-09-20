@@ -212,7 +212,10 @@ function setting(string $key, mixed $default = null): mixed {
         $q = db()->prepare('SELECT setting_value FROM settings WHERE setting_key=?');
         $q->execute([$key]);
         $value = $q->fetchColumn();
-        return $cache[$key] = ($value === false ? $default : $value);
+        $resolved = ($value === false ? $default : $value);
+        // V1-Regel: die allgemeine Nachfrist darf höchstens 60 Minuten betragen.
+        if($key==='grace_minutes') $resolved=(string)max(0,min(60,(int)$resolved));
+        return $cache[$key] = $resolved;
     } catch (Throwable) {
         return $default;
     }
