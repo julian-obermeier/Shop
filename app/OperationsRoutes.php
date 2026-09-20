@@ -268,3 +268,24 @@ if (preg_match('#^/admin/versandschritt/(\d+)/loeschen$#',$path,$m) && $method==
     db()->prepare("DELETE FROM offer_shipping_steps WHERE id=?")->execute([(int)$m[1]]);
     flash('success','Versandschritt aus der Angebotsvorlage entfernt. Bereits angenommene Aufträge behalten ihre gespeicherten Schritte.');redirect('/admin/angebot/'.(int)$offerId);
 }
+
+
+if (preg_match('#^/admin/digital-version/(\d+)/pruefen$#',$path,$m) && $method==='POST') {
+    require_admin();
+    $q=db()->prepare("SELECT d.*,o.order_no,o.seller_id,o.id order_id FROM digital_versions d JOIN orders o ON o.id=d.order_id WHERE d.id=?");
+    $q->execute([(int)$m[1]]);$d=$q->fetch();if(!$d)not_found();
+
+    $decision=post('decision');$allowed=['accepted','revision_required','partial','rejected'];
+    if(!in_array($decision,$allowed,true)){flash('error','Ungültige Prüfentscheidung.');redirect('/admin/auftrag/'.$d['order_no']);}
+    $note=post('review_note');
+
+    db()->prepare("UPDATE digital_versions SET status=?,review_note=?,reviewed_at=NOW() WHERE id=?")
+      ->execute([$decision,$note?:null,$d['id']]);
+
+    $labels=['accepted'=>'akzeptiert','revision_required'=>'Revision erforderlich','partial'=>'teilweise akzeptiert','rejected'=>'abgelehnt'];
+    db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")
+      ->execute([$d['order_id'],'Digitale Version V'.$d['version_no'].' wurde geprüft: '.$labels[$decision].($note!==''?' · '.$note:'')]);
+
+    notify_seller((int)$d['seller_id'],'digital.review','Digitale Version geprüft','Version V'.$d['version_no'].' wurde als „'.$labels[$decision].'“ bewertet.'.($note!==''?' '.$note:''),'/auftrag/'.$d['order_no'].'/digital',null,true);
+    flash('success','Digitale Version wurde bewertet.');redirect('/admin/auftrag/'.$d['order_no']);
+}
