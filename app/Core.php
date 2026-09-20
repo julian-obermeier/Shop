@@ -179,6 +179,18 @@ function money(float|int|string $value): string {
     return number_format((float)$value, 2, ',', '.').' €';
 }
 
+function violation_confirm_label(array $violation): string {
+    $days=max(0,(int)($violation['extension_days']??0));
+    if($days===0) return 'Bestätigen (nur protokollieren)';
+
+    $digital=in_array((string)($violation['violation_type']??''),['digital_deadline','digital_revision_deadline'],true);
+    $unit=$days===1?'Tag':'Tage';
+    return $digital
+        ? 'Bestätigen (+'.$days.' digitaler '.$unit.')'
+        : 'Bestätigen (+'.$days.' '.$unit.')';
+}
+
+
 function setting(string $key, mixed $default = null): mixed {
     static $cache = [];
     if (array_key_exists($key, $cache)) return $cache[$key];
