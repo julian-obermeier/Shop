@@ -278,7 +278,22 @@ class V1OrderWorkflowService
             ]);
 
             if($confirm){
-                $this->appendExtensionDay($order,'violation',$violationId,false,0,$violation->reason,$violationId);
+                $metadata=json_decode($violation->metadata ?: '{}',true) ?: [];
+                $damageCaseId=(int)($metadata['damage_case_id']??0);
+
+                if($damageCaseId>0){
+                    $already=DB::table('extension_days')
+                        ->where('order_id',$order->id)
+                        ->where('source_type','damage')
+                        ->where('source_id',$damageCaseId)
+                        ->exists();
+
+                    if(!$already){
+                        $this->appendExtensionDay($order,'damage',$damageCaseId,false,0,$violation->reason,$violationId);
+                    }
+                } else {
+                    $this->appendExtensionDay($order,'violation',$violationId,false,0,$violation->reason,$violationId);
+                }
             }
         });
     }
