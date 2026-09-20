@@ -56,13 +56,24 @@ if ($path==='/wallet' && $method==='GET') {
     $req=db()->prepare("SELECT * FROM payout_requests WHERE seller_id=? ORDER BY created_at DESC");$req->execute([$s['id']]);$requests=$req->fetchAll();
     $available=(float)($tot['available']??0)-(float)($tot['paid']??0);
     $p=db()->prepare("SELECT * FROM payout_profiles WHERE seller_id=?");$p->execute([$s['id']]);$profile=$p->fetch()?:[];
+    $minimum=max(0,(float)setting_value('payout_min','10.00'));
+    $bankEnabled=setting_value('payout_bank_enabled','1')==='1';
+    $paypalEnabled=setting_value('payout_paypal_enabled','1')==='1';
+    $processing=(string)setting_value('payout_processing_days','Nach individueller Prüfung');
+    $feeLabel=function(string $method): string {
+        $type=(string)setting_value('payout_'.$method.'_fee_type','none');
+        $value=max(0,(float)setting_value('payout_'.$method.'_fee_value','0'));
+        if($type==='fixed') return money($value);
+        if($type==='percent') return rtrim(rtrim(number_format($value,2,',','.'),'0'),',').' %';
+        return 'keine';
+    };
     ob_start();?>
     <div class="dashboard-head"><div><div class="eyebrow">Finanzen</div><h1>Wallet</h1></div><a class="btn secondary" href="<?=e(url('/profil'))?>">Auszahlungsdaten</a></div>
     <div class="grid"><div class="card"><div class="meta">Vorgemerkt</div><div class="stat"><?=money($tot['reserved']??0)?></div></div><div class="card"><div class="meta">Verfügbar</div><div class="stat"><?=money(max(0,$available))?></div></div><div class="card"><div class="meta">Ausgezahlt</div><div class="stat"><?=money($tot['paid']??0)?></div></div></div>
     <h2>Auszahlung beantragen</h2>
     <form class="panel" method="post" action="<?=e(url('/wallet/auszahlung'))?>"><?=csrf_field()?>
-      <div class="form-grid"><label>Betrag (€)<input type="number" name="amount" step=".01" min="1" max="<?=e((string)max(0,$available))?>" required></label><label>Methode<select name="method"><option value="bank">Banküberweisung</option><option value="paypal">PayPal</option></select></label></div>
-      <p class="meta">Es ist nur ein offener Auszahlungsantrag gleichzeitig möglich. Zahlungsdaten werden bei Antragstellung als Snapshot gespeichert.</p><button class="btn">Auszahlung beantragen</button>
+      <div class="form-grid"><label>Betrag (€)<input type="number" name="amount" step=".01" min="<?=e((string)$minimum)?>" max="<?=e((string)max(0,$available))?>" required></label><label>Methode<select name="method"><?php if($bankEnabled):?><option value="bank">Banküberweisung · Gebühr <?=e($feeLabel('bank'))?></option><?php endif;?><?php if($paypalEnabled):?><option value="paypal">PayPal · Gebühr <?=e($feeLabel('paypal'))?></option><?php endif;?></select></label></div>
+      <p class="meta">Mindestauszahlung: <?=money($minimum)?> · Bearbeitung: <?=e($processing)?>. Es ist nur ein offener Auszahlungsantrag gleichzeitig möglich. Zahlungsdaten werden bei Antragstellung als Snapshot gespeichert.</p><button class="btn">Auszahlung beantragen</button>
     </form>
     <h2>Auszahlungsverlauf</h2><div class="table-wrap"><table><thead><tr><th>Datum</th><th>Betrag</th><th>Netto</th><th>Methode</th><th>Status</th><th></th></tr></thead><tbody>
     <?php foreach($requests as $r):?><tr><td><?=e(date('d.m.Y H:i',strtotime($r['created_at'])))?></td><td><?=money($r['amount'])?></td><td><?=money($r['net_amount'])?></td><td><?=e($r['method'])?></td><td><?=e($r['status'])?></td><td><?php if($r['status']==='requested'):?><form method="post" action="<?=e(url('/wallet/auszahlung/'.$r['id'].'/zurueckziehen'))?>"><?=csrf_field()?><button class="btn secondary">Zurückziehen</button></form><?php endif;?></td></tr><?php endforeach;?>
