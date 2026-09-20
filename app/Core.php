@@ -581,6 +581,29 @@ function log_event(string $type, ?int $sellerId = null, ?int $orderId = null, ar
 }
 
 
+function ensure_provisional_violation(int $orderId, string $sourceKey, string $type, string $reason): int {
+    $q = db()->prepare('SELECT id FROM violations WHERE source_key=? LIMIT 1');
+    $q->execute([$sourceKey]);
+    $existing = $q->fetchColumn();
+    if ($existing !== false) return (int)$existing;
+
+    $pdo = db();
+    $owns = !$pdo->inTransaction();
+    if ($owns) $pdo->beginTransaction();
+    try {
+        $pdo->prepare("INSERT INTO violations(order_id,violation_type,source_key,status,reason,extension_days) VALUES(?,?,?,'open',?,1)")
+            ->execute([$orderId,$type,$sourceKey,$reason]);
+        $id = (int)$pdo->lastInsertId();
+        $pdo->prepare("INSERT INTO extra_days(order_id,source_type,source_id,status,paid,amount,reason) VALUES(?,'violation',?,'provisional',0,0,?)")
+            ->execute([$orderId,$id,$reason]);
+        if ($owns) $pdo->commit();
+        return $id;
+    } catch (Throwable $e) {
+        if ($owns && $pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+}
+
 function reject_if_archived_route(string $path, string $method): void {
     if($method!=='POST') return;
     $orderId=null;$orderNo=null;
