@@ -27,6 +27,17 @@ CREATE TABLE IF NOT EXISTS sellers (
  INDEX(email_verified_at), INDEX(deleted_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS seller_legal_acceptances (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ seller_id BIGINT UNSIGNED NOT NULL,
+ context VARCHAR(40) NOT NULL DEFAULT 'registration',
+ rules_version VARCHAR(80) NOT NULL,
+ payload_json JSON NOT NULL,
+ created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ FOREIGN KEY(seller_id) REFERENCES sellers(id) ON DELETE CASCADE,
+ INDEX(seller_id,context,created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS email_verifications (
  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
  seller_id BIGINT UNSIGNED NOT NULL,
