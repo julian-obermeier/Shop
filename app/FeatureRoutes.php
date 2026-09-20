@@ -147,8 +147,8 @@ if (preg_match('#^/auftrag/(\d{8})/tagesnachweis$#',$path,$m)&&$method==='POST')
 
     try{
         $up=private_upload($_FILES['evidence']??[],'order-'.$o['id'].'/daily');
-        db()->prepare("INSERT INTO evidences(order_id,order_run_id,seller_id,evidence_type,day_no,window_key,source_type,source_id,file_path,mime_type,file_size,sha256) VALUES(?,?,?,'daily',?,?,'window',?,?,?,?,?)")
-          ->execute([$o['id'],$runId,$s['id'],$w['day_no'],$w['window_key'],$w['id'],$up['path'],$up['mime'],$up['size'],$up['sha256']]);
+        db()->prepare("INSERT INTO evidences(order_id,order_run_id,seller_id,evidence_type,day_no,window_key,source_type,source_id,file_path,mime_type,file_size,sha256,metadata_json,quality_flags_json) VALUES(?,?,?,'daily',?,?,'window',?,?,?,?,?,?,?)")
+          ->execute([$o['id'],$runId,$s['id'],$w['day_no'],$w['window_key'],$w['id'],$up['path'],$up['mime'],$up['size'],$up['sha256'],upload_metadata_json($up),upload_quality_flags_json($up)]);
 
         $submitted++;
         if($submitted>=(int)$w['required_count']) db()->prepare("UPDATE evidence_windows SET status='submitted' WHERE id=?")->execute([$w['id']]);
@@ -164,7 +164,7 @@ if (preg_match('#^/auftrag/(\d{8})/beschaedigung$#',$path,$m)&&$method==='POST')
     $s=require_seller();$st=db()->prepare("SELECT * FROM orders WHERE order_no=? AND seller_id=? AND status='running'");$st->execute([$m[1],$s['id']]);$o=$st->fetch();if(!$o)not_found();
     $reason=post('reason');if($reason===''){flash('error','Bitte beschreibe die Beschädigung.');redirect('/auftrag/'.$o['order_no']);}
     db()->prepare("INSERT INTO damage_cases(order_id,reason) VALUES(?,?)")->execute([$o['id'],$reason]);$caseId=(int)db()->lastInsertId();
-    if(isset($_FILES['evidence'])&&($_FILES['evidence']['error']??UPLOAD_ERR_NO_FILE)===UPLOAD_ERR_OK){$up=private_upload($_FILES['evidence'],'order-'.$o['id']);db()->prepare("INSERT INTO evidences(order_id,seller_id,evidence_type,file_path,mime_type,file_size,sha256) VALUES(?,?,'damage',?,?,?,?)")->execute([$o['id'],$s['id'],$up['path'],$up['mime'],$up['size'],$up['sha256']]);}
+    if(isset($_FILES['evidence'])&&($_FILES['evidence']['error']??UPLOAD_ERR_NO_FILE)===UPLOAD_ERR_OK){$up=private_upload($_FILES['evidence'],'order-'.$o['id']);db()->prepare("INSERT INTO evidences(order_id,seller_id,evidence_type,file_path,mime_type,file_size,sha256,metadata_json,quality_flags_json) VALUES(?,?,'damage',?,?,?,?,?,?)")->execute([$o['id'],$s['id'],$up['path'],$up['mime'],$up['size'],$up['sha256'],upload_metadata_json($up),upload_quality_flags_json($up)]);}
     db()->prepare("INSERT INTO system_events(seller_id,order_id,event_type,payload_json) VALUES(?,?,'damage.reported',?)")->execute([$s['id'],$o['id'],json_encode(['damage_case_id'=>$caseId],JSON_UNESCAPED_UNICODE)]);flash('success','Beschädigung wurde gemeldet. Der Auftrag läuft bis zur Entscheidung weiter.');redirect('/auftrag/'.$o['order_no']);
 }
 if ($path==='/admin/verkaeuferinnen'&&$method==='GET') {
@@ -485,8 +485,8 @@ if (preg_match('#^/auftrag/(\d{8})/versand-schritt/(\d+)$#',$path,$m)&&$method==
             $key='evidence_'.$i;
             if(!isset($_FILES[$key]) || ($_FILES[$key]['error']??UPLOAD_ERR_NO_FILE)!==UPLOAD_ERR_OK) throw new RuntimeException('Pflichtfoto '.$i.' fehlt.');
             $up=private_upload($_FILES[$key],'order-'.$o['id'].'/shipping');
-            db()->prepare("INSERT INTO evidences(order_id,order_run_id,seller_id,evidence_type,source_type,source_id,file_path,mime_type,file_size,sha256) VALUES(?,?,?,'shipping','shipping_step',?,?,?,?,?)")
-              ->execute([$o['id'],current_run_id((int)$o['id']),$s['id'],$step['id'],$up['path'],$up['mime'],$up['size'],$up['sha256']]);
+            db()->prepare("INSERT INTO evidences(order_id,order_run_id,seller_id,evidence_type,source_type,source_id,file_path,mime_type,file_size,sha256,metadata_json,quality_flags_json) VALUES(?,?,?,'shipping','shipping_step',?,?,?,?,?,?,?)")
+              ->execute([$o['id'],current_run_id((int)$o['id']),$s['id'],$step['id'],$up['path'],$up['mime'],$up['size'],$up['sha256'],upload_metadata_json($up),upload_quality_flags_json($up)]);
             $uploadedIds[]=(int)db()->lastInsertId();
         }
 
@@ -494,8 +494,8 @@ if (preg_match('#^/auftrag/(\d{8})/versand-schritt/(\d+)$#',$path,$m)&&$method==
         if($step['is_dispatch_step']){
             if(isset($_FILES['dispatch_proof']) && ($_FILES['dispatch_proof']['error']??UPLOAD_ERR_NO_FILE)===UPLOAD_ERR_OK){
                 $up=private_upload($_FILES['dispatch_proof'],'order-'.$o['id'].'/shipping');
-                db()->prepare("INSERT INTO evidences(order_id,order_run_id,seller_id,evidence_type,source_type,source_id,file_path,mime_type,file_size,sha256) VALUES(?,?,?,'shipping','shipping_step',?,?,?,?,?)")
-                  ->execute([$o['id'],current_run_id((int)$o['id']),$s['id'],$step['id'],$up['path'],$up['mime'],$up['size'],$up['sha256']]);
+                db()->prepare("INSERT INTO evidences(order_id,order_run_id,seller_id,evidence_type,source_type,source_id,file_path,mime_type,file_size,sha256,metadata_json,quality_flags_json) VALUES(?,?,?,'shipping','shipping_step',?,?,?,?,?,?,?)")
+                  ->execute([$o['id'],current_run_id((int)$o['id']),$s['id'],$step['id'],$up['path'],$up['mime'],$up['size'],$up['sha256'],upload_metadata_json($up),upload_quality_flags_json($up)]);
                 $dispatchProofId=(int)db()->lastInsertId();
             }
             if($tracking==='' && !$dispatchProofId) throw new RuntimeException('Bitte Trackingnummer oder Einlieferungsnachweis angeben.');
@@ -1028,8 +1028,8 @@ if (preg_match('#^/auftrag/(\d{8})/spontan/(\d+)$#',$path,$m) && $method==='POST
     if(new DateTimeImmutable('now',$tz)>new DateTimeImmutable($r['grace_ends_at'],$tz)){flash('error','Die Nachfrist ist abgelaufen.');redirect('/auftrag/'.$r['order_no'].'/spontan/'.$r['id']);}
     try{
         $up=private_upload($_FILES['evidence']??[],'order-'.$r['order_id'].'/spontaneous');
-        db()->prepare("INSERT INTO evidences(order_id,order_run_id,seller_id,evidence_type,source_type,source_id,file_path,mime_type,file_size,sha256) VALUES(?,?,?,'spontaneous','spontaneous',?,?,?,?,?)")
-          ->execute([$r['order_id'],current_run_id((int)$r['order_id']),$s['id'],$r['id'],$up['path'],$up['mime'],$up['size'],$up['sha256']]);
+        db()->prepare("INSERT INTO evidences(order_id,order_run_id,seller_id,evidence_type,source_type,source_id,file_path,mime_type,file_size,sha256,metadata_json,quality_flags_json) VALUES(?,?,?,'spontaneous','spontaneous',?,?,?,?,?,?,?)")
+          ->execute([$r['order_id'],current_run_id((int)$r['order_id']),$s['id'],$r['id'],$up['path'],$up['mime'],$up['size'],$up['sha256'],upload_metadata_json($up),upload_quality_flags_json($up)]);
         $cnt=db()->prepare("SELECT COUNT(*) FROM evidences WHERE order_id=? AND evidence_type='spontaneous' AND source_type='spontaneous' AND source_id=? AND status IN('submitted','accepted')");
         $cnt->execute([$r['order_id'],$r['id']]);$submitted=(int)$cnt->fetchColumn();
         if($submitted >= (int)$r['required_count'])db()->prepare("UPDATE spontaneous_requests SET status='uploaded' WHERE id=?")->execute([$r['id']]);
@@ -1194,8 +1194,8 @@ if (preg_match('#^/auftrag/(\d{8})/aufgabe/(\d+)/foto$#',$path,$m) && $method===
     try{
       $up=private_upload($_FILES['evidence']??[],'order-'.$t['order_id'].'/tasks');
       $late=$t['due_at']&&strtotime($t['due_at'])<time()?1:0;
-      db()->prepare("INSERT INTO evidences(order_id,order_run_id,seller_id,evidence_type,source_type,source_id,file_path,mime_type,file_size,sha256,is_late) VALUES(?,?,?,'task','task',?,?,?,?,?,?)")
-        ->execute([$t['order_id'],current_run_id((int)$t['order_id']),$s['id'],$t['id'],$up['path'],$up['mime'],$up['size'],$up['sha256'],$late]);
+      db()->prepare("INSERT INTO evidences(order_id,order_run_id,seller_id,evidence_type,source_type,source_id,file_path,mime_type,file_size,sha256,metadata_json,quality_flags_json,is_late) VALUES(?,?,?,'task','task',?,?,?,?,?,?,?,?)")
+        ->execute([$t['order_id'],current_run_id((int)$t['order_id']),$s['id'],$t['id'],$up['path'],$up['mime'],$up['size'],$up['sha256'],upload_metadata_json($up),upload_quality_flags_json($up),$late]);
       flash('success','Pflichtfoto wurde eingereicht.');
     }catch(Throwable $e){flash('error',$e->getMessage());}
     redirect('/auftrag/'.$t['order_no'].'/aufgabe/'.$t['id']);
