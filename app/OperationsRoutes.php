@@ -560,8 +560,8 @@ if (preg_match('#^/auftrag/(\d{8})/retake/(\d+)$#',$path,$m) && $method==='POST'
       $up=private_upload($_FILES['evidence']??[],'order-'.$r['order_id'].'/retakes');
       $late=strtotime($r['due_at'])<time()?1:0;
       db()->beginTransaction();
-      db()->prepare("INSERT INTO evidences(order_id,order_run_id,seller_id,evidence_type,day_no,window_key,source_type,source_id,file_path,mime_type,file_size,sha256,is_late) VALUES(?,?,?,?,?,?,'retake',?,?,?,?,?,?)")
-        ->execute([$r['order_id'],$r['order_run_id'],$s['id'],$r['evidence_type'],$r['day_no'],$r['window_key'],$r['id'],$up['path'],$up['mime'],$up['size'],$up['sha256'],$late]);
+      db()->prepare("INSERT INTO evidences(order_id,order_run_id,seller_id,evidence_type,day_no,window_key,source_type,source_id,file_path,mime_type,file_size,sha256,metadata_json,quality_flags_json,is_late) VALUES(?,?,?,?,?,?,'retake',?,?,?,?,?,?,?,?)")
+        ->execute([$r['order_id'],$r['order_run_id'],$s['id'],$r['evidence_type'],$r['day_no'],$r['window_key'],$r['id'],$up['path'],$up['mime'],$up['size'],$up['sha256'],upload_metadata_json($up),upload_quality_flags_json($up),$late]);
       $eid=(int)db()->lastInsertId();
       db()->prepare("UPDATE evidence_retake_requests SET replacement_evidence_id=?,status='uploaded' WHERE id=?")->execute([$eid,$r['id']]);
       db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system','Angeforderte Neuaufnahme wurde eingereicht und wartet auf Prüfung.')")->execute([$r['order_id']]);
