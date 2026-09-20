@@ -206,3 +206,29 @@ if (preg_match('#^/admin/auftrag/(\\d{8})/revision$#',$path,$m)&&$method==='POST
     foreach(array_filter(array_map('trim',preg_split('/\\r?\\n/',post('items')))) as $item){db()->prepare("INSERT INTO revision_items(revision_round_id,description) VALUES(?,?)")->execute([$rid,$item]);}
     db()->prepare("UPDATE orders SET status='review',updated_at=NOW() WHERE id=?")->execute([$o['id']]);db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")->execute([$o['id'],'Revision '.$rn.' wurde angefordert.']);flash('success','Revision angefordert.');redirect('/admin/auftrag/'.$o['order_no']);
 }
+
+
+if (preg_match('#^/admin/angebot/(\\d+)$#',$path,$m)&&$method==='GET') {
+    require_admin();$st=db()->prepare("SELECT * FROM offers WHERE id=?");$st->execute([(int)$m[1]]);$o=$st->fetch();if(!$o)not_found();
+    $cats=db()->query("SELECT id,name FROM categories WHERE is_active=1 ORDER BY sort_order,name")->fetchAll();$op=db()->prepare("SELECT * FROM offer_options WHERE offer_id=? ORDER BY id");$op->execute([$o['id']]);$options=$op->fetchAll();
+    $vers=db()->prepare("SELECT version_no,created_at FROM offer_versions WHERE offer_id=? ORDER BY version_no DESC");$vers->execute([$o['id']]);$versions=$vers->fetchAll();
+    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Angebot #<?=e($o['id'])?></div><h1><?=e($o['title'])?></h1><p class="meta">Aktuelle Version: V<?=e($o['current_version'])?></p></div><a class="btn secondary" href="<?=e(url('/admin/angebote'))?>">Zurück</a></div>
+    <div class="grid two"><form class="panel" method="post"><?=csrf_field()?><h2>Angebot bearbeiten</h2><label>Titel<input name="title" value="<?=e($o['title'])?>" required></label><label>Kategorie<select name="category_id"><?php foreach($cats as $cat):?><option value="<?=$cat['id']?>" <?=$cat['id']==$o['category_id']?'selected':''?>><?=e($cat['name'])?></option><?php endforeach;?></select></label><div class="form-grid"><label>Vergütung (€)<input type="number" step=".01" min="0" name="compensation" value="<?=e($o['compensation'])?>" required></label><label>Dauer Tage<input type="number" min="1" name="duration_days" value="<?=e($o['duration_days']??'')?>"></label><label>Erfüllung<select name="fulfillment_type"><?php foreach(['days'=>'Tage','units'=>'Einheiten','one_time'=>'Einmalig','digital'=>'Digital','mixed'=>'Kombiniert'] as $k=>$v):?><option value="<?=$k?>" <?=$o['fulfillment_type']===$k?'selected':''?>><?=$v?></option><?php endforeach;?></select></label><label>Status<select name="status"><?php foreach(['draft'=>'Entwurf','active'=>'Aktiv','inactive'=>'Deaktiviert'] as $k=>$v):?><option value="<?=$k?>" <?=$o['status']===$k?'selected':''?>><?=$v?></option><?php endforeach;?></select></label></div><label>Beschreibung<textarea name="description" required><?=e($o['description'])?></textarea></label><button class="btn">Als neue Version speichern</button></form>
+    <section class="panel"><h2>Zusatzoptionen</h2><form method="post" action="<?=e(url('/admin/angebot/'.$o['id'].'/option'))?>"><?=csrf_field()?><label>Bezeichnung<input name="label" required></label><label>Aufpreis (€)<input type="number" step=".01" min="0" name="price" value="0" required></label><button class="btn">Option hinzufügen</button></form><div class="timeline" style="margin-top:18px"><?php foreach($options as $x):?><div><strong><?=e($x['label'])?></strong> · <?=money($x['price'])?> · <?=$x['active']?'aktiv':'inaktiv'?></div><?php endforeach;?></div><h3>Versionshistorie</h3><?php foreach($versions as $v):?><div class="meta">V<?=e($v['version_no'])?> · <?=e(date('d.m.Y H:i',strtotime($v['created_at'])))?></div><?php endforeach;?></section></div>
+    <?php render('Angebot bearbeiten',ob_get_clean());exit;
+}
+if (preg_match('#^/admin/angebot/(\\d+)$#',$path,$m)&&$method==='POST') {
+    require_admin();$st=db()->prepare("SELECT * FROM offers WHERE id=?");$st->execute([(int)$m[1]]);$o=$st->fetch();if(!$o)not_found();
+    $newVersion=(int)$o['current_version']+1;$days=post('duration_days')!==''?(int)post('duration_days'):null;$comp=(float)post('compensation');
+    $snap=['title'=>post('title'),'category_id'=>(int)post('category_id'),'description'=>post('description'),'compensation'=>$comp,'duration_days'=>$days,'fulfillment_type'=>post('fulfillment_type'),'status'=>post('status')];
+    db()->beginTransaction();try{
+      db()->prepare("UPDATE offers SET category_id=?,title=?,description=?,compensation=?,duration_days=?,fulfillment_type=?,status=?,current_version=?,updated_at=NOW() WHERE id=?")->execute([$snap['category_id'],$snap['title'],$snap['description'],$comp,$days,$snap['fulfillment_type'],$snap['status'],$newVersion,$o['id']]);
+      db()->prepare("INSERT INTO offer_versions(offer_id,version_no,snapshot_json) VALUES(?,?,?)")->execute([$o['id'],$newVersion,json_encode($snap,JSON_UNESCAPED_UNICODE)]);
+      db()->commit();
+    }catch(Throwable $e){db()->rollBack();throw $e;}
+    flash('success','Angebot als Version V'.$newVersion.' gespeichert. Bestehende Aufträge bleiben auf ihrer ursprünglichen Version.');redirect('/admin/angebot/'.$o['id']);
+}
+if (preg_match('#^/admin/angebot/(\\d+)/option$#',$path,$m)&&$method==='POST') {
+    require_admin();$st=db()->prepare("SELECT id FROM offers WHERE id=?");$st->execute([(int)$m[1]]);if(!$st->fetchColumn())not_found();
+    db()->prepare("INSERT INTO offer_options(offer_id,label,price,active) VALUES(?,?,?,1)")->execute([(int)$m[1],post('label'),max(0,(float)post('price'))]);flash('success','Zusatzoption hinzugefügt.');redirect('/admin/angebot/'.$m[1]);
+}
