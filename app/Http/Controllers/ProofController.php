@@ -17,8 +17,6 @@ class ProofController extends Controller
     {
         $day->load('order');
         abort_unless($day->order->user_id===$request->user()->id,403);
-        abort_if($request->user()->hasRestriction('uploads'),422,'Nachweise sind für dieses Konto derzeit gesperrt.');
-
         $data=$request->validate([
             'window_key'=>['required','string','max:80'],
         ]);
@@ -62,7 +60,6 @@ class ProofController extends Controller
         $day->load('order');
         $order=$day->order;
 
-        abort_if($request->user()->hasRestriction('uploads'),422,'Nachweise sind für dieses Konto derzeit gesperrt.');
         abort_unless($order->user_id===$request->user()->id,403);
 
         $data=$request->validate([
@@ -215,7 +212,9 @@ class ProofController extends Controller
             ];
         }
 
-        $windows=data_get($day->order->current_requirements ?: $day->order->offer_snapshot,'proof_requirements',[]);
+        $windows=is_array($day->plan) && count($day->plan)
+            ? $day->plan
+            : data_get($day->order->current_requirements ?: $day->order->offer_snapshot,'proof_requirements',[]);
         $window=collect(is_array($windows)?$windows:[])->first(fn($row)=>(string)($row['key']??'')===$key);
         abort_unless($window,422,'Unbekanntes Nachweisfenster.');
 
@@ -280,6 +279,9 @@ class ProofController extends Controller
 
         if($now->betweenIncluded($start,$end)) return;
 
-        abort(422,'Dieses Nachweisfenster ist aktuell nicht geöffnet.');
+        $graceEnd=$end->addHour();
+        if($now->greaterThan($end) && $now->lessThanOrEqualTo($graceEnd)) return;
+
+        abort(422,'Dieses Nachweisfenster ist aktuell nicht geöffnet. Die reguläre Frist einschließlich der einstündigen Nachfrist ist abgelaufen.');
     }
 }
