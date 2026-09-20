@@ -1,0 +1,32 @@
+CREATE TABLE IF NOT EXISTS system_outages (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ starts_at DATETIME NOT NULL,
+ ends_at DATETIME NOT NULL,
+ reason VARCHAR(500) NOT NULL,
+ status ENUM('planned','active','ended') NOT NULL DEFAULT 'ended',
+ applied_at DATETIME NULL,
+ created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ INDEX(starts_at,ends_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS outage_impacts (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ outage_id BIGINT UNSIGNED NOT NULL,
+ entity_type VARCHAR(50) NOT NULL,
+ entity_id BIGINT UNSIGNED NOT NULL,
+ seconds_shifted INT UNSIGNED NOT NULL,
+ created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ UNIQUE(outage_id,entity_type,entity_id),
+ FOREIGN KEY(outage_id) REFERENCES system_outages(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS order_interim_summaries (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ order_id BIGINT UNSIGNED NOT NULL,
+ completed_days INT UNSIGNED NOT NULL,
+ snapshot_json JSON NOT NULL,
+ created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ UNIQUE(order_id,completed_days),
+ FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE,
+ INDEX(order_id,created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
