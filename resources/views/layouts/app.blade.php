@@ -26,7 +26,6 @@ $unread=auth()->user()->userNotifications()->whereNull('read_at')->count();
         @endif
         </span></a>
         <a class="{{ request()->routeIs('profile.*')?'active':'' }}" href="{{ route('profile.edit') }}">♙ <span>Profil</span></a>
-        <a class="{{ request()->routeIs('documents.*')?'active':'' }}" href="{{ route('documents.index') }}">▤ <span>Dokumente</span></a>
         <a class="{{ request()->routeIs('privacy.*')?'active':'' }}" href="{{ route('privacy.index') }}">◈ <span>Datenschutz</span></a>
 
         @if(auth()->user()->isAdmin())
@@ -38,13 +37,9 @@ $unread=auth()->user()->userNotifications()->whereNull('read_at')->count();
         <a class="{{ request()->routeIs('admin.orders.*')?'active':'' }}" href="{{ route('admin.orders.index') }}">☷ <span>Aufträge</span></a>
         <a class="{{ request()->routeIs('admin.proofs.*')?'active':'' }}" href="{{ route('admin.proofs.index') }}">▤ <span>Nachweise</span></a>
         <a class="{{ request()->routeIs('admin.prechecks.*')?'active':'' }}" href="{{ route('admin.prechecks.index') }}">⌕ <span>Vorprüfungen</span></a>
-        <a class="{{ request()->routeIs('admin.unassigned-shipments.*')?'active':'' }}" href="{{ route('admin.unassigned-shipments.index') }}">▦ <span>Nicht zuordenbare Sendungen</span></a>
         <a class="{{ request()->routeIs('admin.payouts.*')?'active':'' }}" href="{{ route('admin.payouts.index') }}">€ <span>Auszahlungen</span></a>
         <a class="{{ request()->routeIs('admin.messages.*')?'active':'' }}" href="{{ route('admin.messages.index') }}">✉ <span>Nachrichten</span></a>
-        <a class="{{ request()->routeIs('admin.documents.*')?'active':'' }}" href="{{ route('admin.documents.index') }}">▤ <span>Dokumente</span></a>
         <a class="{{ request()->routeIs('admin.privacy.*')?'active':'' }}" href="{{ route('admin.privacy.index') }}">◈ <span>Datenschutz</span></a>
-        <a class="{{ request()->routeIs('admin.reports.*')?'active':'' }}" href="{{ route('admin.reports.index') }}">▥ <span>Berichte</span></a>
-        <a class="{{ request()->routeIs('admin.audit.*')?'active':'' }}" href="{{ route('admin.audit.index') }}">☷ <span>Audit-Log</span></a>
         <a class="{{ request()->routeIs('admin.health.*')?'active':'' }}" href="{{ route('admin.health.index') }}">◉ <span>Systemzustand</span></a>
         <a class="{{ request()->routeIs('admin.settings.*')?'active':'' }}" href="{{ route('admin.settings.index') }}">⚙ <span>Einstellungen</span></a>
         @endif
@@ -57,6 +52,7 @@ $unread=auth()->user()->userNotifications()->whereNull('read_at')->count();
     <div class="top-user"><div class="avatar">{{ strtoupper(substr(auth()->user()->first_name,0,1)) }}{{ strtoupper(substr(auth()->user()->last_name,0,1)) }}</div><div><strong>Hallo, {{ auth()->user()->first_name }}</strong><small>{{ auth()->user()->role === 'provider' ? 'Anbieterin' : 'Admin' }} · {{ auth()->user()->hasVerifiedEmail() ? 'E-Mail bestätigt' : 'E-Mail offen' }}</small></div></div>
 </header>
 <div class="content">
+<div style="margin-bottom:12px"><a class="muted" href="{{ route('public.home') }}">← Öffentliche Website</a></div>
 @if(session('success'))
 <div class="flash success">{{ session('success') }}</div>
 @endif
