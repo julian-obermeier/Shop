@@ -3,11 +3,11 @@
 @section('content')
 @php
 $currentSeries=(int)$order->series_number;
-$currentDays=$order->days->where('series_number',$currentSeries);
-$acceptedDays=$currentDays->where('day_number','>',0)->where('counts_toward_series',true)->where('status','accepted')->count();
+$currentDays=$order->days->where('series_number',$currentSeries)->sortBy('day_number');
+$acceptedRegular=$currentDays->where('source_type','regular')->where('day_number','>',0)->where('status','accepted')->count();
 $requiredDays=(int)data_get($order->offer_snapshot,'duration_days',1);
 $canComplete=$order->status==='active' && $order->executionProofsAccepted();
-$trackingMode=(string)data_get($order->offer_snapshot,'tracking_mode','optional');
+$isDigital=data_get($order->offer_snapshot,'category_kind')==='digital';
 @endphp
 
 <div class="page-head split">
@@ -16,429 +16,201 @@ $trackingMode=(string)data_get($order->offer_snapshot,'tracking_mode','optional'
 <h1>{{ data_get($order->offer_snapshot,'title') }}</h1>
 <span class="status {{ $order->status }}">{{ strtoupper(str_replace('_',' ',$order->status)) }}</span>
 </div>
-<div class="headline-amount"><span>Vereinbart bis</span><strong>{{ number_format($order->compensation_total,2,',','.') }} €</strong>@if($order->final_compensation!==null)<small>Final: {{ number_format($order->final_compensation,2,',','.') }} €</small>@endif</div>
+<div class="headline-amount"><span>Auftragswert</span><strong>{{ number_format($order->compensation_total,2,',','.') }} €</strong>@if($order->final_compensation!==null)<small>Final: {{ number_format($order->final_compensation,2,',','.') }} €</small>@endif</div>
 </div>
 
-@if($order->status==='requested')
-<div class="panel start-panel">
-<div><h3>Auftragsanfrage wartet auf Adminprüfung</h3><p>Gewünschter Aktivierungstag: <strong>{{ $order->proposed_start_date?->format('d.m.Y') }}</strong>. Erst die Bestätigung durch den Admin macht Auftrag und Termin verbindlich.</p></div>
-<form method="post" action="{{ route('orders.withdraw',$order) }}">@csrf<button class="btn secondary">Anfrage zurückziehen</button></form>
+<div class="phase-bar">
+@foreach(['preparation'=>'Vorbereitung','execution'=>'Durchführung','shipping'=>'Versand','review'=>'Prüfung','payout'=>'Auszahlung','archive'=>'Archiv'] as $key=>$label)
+<span class="{{ $order->phase===$key?'active':'' }}">{{ $label }}</span>
+@endforeach
 </div>
-@endif
 
-@if($order->status==='request_rejected')
-<div class="panel">
-<h2>Auftragsanfrage abgelehnt</h2>
-<p>Der Admin hat diese Anfrage abgelehnt. Die Anfrage zählt nicht gegen dein persönliches Auftragslimit und kann später vom Admin wieder geöffnet werden.</p>
-@php($rejectEvent=$order->statusHistory->where('to_status','request_rejected')->sortByDesc('created_at')->first())
-@if($rejectEvent?->reason)<div class="notice">{{ $rejectEvent->reason }}</div>@endif
-</div>
-@endif
-
-@if($order->status==='awaiting_date_confirmation')
-<div class="panel">
-<h2>Neuer Starttermin vorgeschlagen</h2>
-<p>Der Admin schlägt den <strong>{{ $order->proposed_start_date?->format('d.m.Y') }}</strong> als Aktivierungstag vor.</p>
-<div style="display:flex;gap:10px;flex-wrap:wrap">
-<form method="post" action="{{ route('orders.accept-date',$order) }}">@csrf<button class="btn primary">Termin verbindlich bestätigen</button></form>
-<form method="post" action="{{ route('orders.withdraw',$order) }}">@csrf<button class="btn secondary">Anfrage zurückziehen</button></form>
-</div>
-</div>
-@endif
-
-@if(in_array($order->status,['precheck','precheck_resubmit']))
-<div class="panel" style="margin-bottom:18px">
-<h2>Vorprüfung erforderlich</h2>
+@if(in_array($order->status,['precheck','precheck_resubmit'],true))
+<section class="panel" style="margin-bottom:18px">
+<span class="eyebrow">Vorbereitung · Durchlauf {{ $currentSeries }}</span>
+<h2>Vorabkontrolle</h2>
+<p>Lege den konkreten Artikel fest und nimm alle geforderten Perspektiven direkt mit der Live-Kamera auf. Bereits akzeptierte Perspektiven müssen nicht erneut erstellt werden.</p>
 @if($order->precheck?->admin_comment)<div class="notice">{{ $order->precheck->admin_comment }}</div>@endif
-<form method="post" enctype="multipart/form-data" action="{{ route('orders.precheck',$order) }}" class="form-grid">@csrf
-<input type="hidden" name="existing_photo" value="{{ $order->precheck?->photo_path }}">
+
+<form method="post" action="{{ route('orders.precheck.details',$order) }}" class="form-grid">@csrf
 <label>Artikelart<input name="item_type" value="{{ old('item_type',$order->precheck?->item_type) }}"></label>
-<label>Größe / Variante<input name="item_size" value="{{ old('item_size',$order->precheck?->item_size) }}"></label>
-<label class="full">Beschreibung<textarea name="item_description" rows="4" required>{{ old('item_description',$order->precheck?->item_description) }}</textarea></label>
-<label class="full">Prüffoto<input type="file" name="photo" accept="image/jpeg,image/png,image/webp" @required(!$order->precheck?->photo_path)><small>Das eingereichte Originalbild bleibt dauerhaft zum Auftrag gespeichert.</small></label>
-<div class="full"><button class="btn primary">Vorprüfung einreichen</button></div>
+<label>Größe / Variante <span class="muted">(freiwillig)</span><input name="item_size" value="{{ old('item_size',$order->precheck?->item_size) }}"></label>
+<label class="full">Kurze Artikelbeschreibung<textarea name="item_description" rows="3" required>{{ old('item_description',$order->precheck?->item_description) }}</textarea></label>
+<div class="full"><button class="btn secondary">Artikeldaten speichern</button></div>
 </form>
-</div>
-@endif
 
-@if($order->status==='approved')
-<div class="panel start-panel">
-<div>
-<h3>Bestätigter Aktivierungstag: {{ $order->confirmed_start_date?->format('d.m.Y') }}</h3>
-<p>Am Aktivierungstag bestätigst du den Start und reichst anschließend das Startfoto mit einem 10-Minuten-Code ein. Tag 1 beginnt erst am folgenden Kalendertag.</p>
-</div>
-@if($order->confirmed_start_date?->isToday())
-<form method="post" action="{{ route('orders.start',$order) }}">@csrf<button class="btn primary">Aktivierung bestätigen</button></form>
+<div class="precheck-grid">
+@foreach($precheckSlots as $slot)
+@php($ev=$precheckEvidence->get($slot['key']))
+<article class="precheck-slot">
+<div class="day-top"><strong>{{ $slot['label'] }}</strong><span class="status {{ $ev?->status ?? 'open' }}">{{ strtoupper($ev?->status ?? 'OFFEN') }}</span></div>
+@if($ev?->admin_comment)<div class="notice">{{ $ev->admin_comment }}</div>@endif
+@if(!$ev || $ev->status!=='accepted')
+<form method="post" enctype="multipart/form-data" action="{{ route('orders.precheck.evidence',$order) }}" class="stack-form">@csrf
+<input type="hidden" name="slot_key" value="{{ $slot['key'] }}">
+<label>Live-Kamera<input type="file" name="photo" accept="image/jpeg" required data-live-camera data-camera-context="precheck:{{ $order->id }}:{{ $currentSeries }}:{{ $slot['key'] }}" hidden></label>
+<button class="btn primary">Aufnahme speichern</button>
+</form>
 @else
-<span class="status pending">NOCH NICHT FÄLLIG</span>
+<p class="positive">Dieser Nachweis wurde freigegeben.</p>
 @endif
+</article>
+@endforeach
 </div>
+
+@php($hasAll=$precheckEvidence->count()>=count($precheckSlots))
+@if($hasAll)
+<form method="post" action="{{ route('orders.precheck.submit',$order) }}" style="margin-top:16px">@csrf<button class="btn primary">Vorabkontrolle vollständig einreichen</button></form>
+@endif
+<div class="notice">Der Auftrag startet automatisch und unmittelbar, sobald der Admin alle erforderlichen Vorabnachweise akzeptiert hat.</div>
+</section>
 @endif
 
-@if($order->status==='waiting_start')
+@if($order->status==='active' && !$isDigital)
+<section class="panel start-panel">
+<div><span class="eyebrow">Durchführung · Durchlauf {{ $currentSeries }}</span><h2>{{ $acceptedRegular }} von {{ $requiredDays }} regulären Tagen abgeschlossen</h2><p>Zusätzliche Tage werden am Auftragsende fortlaufend angehängt und mit ihrer Ursache gekennzeichnet.</p></div>
+@if($canComplete)<form method="post" action="{{ route('orders.complete',$order) }}">@csrf<button class="btn primary">Durchführung abschließen</button></form>@endif
+</section>
+
+<div class="days">
+@foreach($currentDays as $day)
+<article class="day-card">
+<div class="day-top">
+<div><span class="day-number">{{ $day->day_number===0?'Starttag':('Tag '.$day->day_number) }} @if($day->source_type!=='regular' && $day->day_number>0) · {{ strtoupper($day->source_type) }} @endif</span><strong>{{ $day->date->format('d.m.Y') }}</strong></div>
+<span class="status {{ $day->status }}">{{ strtoupper(str_replace('_',' ',$day->status)) }}</span>
+</div>
+@if($day->day_number===0)
+<div class="notice">Dieser Kalendertag dokumentiert nur den Start. Tag 1 beginnt am folgenden Kalendertag.</div>
+@else
+@php($windows=is_array($day->plan) ? $day->plan : [])
+@foreach($windows as $window)
 @php
-$startDay=$currentDays->firstWhere('day_number',0);
-$startChallenge=$startDay ? $order->proofChallenges->first(fn($c)=>$c->order_day_id===$startDay->id && $c->window_key==='start' && !$c->used_at && $c->expires_at?->isFuture()) : null;
+$key=(string)($window['key']??'default');
+$required=(int)($window['required_images']??0);
+$proofs=$day->proofs->where('window_key',$key);
+$accepted=$proofs->where('review_status','accepted')->count();
+$pending=$proofs->where('review_status','pending')->count();
+$challenge=$order->proofChallenges->first(fn($c)=>$c->order_day_id===$day->id && $c->window_key===$key && !$c->used_at && !$c->expired_at && $c->expires_at?->isFuture());
 @endphp
-<div class="panel" style="margin-bottom:18px">
-<h2>Verpflichtendes Startfoto</h2>
-<p>Der Code muss im Bild sichtbar sein – handschriftlich auf einem Zettel, auf einem zweiten Gerät oder per digitalem Overlay. Andere Personen dürfen nicht erkennbar sein.@if(data_get($order->current_requirements,'inspection_config.start_face_required',false)) <strong>Dein Gesicht muss auf diesem Startfoto sichtbar sein.</strong>@endif</p>
-@if($startDay)
-@if(!$startChallenge)
-<form method="post" action="{{ route('proofs.challenge',$startDay) }}">@csrf<input type="hidden" name="window_key" value="start"><button class="btn secondary">10-Minuten-Code erzeugen</button></form>
+<div class="proof-window">
+<div><strong>{{ $window['label']??$key }}</strong><small>{{ $window['start']??'00:00' }}–{{ $window['end']??'23:59' }} Uhr · benötigt {{ $required }} · akzeptiert {{ $accepted }} · offen/in Prüfung {{ max(0,$required-$accepted) }}</small></div>
+@if($day->date->isToday() && ($accepted+$pending)<$required)
+@if(!$challenge)
+<form method="post" action="{{ route('proofs.challenge',$day) }}">@csrf<input type="hidden" name="window_key" value="{{ $key }}"><button class="btn secondary">10-Minuten-Code erzeugen</button></form>
 @else
-<div class="notice"><strong>Code: {{ $startChallenge->code }}</strong><br>Gültig bis {{ $startChallenge->expires_at->format('H:i:s') }} Uhr.</div>
-<form method="post" enctype="multipart/form-data" action="{{ route('proofs.store',$startDay) }}" class="stack-form" data-proof-upload data-code="{{ $startChallenge->code }}">@csrf
-<input type="hidden" name="challenge_id" value="{{ $startChallenge->id }}">
-<input type="hidden" name="proof_code" value="{{ $startChallenge->code }}">
-<input type="hidden" name="window_key" value="start">
-<label>Live-Kamera<input type="file" name="proof" accept="image/jpeg" required data-proof-file data-live-camera data-camera-context="proof:{{ $startDay->id }}:{{ $startChallenge->id }}:start" hidden></label>
-<label class="check"><input type="checkbox" data-overlay-code><span>Code automatisch sichtbar in das aufgenommene Bild einblenden</span></label>
-<button class="btn primary">Startfoto einreichen</button>
+<div class="notice"><strong>Code {{ $challenge->code }}</strong> · gültig bis {{ $challenge->expires_at->format('H:i:s') }} Uhr</div>
+<form method="post" enctype="multipart/form-data" action="{{ route('proofs.store',$day) }}" class="stack-form" data-proof-upload data-code="{{ $challenge->code }}">@csrf
+<input type="hidden" name="challenge_id" value="{{ $challenge->id }}"><input type="hidden" name="proof_code" value="{{ $challenge->code }}"><input type="hidden" name="window_key" value="{{ $key }}">
+<label>Live-Kamera<input type="file" name="proof" accept="image/jpeg" required data-proof-file data-live-camera data-camera-context="proof:{{ $day->id }}:{{ $challenge->id }}:{{ $key }}" hidden></label>
+<button class="btn primary">Nachweis einreichen</button>
 </form>
 @endif
 @endif
 </div>
+@endforeach
 @endif
-
-@if($order->status==='active')
-<div class="panel start-panel">
-<div><h3>Aktuelle Trageserie {{ $currentSeries }}</h3><p><strong>{{ $acceptedDays }} von {{ $requiredDays }}</strong> erforderlichen gültigen Tagen sind vollständig akzeptiert. Eine zweite Unterbrechung innerhalb derselben Serie startet die Serie wieder bei Tag 1.</p></div>
-@if($canComplete)<form method="post" action="{{ route('orders.complete',$order) }}">@csrf<button class="btn primary">Erfüllungsphase abschließen</button></form>@endif
+</article>
+@endforeach
 </div>
 @endif
 
-@if(in_array($order->status,['waiting_shipping','shipping_overdue'],true) || ($order->status==='shipped' && $order->shipment?->review_status==='rejected' && $order->shipment?->resubmit_due_at?->isFuture()))
-@php
-$isShipmentResubmission=$order->status==='shipped' && $order->shipment?->review_status==='rejected';
-$resubmitScope=$isShipmentResubmission ? ($order->shipment?->resubmit_scope ?: 'both') : 'both';
-$resubmitLabel=match($resubmitScope){'package'=>'Paketfoto','receipt'=>'Versand-/Annahmebeleg',default=>'Paketfoto und Versand-/Annahmebeleg'};
-@endphp
-<div class="panel" style="margin-bottom:18px">
-<h2>{{ $isShipmentResubmission?'Versandnachweis erneut einreichen':'Versand melden' }}</h2>
-@if($order->shipping_due_at)
-<div class="notice">Versandfrist: <strong>{{ $order->shipping_due_at->format('d.m.Y H:i') }} Uhr</strong>@if($order->shipping_due_at->isPast()) · <strong>überschritten</strong>@endif</div>
+@if($isDigital && $digitalComponent)
+<section class="panel">
+<span class="eyebrow">Digitale Ausführung</span>
+<h2>Digitale Leistung</h2>
+<div class="notice">Status: <strong>{{ strtoupper(str_replace('_',' ',$digitalComponent->status)) }}</strong>. Jede gespeicherte Fassung bleibt als eigene Version erhalten.</div>
+
+@php($activeRevision=$revisionRounds->first(fn($r)=>in_array($r->status,['open','submitted'],true)))
+@if($activeRevision)
+<h3>Revision {{ $activeRevision->round_no }}</h3>
+<p>Frist: {{ $activeRevision->due_at ? \Carbon\Carbon::parse($activeRevision->due_at)->format('d.m.Y H:i') : 'keine feste Frist' }}</p>
+<div class="timeline">@foreach($revisionItems->get($activeRevision->id,collect()) as $item)<div><span>{{ strtoupper($item->status) }}</span><strong>{{ $item->description }}</strong>@if($item->admin_comment)<small>{{ $item->admin_comment }}</small>@endif</div>@endforeach</div>
 @endif
-@if($order->shipment?->review_status==='rejected')
-<div class="flash error">{{ $order->shipment->review_comment }}<br>Neu erforderlich: <strong>{{ $resubmitLabel }}</strong>. Nachreichung bis {{ $order->shipment->resubmit_due_at?->format('d.m.Y H:i') }} Uhr.</div>
+
+@if(!$order->isTerminal())
+<form method="post" enctype="multipart/form-data" action="{{ route('orders.digital.store',[$order,$digitalComponent->id]) }}" class="stack-form" style="margin-top:16px">@csrf
+<label>Abgabeformat<select name="submission_type" required><option value="text">Text</option><option value="audio">Audio</option><option value="video">Video</option></select></label>
+<label>Textinhalt<textarea name="text_content" rows="8" placeholder="Nur bei Text-Abgabe"></textarea></label>
+<label>Audio-/Videodatei<input type="file" name="file" accept="audio/*,video/*"><small>Nur erforderlich, wenn Audio oder Video ausgewählt wurde.</small></label>
+<label class="check"><input type="checkbox" name="final_submission" value="1"><span>Diese Version final zur Prüfung einreichen</span></label>
+<button class="btn primary">Neue Version speichern</button>
+</form>
 @endif
+
+@if($digitalVersions->count())
+<h3 style="margin-top:22px">Versionshistorie</h3>
+@foreach($digitalVersions as $version)
+<article class="version-card"><div class="day-top"><strong>V{{ $version->version_no }} · {{ strtoupper($version->submission_type) }}</strong><span>{{ $version->submitted_at ? \Carbon\Carbon::parse($version->submitted_at)->format('d.m.Y H:i') : '' }}</span></div>
+@if($version->submission_type==='text')<div class="notice" style="white-space:pre-wrap">{{ $version->text_content }}</div>
+@elseif($version->submission_type==='audio')<audio controls preload="metadata" src="{{ route('orders.digital.stream',[$order,$version->id]) }}" style="width:100%"></audio>
+@elseif($version->submission_type==='video')<video controls preload="metadata" src="{{ route('orders.digital.stream',[$order,$version->id]) }}" style="width:100%;max-height:520px"></video>
+@endif
+@if($version->final_submission)<small class="positive">Final eingereicht</small>@endif
+</article>
+@endforeach
+@endif
+</section>
+@endif
+
+@if($order->status==='active' && !$isDigital)
+<section class="panel" style="margin-top:18px"><h2>Artikel beschädigt oder unbrauchbar?</h2><p>Eine Meldung pausiert den Auftrag nicht. Fristen laufen bis zur Adminentscheidung weiter.</p>
+<form method="post" enctype="multipart/form-data" action="{{ route('orders.damage',$order) }}" class="stack-form">@csrf
+<label>Was ist passiert?<textarea name="reason" rows="3" required></textarea></label>
+<label>Pflichtfoto über Live-Kamera<input type="file" name="photo" accept="image/jpeg" required data-live-camera data-camera-context="damage:{{ $order->id }}:{{ $currentSeries }}" hidden></label>
+<button class="btn secondary">Beschädigung melden</button>
+</form></section>
+@endif
+
+@if($damageCases->count())
+<section class="panel" style="margin-top:18px"><h2>Beschädigungsvorgänge</h2>
+@foreach($damageCases as $case)<div class="operation-block"><div class="day-top"><strong>Vorgang #{{ $case->id }}</strong><span class="status">{{ strtoupper($case->status) }}</span></div><p>{{ $case->reason }}</p>
+@foreach($damageEvidenceRequests->get($case->id,collect()) as $req)<div class="notice"><strong>{{ strtoupper($req->type) }}</strong> · {{ $req->instructions }}<br><small>Frist: {{ $req->due_at ? \Carbon\Carbon::parse($req->due_at)->format('d.m.Y H:i') : '–' }} · {{ strtoupper($req->status) }}</small></div>
+@if($req->status==='open')<form method="post" enctype="multipart/form-data" action="{{ route('orders.damage-evidence-submit',[$order,$case->id,$req->id]) }}" class="stack-form">@csrf
+@if(in_array($req->type,['text','field'],true))<label>Nachweis<textarea name="value" rows="3" required></textarea></label>
+@elseif($req->type==='photo')<label>Live-Foto<input type="file" name="file" accept="image/jpeg" required data-live-camera data-camera-context="damage-request:{{ $order->id }}:{{ $case->id }}:{{ $req->id }}" hidden></label>
+@else<label>Video<input type="file" name="file" accept="video/*" required></label>@endif
+<button class="btn primary">Nachforderung einreichen</button></form>@endif
+@endforeach
+</div>@endforeach
+</section>
+@endif
+
+@if($extensionDays->count())
+<section class="panel" style="margin-top:18px"><h2>Zusätzliche Tage</h2>
+<div class="timeline">@foreach($extensionDays as $extra)<div><span>{{ $extra->date ? \Carbon\Carbon::parse($extra->date)->format('d.m.Y') : 'noch offen' }}</span><strong>{{ strtoupper($extra->source_type) }} · {{ $extra->paid ? number_format((float)$extra->amount,2,',','.').' €' : 'unbezahlt' }}</strong>@if($extra->reason)<small>{{ $extra->reason }}</small>@endif</div>@endforeach</div>
+</section>
+@endif
+
+@if($violations->count())
+<section class="panel" style="margin-top:18px"><h2>Verstöße</h2>
+<div class="timeline">@foreach($violations as $v)<div><span>{{ strtoupper($v->status) }}</span><strong>{{ $v->type }}</strong><small>{{ $v->reason }}</small></div>@endforeach</div>
+</section>
+@endif
+
+@if(in_array($order->status,['waiting_shipping','shipping_overdue'],true))
+<section class="panel" style="margin-top:18px"><h2>Versand</h2>
+@if($order->shipping_due_at)<div class="notice">Versandfrist: {{ $order->shipping_due_at->format('d.m.Y H:i') }} Uhr</div>@endif
 <form method="post" enctype="multipart/form-data" action="{{ route('orders.shipment',$order) }}" class="form-grid">@csrf
-<label>Versanddienstleister<input name="carrier" value="{{ old('carrier',$order->shipment?->carrier) }}" placeholder="z. B. DHL" required></label>
-@if($trackingMode!=='none')
-<label>Trackingnummer<input name="tracking_number" value="{{ old('tracking_number',$order->shipment?->tracking_number) }}" @required($trackingMode==='required')><small>{{ $trackingMode==='required'?'Pflicht':'optional' }}</small></label>
-@endif
-@if(!$isShipmentResubmission || in_array($resubmitScope,['package','both'],true))
-<label class="full">Paketfoto<input type="file" name="package_photo" accept="image/*" required><small>Foto des fertig verpackten Pakets; Galerie-/Dateiauswahl ist hierfür zulässig.</small></label>
-@endif
-@if(!$isShipmentResubmission || in_array($resubmitScope,['receipt','both'],true))
-<label class="full">Versand-/Annahmebeleg über Live-Kamera<input type="file" name="receipt_photo" accept="image/jpeg" required data-live-camera data-camera-context="shipment:{{ $order->id }}:receipt" hidden><small>Versanddatum und Versanddienstleister müssen eindeutig lesbar sein. Galerie-/Dateiauswahl ist für diesen Beleg nicht zulässig.</small></label>
-@endif
-<div class="notice full">
-<strong>Verbindliche Verpackungs- und Versandregeln</strong><br>
-Die Ware muss sicher, vor Feuchtigkeit und Transportschäden geschützt sowie innerhalb des Pakets getrennt bzw. geeignet verpackt werden.
-Lege die Auftragsnummer <strong>#{{ $order->order_number }}</strong> <strong>in das Paket</strong>. Eine Auftragskennzeichnung außen ist nicht erforderlich.
-Die Versandkosten trägst du selbst. Eigentum an der eingesandten Ware geht mit dem Versand auf den Betreiber über; das Versandrisiko bleibt bis zum bestätigten vollständigen Wareneingang bei dir.
-</div>
-<div class="full"><button class="btn primary">Versandnachweise einreichen</button></div>
+<label>Versanddienstleister<input name="carrier" required></label>
+<label>Trackingnummer<input name="tracking_number"></label>
+<label class="full">Foto des fertig verpackten Pakets<input type="file" name="package_photo" accept="image/*" required></label>
+<label class="full">Einlieferungs-/Annahmebeleg über Live-Kamera<input type="file" name="receipt_photo" accept="image/jpeg" required data-live-camera data-camera-context="shipment:{{ $order->id }}:receipt" hidden></label>
+<div class="full"><button class="btn primary">Versand nachweisen</button></div>
 </form>
-</div>
+</section>
 @endif
 
 @if($order->shipment)
-<div class="panel" style="margin-bottom:18px">
-<h2>Versand</h2>
-<dl class="meta-list">
-<div><dt>Dienstleister</dt><dd>{{ $order->shipment->carrier }}</dd></div>
-<div><dt>Tracking</dt><dd>{{ $order->shipment->tracking_number ?: '–' }}</dd></div>
-<div><dt>Versendet</dt><dd>{{ $order->shipment->shipped_at?->format('d.m.Y H:i') }}</dd></div>
-<div><dt>Nachweisprüfung</dt><dd>{{ strtoupper($order->shipment->review_status) }}</dd></div>
-</dl>
-</div>
+<section class="panel" style="margin-top:18px"><h2>Versandstatus</h2><dl class="meta-list"><div><dt>Status</dt><dd>{{ strtoupper($order->shipment->status) }}</dd></div><div><dt>Dienstleister</dt><dd>{{ $order->shipment->carrier ?: '–' }}</dd></div><div><dt>Tracking</dt><dd>{{ $order->shipment->tracking_number ?: '–' }}</dd></div></dl></section>
 @endif
 
-
-@if($order->goodsInspection)
-<div class="panel" style="margin-bottom:18px">
-<h2>Warenprüfung</h2>
-<dl class="meta-list">
-<div><dt>Ergebnis</dt><dd>{{ strtoupper(str_replace('_',' ',$order->goodsInspection->result)) }}</dd></div>
-<div><dt>Gesamtpunkte</dt><dd>{{ (int)data_get($order->goodsInspection->categories,'_total_points',0) }}/50</dd></div>
-<div><dt>Grundvergütung</dt><dd>{{ number_format((float)$order->goodsInspection->base_percentage,0) }} %</dd></div>
-<div><dt>Berechnete Vergütung</dt><dd>{{ number_format((float)$order->goodsInspection->calculated_compensation,2,',','.') }} €</dd></div>
-</dl>
-@if($order->goodsInspection->reason)
-<div class="notice"><strong>Begründung / weitere Anforderung</strong><br>{{ $order->goodsInspection->reason }}</div>
-@endif
-@foreach(($order->goodsInspection->categories??[]) as $key=>$row)
-@if(!str_starts_with((string)$key,'_'))
-<p><strong>{{ $row['label']??$key }}:</strong> {{ ($row['passed']??false)?'bestanden':'nicht bestanden' }} · {{ $row['points']??0 }}/10 @if($row['comment']??null) · {{ $row['comment'] }}@endif</p>
-@endif
-@endforeach
-@if(is_array($order->goodsInspection->extra_results) && count($order->goodsInspection->extra_results))
-<h3>Extras</h3>
-@foreach($order->goodsInspection->extra_results as $extra)
-<p><strong>{{ $extra['name']??'Extra' }}:</strong> {{ ($extra['fulfilled']??false)?'erfüllt':'nicht erfüllt' }} · {{ number_format((float)($extra['amount']??0),2,',','.') }} € @if($extra['comment']??null) · {{ $extra['comment'] }}@endif</p>
-@endforeach
-@endif
-</div>
+@if($order->status==='rejected')
+<section class="panel" style="margin-top:18px"><h2>Auftrag endgültig abgelehnt</h2>@php($event=$order->statusHistory->where('to_status','rejected')->sortByDesc('created_at')->first())<div class="notice">{{ $event?->reason ?: 'Der Auftrag wurde endgültig abgelehnt.' }}</div><p>Die zugehörigen Nachweisdateien sind nach endgültiger Ablehnung nur noch administrativ sichtbar.</p></section>
 @endif
 
-@if($order->status==='rejected' && $order->goodsInspection?->result==='rejected')
-@php
-$returnDecisionDeadline=$order->goodsInspection->reviewed_at?->copy()->timezone('Europe/Berlin')->startOfDay()->addDays(3)->endOfDay();
-@endphp
-<div class="panel" style="margin-bottom:18px">
-<h2>Rücksendung abgelehnter Ware</h2>
-@if(!$order->returnRequest)
-@if($returnDecisionDeadline && now('Europe/Berlin')->lte($returnDecisionDeadline))
-<p>Du kannst bis <strong>{{ $returnDecisionDeadline->format('d.m.Y H:i') }} Uhr</strong> eine Rücksendung auf eigene Kosten verlangen.</p>
-<form method="post" enctype="multipart/form-data" action="{{ route('orders.return-request',$order) }}" class="stack-form">@csrf
-<label>Variante<select name="method" data-return-method>
-<option value="own_label">Eigenes gültiges Rücksendeetikett bereitstellen</option>
-<option value="operator_quote">Betreiber teilt tatsächliche Versandkosten mit; separate Überweisung</option>
-</select></label>
-<label>Eigenes Rücksendeetikett<input type="file" name="return_label" accept="application/pdf,image/jpeg,image/png,image/webp"><small>Bei Wahl „eigenes Etikett“ erforderlich.</small></label>
-<div class="notice">Nach rechtzeitiger Anforderung bleiben 24 Stunden, um das Etikett bereitzustellen bzw. die mitgeteilten Versandkosten separat zu begleichen. Das Wallet wird dafür nicht verwendet.</div>
-<button class="btn primary">Rücksendung verbindlich anfordern</button>
-</form>
-@else
-<div class="notice">Die Frist zur Anforderung einer Rücksendung ist abgelaufen. Die Ware verbleibt beim Betreiber.</div>
-@endif
-@else
-<dl class="meta-list">
-<div><dt>Status</dt><dd>{{ strtoupper(str_replace('_',' ',$order->returnRequest->status)) }}</dd></div>
-<div><dt>Angefordert</dt><dd>{{ $order->returnRequest->requested_at?->format('d.m.Y H:i') }}</dd></div>
-<div><dt>24-Stunden-Frist</dt><dd>{{ $order->returnRequest->fulfillment_due_at?->format('d.m.Y H:i') }}</dd></div>
-<div><dt>Variante</dt><dd>{{ $order->returnRequest->method==='own_label'?'Eigenes Rücksendeetikett':'Separate Übernahme der tatsächlichen Versandkosten' }}</dd></div>
-@if($order->returnRequest->requested_shipping_cost)<div><dt>Mitgeteilte Versandkosten</dt><dd>{{ number_format($order->returnRequest->requested_shipping_cost,2,',','.') }} €</dd></div>@endif
-@if($order->returnRequest->shipping_cost_paid_at)<div><dt>Kostenzahlung bestätigt</dt><dd>{{ $order->returnRequest->shipping_cost_paid_at->format('d.m.Y H:i') }}</dd></div>@endif
-@if($order->returnRequest->returned_at)<div><dt>Zurückgesendet</dt><dd>{{ $order->returnRequest->returned_at->format('d.m.Y H:i') }}</dd></div>@endif
-@if($order->returnRequest->tracking_number)<div><dt>Rücksendungs-Tracking</dt><dd>{{ $order->returnRequest->tracking_number }}</dd></div>@endif
-</dl>
-@if($order->returnRequest->status==='awaiting_quote_payment' && $order->returnRequest->requested_shipping_cost)
-<div class="notice">Bitte überweise die mitgeteilten Rücksendekosten separat. Der Admin bestätigt den Zahlungseingang im System. Eine Belastung des Wallets erfolgt nicht.</div>
-@endif
-@if($order->returnRequest->status==='expired')
-<div class="flash error">Die 24-Stunden-Frist ist abgelaufen. Die Rücksendeoption ist endgültig verfallen.</div>
-@endif
-@if($order->returnRequest->status==='returned')
-<div class="notice">Die Rücksendung wurde durch den Betreiber als ausgeführt markiert.@if($order->returnRequest->tracking_number) Tracking: <strong>{{ $order->returnRequest->tracking_number }}</strong>.@endif</div>
-@endif
-@endif
-</div>
+@if($order->conversation)
+<div style="margin-top:18px"><a class="btn secondary" href="{{ route('messages.show',$order->conversation) }}">Auftragschat öffnen</a></div>
 @endif
 
-<div class="order-layout">
-<section>
-<div class="section-head"><div><span class="eyebrow">Nachweise</span><h2>Serien & Kalendertage</h2></div></div>
-<div class="days">
-@forelse($order->days->sortByDesc('series_number')->sortBy('day_number') as $day)
-@php
-$isCurrent=(int)$day->series_number===$currentSeries;
-$windows=$day->day_number===0
-    ? [['key'=>'start','label'=>'Startfoto','start'=>'00:00','end'=>'23:59','required_images'=>1,'text_required'=>false,'face_required'=>data_get($order->current_requirements,'inspection_config.start_face_required',false)]]
-    : data_get($order->current_requirements ?: $order->offer_snapshot,'proof_requirements',[]);
-@endphp
-<article class="day-card {{ !$day->counts_toward_series?'archived':'' }}" id="nachweis-tag-{{ $day->id }}">
-<div class="day-top">
-<div><span class="day-number">Serie {{ $day->series_number }} · {{ $day->day_number===0?'Start':('Tag '.$day->day_number) }}</span><strong>{{ $day->date->format('d.m.Y') }}</strong></div>
-<span class="status {{ $day->status }}">{{ strtoupper($day->status) }}</span>
-</div>
-@if(!$day->counts_toward_series)<div class="notice">Archiviert – zählt nicht mehr zur aktuellen erfolgreichen Serie.@if($day->invalid_reason) {{ $day->invalid_reason }}@endif</div>@endif
-
-@foreach(is_array($windows) ? $windows : [] as $window)
-@php
-$key=(string)($window['key']??'default');
-$required=(int)($window['required_images']??1);
-$windowProofs=$day->proofs->where('window_key',$key);
-$accepted=$windowProofs->where('review_status','accepted')->count();
-$pending=$windowProofs->where('review_status','pending')->count();
-$latestRejected=$windowProofs->where('review_status','rejected')->sortByDesc('id')->first();
-$rejectedCount=$windowProofs->where('review_status','rejected')->count();
-$awaitingExtraRetry=$rejectedCount>2 && !($latestRejected?->extra_retry_granted);
-$isStartResubmission=$day->day_number===0
-    && $order->status==='active'
-    && $latestRejected?->rejection_kind==='technical'
-    && $latestRejected?->resubmit_due_at?->isFuture();
-$challenge=$order->proofChallenges->first(
-    fn($c)=>$c->order_day_id===$day->id
-        && $c->window_key===$key
-        && !$c->used_at
-        && !$c->expired_at
-        && $c->expires_at?->isFuture()
-);
-$canSubmit=$isCurrent
-    && $day->counts_toward_series
-    && ($accepted+$pending)<$required
-    && !$awaitingExtraRetry
-    && ($day->day_number===0
-        ? ($order->status==='waiting_start' || $isStartResubmission)
-        : $order->status==='active');
-@endphp
-
-<div class="panel" style="margin:12px 0">
-    <strong>{{ $window['label']??$key }}</strong>
-    <small class="muted">
-        · {{ $window['start']??'00:00' }}–{{ $window['end']??'23:59' }}
-        · akzeptiert {{ $accepted }}/{{ $required }}
-        @if($window['face_required']??false)
-            · Gesicht Pflicht
-        @endif
-    </small>
-
-    @if(!empty($window['image_requirements']))
-        <div class="notice">
-            <strong>Bildanforderung:</strong> {{ $window['image_requirements'] }}
-        </div>
-    @endif
-
-    @if(!empty($window['required_fields']))
-        <div class="notice">
-            <strong>Zusätzliche Pflichtangaben:</strong>
-            {{ collect($window['required_fields'])->pluck('label')->filter()->implode(', ') }}
-        </div>
-    @endif
-
-    @if($awaitingExtraRetry)
-        <div class="notice">
-            <strong>Reguläre Nachreichversuche ausgeschöpft.</strong><br>
-            Ein weiterer Versuch ist nur möglich, wenn der Admin ihn ausdrücklich freigibt.
-        </div>
-    @endif
-
-    @foreach($windowProofs as $proof)
-        <div class="proof-list">
-            <div>
-                <span>📎 Versuch {{ $proof->retry_number }} · Code {{ $proof->proof_code }}</span>
-                <span class="status {{ $proof->review_status }}">{{ strtoupper($proof->review_status) }}</span>
-            </div>
-
-            @if($proof->text_value)
-                <small>Text: {{ $proof->text_value }}</small>
-            @endif
-
-            @if(is_array($proof->proof_data))
-                @foreach($proof->proof_data as $entry)
-                    <small>{{ $entry['label']??'Pflichtangabe' }}: {{ $entry['value']??'–' }}</small>
-                @endforeach
-            @endif
-
-            @if($proof->review_comment)
-                <small>{{ $proof->review_comment }}</small>
-            @endif
-        </div>
-    @endforeach
-
-    @if($canSubmit && ($day->day_number>0 || $isStartResubmission))
-        @if(!$challenge)
-            <form method="post" action="{{ route('proofs.challenge',$day) }}" style="margin-top:10px">
-                @csrf
-                <input type="hidden" name="window_key" value="{{ $key }}">
-                <button class="btn secondary">10-Minuten-Code erzeugen</button>
-            </form>
-        @else
-            <div class="notice">
-                <strong>Code: {{ $challenge->code }}</strong>
-                · gültig bis {{ $challenge->expires_at->format('H:i:s') }} Uhr
-            </div>
-
-            <form
-                method="post"
-                enctype="multipart/form-data"
-                action="{{ route('proofs.store',$day) }}"
-                class="stack-form"
-                data-proof-upload
-                data-code="{{ $challenge->code }}"
-            >
-                @csrf
-                <input type="hidden" name="challenge_id" value="{{ $challenge->id }}">
-                <input type="hidden" name="proof_code" value="{{ $challenge->code }}">
-                <input type="hidden" name="window_key" value="{{ $key }}">
-
-                @if($window['text_required']??false)
-                    <label>
-                        Pflichttext
-                        <textarea name="text_value" rows="3" required></textarea>
-                    </label>
-                @endif
-
-                @foreach(($window['required_fields']??[]) as $requiredField)
-                    <label>
-                        {{ $requiredField['label']??'Pflichtangabe' }}
-                        <input name="proof_data[{{ $requiredField['key'] }}]" required maxlength="1000">
-                    </label>
-                @endforeach
-
-                <label>
-                    Live-Kamera
-                    <input
-                        type="file"
-                        name="proof"
-                        accept="image/jpeg"
-                        required
-                        data-proof-file
-                        data-live-camera
-                        data-camera-context="proof:{{ $day->id }}:{{ $challenge->id }}:{{ $key }}"
-                        hidden
-                    >
-                </label>
-
-                <label class="check">
-                    <input type="checkbox" data-overlay-code>
-                    <span>Code automatisch sichtbar in das aufgenommene Bild einblenden</span>
-                </label>
-
-                <button class="btn secondary">Nachweis einreichen</button>
-            </form>
-        @endif
-    @endif
-</div>
-@endforeach
-</article>
-@empty<div class="empty">Noch keine Auftragstage vorhanden.</div>@endforelse
-</div>
-</section>
-
-<aside>
-<div class="panel">
-<h3>Aktuelle Konditionen</h3>
-<dl class="meta-list">
-<div><dt>Aktivierung</dt><dd>{{ $order->confirmed_start_date?->format('d.m.Y') ?: 'noch offen' }}</dd></div>
-<div><dt>Dauer</dt><dd>{{ data_get($order->offer_snapshot,'duration_days') }} gültige Tage</dd></div>
-@if((int)data_get($order->offer_snapshot,'minimum_minutes_per_day',0)>0)
-<div><dt>Mindestnutzung/Tag</dt><dd>{{ (int)data_get($order->offer_snapshot,'minimum_minutes_per_day') }} Minuten</dd></div>
-@endif
-<div><dt>Serie</dt><dd>{{ $order->series_number }}</dd></div>
-<div><dt>Unterbrechungen</dt><dd>{{ $order->series_interruptions }}/1 vor Neustart</dd></div>
-<div><dt>Tracking</dt><dd>{{ ['required'=>'Pflicht','optional'=>'optional','none'=>'nicht vorgesehen'][$trackingMode] }}</dd></div>
-</dl>
-
-@if($order->fieldValues->count())
-<h4>Deine Angaben</h4>
-<dl class="meta-list">@foreach($order->fieldValues as $field)<div><dt>{{ $field->label }}</dt><dd>{{ $field->value==='1' && data_get($field->field_snapshot,'type')==='checkbox' ? 'Ja' : ($field->value ?: '–') }}</dd></div>@endforeach</dl>
-@endif
-
-@if($order->options->count())
-<h4>Extras</h4><ul>@foreach($order->options as $option)<li>{{ $option->name }} · +{{ number_format($option->price_delta,2,',','.') }} €</li>@endforeach</ul>
-@endif
-
-@if(data_get($order->current_requirements,'admin_addition.text'))
-<div class="notice"><strong>Nachträgliche verbindliche Anforderung</strong><br>{{ data_get($order->current_requirements,'admin_addition.text') }}<br><small>Wirksam ab {{ \Carbon\Carbon::parse(data_get($order->current_requirements,'admin_addition.effective_at'))->format('d.m.Y H:i') }}</small></div>
-@endif
-
-<a class="btn secondary wide" href="{{ route('messages.index') }}">Auftragsnachrichten</a>
-</div>
-
-@if(in_array($order->status,['precheck','precheck_resubmit','approved','waiting_start','active','paused'],true))
-<div class="panel danger-zone">
-<h3>Auftrag freiwillig abbrechen</h3>
-<p>Ein freiwilliger Abbruch wird mit 0 € vergütet und in der Zuverlässigkeit berücksichtigt. Bereits für diesen Auftrag verwendete Ware darf danach nicht für einen anderen Auftrag erneut verwendet werden.</p>
-<form method="post" action="{{ route('orders.abort',$order) }}" class="stack-form">@csrf
-<label>Grund<textarea name="reason" rows="4" required></textarea></label>
-<button class="btn secondary">Auftrag abbrechen</button>
-</form>
-</div>
-@endif
-</aside>
-</div>
+<section class="panel" style="margin-top:18px"><h2>Auftragshistorie</h2><div class="timeline">@foreach($order->statusHistory->sortByDesc('created_at') as $event)<div><span>{{ $event->created_at->format('d.m.Y H:i') }}</span><strong>{{ strtoupper(str_replace('_',' ',$event->to_status)) }}</strong><small>{{ $event->reason }}</small></div>@endforeach</div></section>
 @endsection

@@ -16,6 +16,7 @@ class Offer extends Model
             'requires_precheck'=>'boolean',
             'is_sock_wearing'=>'boolean',
             'active'=>'boolean',
+            'is_combination'=>'boolean',
             'rules'=>'array',
             'proof_requirements'=>'array',
             'inspection_config'=>'array',
@@ -30,18 +31,21 @@ class Offer extends Model
 
     public function scopePublished($query)
     {
-        return $query->where('active',true);
+        return $query->where('active',true)
+            ->where(function($q){
+                $q->where('lifecycle_status','active')->orWhereNull('lifecycle_status');
+            });
     }
 
     public function activeCapacityUsage(): int
     {
         return $this->orders()
-            ->whereNotIn('status',['completed','cancelled','rejected','request_rejected','not_started'])
+            ->whereNotIn('status',['completed','cancelled','rejected','request_rejected','not_started','archived'])
             ->count();
     }
 
     public function hasFreeCapacity(): bool
     {
-        return !$this->capacity || $this->activeCapacityUsage() < (int)$this->capacity;
+        return true;
     }
 }
