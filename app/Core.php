@@ -621,19 +621,81 @@ function reject_if_archived_route(string $path, string $method): void {
 }
 
 
+
+function build_shipping_snapshot(array|int $offer): array {
+    if(is_int($offer)){
+        $q=db()->prepare('SELECT * FROM offers WHERE id=?');
+        $q->execute([$offer]);
+        $offer=$q->fetch() ?: [];
+    }
+
+    $rules=[];
+    if(!empty($offer['shipping_rules_json'])){
+        $decoded=json_decode((string)$offer['shipping_rules_json'],true);
+        if(is_array($decoded)) $rules=$decoded;
+    }
+
+    $address=null;
+    if(!empty($offer['shipping_address_id'])){
+        $q=db()->prepare('SELECT id,label,recipient_name,street,address_extra,postal_code,city,country_code FROM shipping_addresses WHERE id=?');
+        $q->execute([(int)$offer['shipping_address_id']]);
+        $address=$q->fetch() ?: null;
+    }
+
+    $steps=[];
+    if(!empty($offer['id'])){
+        $q=db()->prepare('SELECT id,sort_order,title,instructions,required_photos,requires_text,requires_checkbox,is_dispatch_step,deadline_hours FROM offer_shipping_steps WHERE offer_id=? AND active=1 ORDER BY sort_order,id');
+        $q->execute([(int)$offer['id']]);
+        $steps=$q->fetchAll();
+    }
+
+    return [
+        'address'=>$address,
+        'cost_mode'=>$offer['shipping_cost_mode'] ?? 'seller',
+        'allowance'=>(float)($offer['shipping_allowance'] ?? 0),
+        'preferred_carrier'=>$offer['preferred_carrier'] ?? null,
+        'instructions'=>$rules['instructions'] ?? null,
+        'steps'=>$steps,
+        'snapshotted_at'=>date(DATE_ATOM),
+    ];
+}
+
+function order_shipping_snapshot(array|int $order): array {
+    if(is_int($order)){
+        $q=db()->prepare('SELECT shipping_snapshot_json,offer_id FROM orders WHERE id=?');
+        $q->execute([$order]);
+        $order=$q->fetch() ?: [];
+    }
+
+    if(!empty($order['shipping_snapshot_json'])){
+        $decoded=json_decode((string)$order['shipping_snapshot_json'],true);
+        if(is_array($decoded)) return $decoded;
+    }
+
+    if(!empty($order['offer_id'])) return build_shipping_snapshot((int)$order['offer_id']);
+
+    return [
+        'address'=>null,
+        'cost_mode'=>'seller',
+        'allowance'=>0.0,
+        'preferred_carrier'=>null,
+        'instructions'=>null,
+        'steps'=>[],
+    ];
+}
+
 function ensure_order_shipping_steps(int $orderId): void {
     $q=db()->prepare('SELECT COUNT(*) FROM order_shipping_steps WHERE order_id=?');
     $q->execute([$orderId]);
     if((int)$q->fetchColumn()>0) return;
 
-    $q=db()->prepare('SELECT o.offer_id FROM orders o WHERE o.id=?');
+    $q=db()->prepare('SELECT * FROM orders WHERE id=?');
     $q->execute([$orderId]);
-    $offerId=(int)$q->fetchColumn();
-    if(!$offerId) return;
+    $order=$q->fetch();
+    if(!$order) return;
 
-    $q=db()->prepare('SELECT * FROM offer_shipping_steps WHERE offer_id=? AND active=1 ORDER BY sort_order,id');
-    $q->execute([$offerId]);
-    $steps=$q->fetchAll();
+    $snapshot=order_shipping_snapshot($order);
+    $steps=is_array($snapshot['steps'] ?? null) ? $snapshot['steps'] : [];
 
     if(!$steps){
         $steps=[
