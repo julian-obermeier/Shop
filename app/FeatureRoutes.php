@@ -686,49 +686,78 @@ if (preg_match('#^/auftrag/(\d{8})/digital$#',$path,$m)&&$method==='GET') {
     $s=require_seller();
     $st=db()->prepare("SELECT o.*,f.title FROM orders o JOIN offers f ON f.id=o.offer_id WHERE o.order_no=? AND o.seller_id=?");
     $st->execute([$m[1],$s['id']]);$o=$st->fetch();if(!$o)not_found();
+
+    $digitalRules=offer_digital_rules((int)$o['id']);
     $v=db()->prepare("SELECT * FROM digital_versions WHERE order_id=? ORDER BY version_no DESC");$v->execute([$o['id']]);$versions=$v->fetchAll();
     $rr=db()->prepare("SELECT r.*,COUNT(i.id) item_count FROM revision_rounds r LEFT JOIN revision_items i ON i.revision_round_id=r.id WHERE r.order_id=? GROUP BY r.id ORDER BY r.round_no DESC");$rr->execute([$o['id']]);$rounds=$rr->fetchAll();
-    $ri=db()->prepare("SELECT i.*,r.round_no,r.status round_status,r.due_at FROM revision_items i JOIN revision_rounds r ON r.id=i.revision_round_id WHERE r.order_id=? ORDER BY r.round_no DESC,i.id");$ri->execute([$o['id']]);$revisionItems=$ri->fetchAll();
+    $ri=db()->prepare("SELECT i.*,r.round_no,r.status round_status,r.due_at,r.grace_ends_at FROM revision_items i JOIN revision_rounds r ON r.id=i.revision_round_id WHERE r.order_id=? ORDER BY r.round_no DESC,i.id");$ri->execute([$o['id']]);$revisionItems=$ri->fetchAll();
+    $activeRevision=null;foreach($rounds as $round){if(in_array($round['status'],['open','submitted'],true)){$activeRevision=$round;break;}}
     $locked=!empty($o['archived_at']) || $o['status']==='rejected';
 
     ob_start();?>
     <div class="dashboard-head"><div><div class="eyebrow">Digitale Abgabe · <?=e($o['order_no'])?></div><h1><?=e($o['title'])?></h1><?php if($locked):?><span class="badge">Schreibgeschützt</span><?php endif;?></div><a class="btn secondary" href="<?=e(url('/auftrag/'.$o['order_no']))?>">Zum Auftrag</a></div>
 
+    <section class="panel">
+      <h2>Abgabevorgaben</h2>
+      <p><strong>Formate:</strong> <?=e(digital_rules_summary($digitalRules))?></p>
+      <?php if($digitalRules['allowed']['text']):?><p class="meta">Text: mindestens <?=e($digitalRules['text']['min_chars'])?> Zeichen<?= $digitalRules['text']['max_chars']>0?' · maximal '.e($digitalRules['text']['max_chars']).' Zeichen':' · ohne festes Zeichenmaximum' ?>.</p><?php endif;?>
+      <?php if($digitalRules['allowed']['audio']||$digitalRules['allowed']['video']):?><p class="meta">Maximale Dateigröße je Audio-/Videodatei: <?=e($digitalRules['media']['max_file_mb'])?> MB.</p><?php endif;?>
+      <?php if($o['digital_due_at'] && !$versions):?><p><strong>Erstabgabe bis:</strong> <?=e(date('d.m.Y H:i',strtotime($o['digital_due_at'])))?> · Nachfrist <?=e($digitalRules['deadline']['grace_minutes'])?> Minuten</p><?php endif;?>
+      <?php if($activeRevision && $activeRevision['due_at']):?><p><strong>Aktuelle Revisionsfrist:</strong> <?=e(date('d.m.Y H:i',strtotime($activeRevision['due_at'])))?><?php if($activeRevision['grace_ends_at']):?> · Nachfrist bis <?=e(date('d.m.Y H:i',strtotime($activeRevision['grace_ends_at'])))?><?php endif;?></p><?php endif;?>
+    </section>
+
     <?php if(!$locked):?>
-    <form class="panel" method="post" enctype="multipart/form-data"><?=csrf_field()?>
-      <h2>Neue Version einreichen</h2>
-      <label>Textinhalt (optional)<textarea name="text_content"></textarea></label>
-      <label>Datei (optional: Audio/Video/Bild)<input type="file" name="digital_file" accept="audio/*,video/mp4,image/jpeg,image/png,image/webp"></label>
-      <p class="meta">Mindestens Text oder Datei erforderlich. Jede Einreichung erzeugt eine neue, unveränderliche Version.</p>
-      <label><input type="checkbox" name="confirm_complete" value="1" required style="width:auto"> Ich habe die Abgabe geprüft und bestätige, dass sie vollständig eingereicht werden soll.</label>
+    <form class="panel" method="post" enctype="multipart/form-data">
+      <?=csrf_field()?>
+      <h2>Neue Version final einreichen</h2>
+      <p class="meta">Jede finale Einreichung wird als neue unveränderliche Version gespeichert. Erlaubte und verpflichtende Bestandteile richten sich nach der bei Auftragsannahme gespeicherten Angebotsversion.</p>
+      <?php if($digitalRules['allowed']['text']):?>
+        <label>Textinhalt <?=$digitalRules['required']['text']?'(Pflicht)':'(optional)'?>
+          <textarea name="text_content" <?=$digitalRules['required']['text']?'required':''?> minlength="<?=e($digitalRules['text']['min_chars'])?>"<?= $digitalRules['text']['max_chars']>0?' maxlength="'.e($digitalRules['text']['max_chars']).'"':'' ?>></textarea>
+        </label>
+      <?php endif;?>
+      <?php if($digitalRules['allowed']['audio']):?>
+        <label>Audiodatei <?=$digitalRules['required']['audio']?'(Pflicht)':'(optional)'?>
+          <input type="file" name="digital_audio" accept="audio/*" <?=$digitalRules['required']['audio']?'required':''?>>
+        </label>
+      <?php endif;?>
+      <?php if($digitalRules['allowed']['video']):?>
+        <label>Videodatei <?=$digitalRules['required']['video']?'(Pflicht)':'(optional)'?>
+          <input type="file" name="digital_video" accept="video/mp4,video/quicktime" <?=$digitalRules['required']['video']?'required':''?>>
+        </label>
+      <?php endif;?>
+      <label><input type="checkbox" name="confirm_complete" value="1" required style="width:auto"> Ich habe die Abgabe geprüft und bestätige, dass alle von mir einzureichenden Bestandteile vollständig und final sind.</label>
       <button class="btn">Version final einreichen</button>
     </form>
     <?php else:?><div class="panel"><strong>Dieser Auftrag ist schreibgeschützt.</strong><p class="meta">Vorhandene Versionen bleiben lesbar, können aber nicht verändert oder ersetzt werden.</p></div><?php endif;?>
 
     <h2>Versionen</h2>
     <div class="timeline">
-    <?php foreach($versions as $x):?>
+    <?php foreach($versions as $x):
+      $assets=json_decode((string)($x['assets_json']??''),true);
+      if(!is_array($assets))$assets=[];
+      if(!$assets && $x['file_path'])$assets=[['type'=>str_starts_with((string)$x['mime_type'],'audio/')?'audio':(str_starts_with((string)$x['mime_type'],'video/')?'video':'file'),'path'=>$x['file_path'],'mime'=>$x['mime_type'],'sha256'=>$x['sha256']]];
+    ?>
       <article class="panel">
         <div class="dashboard-head"><div><strong>V<?=e($x['version_no'])?></strong> · <span class="badge"><?=e($x['status'])?></span></div><span class="meta"><?=e(date('d.m.Y H:i',strtotime($x['created_at'])))?></span></div>
         <?php if($x['text_content']):?><div style="white-space:pre-wrap"><?=e($x['text_content'])?></div><?php endif;?>
-        <?php if($x['file_path']):?>
-          <?php $mediaUrl=url('/digitale-datei/'.$x['id']); $mime=(string)($x['mime_type']??''); ?>
-          <?php if(str_starts_with($mime,'audio/')):?><audio controls preload="metadata" style="width:100%"><source src="<?=e($mediaUrl)?>" type="<?=e($mime)?>"></audio>
-          <?php elseif(str_starts_with($mime,'video/')):?><video controls preload="metadata" playsinline style="width:100%;max-height:520px;border-radius:12px"><source src="<?=e($mediaUrl)?>" type="<?=e($mime)?>"></video>
-          <?php elseif(str_starts_with($mime,'image/')):?><img src="<?=e($mediaUrl)?>" alt="Digitale Version V<?=e($x['version_no'])?>" style="max-width:100%;max-height:560px;border-radius:12px">
-          <?php else:?><a href="<?=e($mediaUrl)?>" target="_blank">Datei innerhalb der Plattform öffnen</a><?php endif;?>
-          <p class="meta">Keine Downloadfunktion für Verkäuferinnen.</p>
-        <?php endif;?>
+        <?php foreach($assets as $assetIndex=>$asset): $mediaUrl=url('/digitale-datei/'.$x['id'].'/'.$assetIndex); $mime=(string)($asset['mime']??'application/octet-stream'); ?>
+          <?php if(str_starts_with($mime,'audio/')):?><audio controls preload="metadata" style="width:100%;margin-top:12px"><source src="<?=e($mediaUrl)?>" type="<?=e($mime)?>"></audio>
+          <?php elseif(str_starts_with($mime,'video/')):?><video controls preload="metadata" playsinline style="width:100%;max-height:520px;border-radius:12px;margin-top:12px"><source src="<?=e($mediaUrl)?>" type="<?=e($mime)?>"></video>
+          <?php endif;?>
+        <?php endforeach;?>
+        <?php if($assets):?><p class="meta">Medien werden ausschließlich innerhalb der Plattform wiedergegeben; es gibt keine Download-Schaltfläche.</p><?php endif;?>
         <?php if($x['review_note']):?><p><strong>Prüfhinweis:</strong> <?=e($x['review_note'])?></p><?php endif;?>
       </article>
     <?php endforeach;?>
     <?php if(!$versions):?><div class="empty">Noch keine digitale Version eingereicht.</div><?php endif;?>
     </div>
 
-    <h2>Revisionen</h2><div class="table-wrap"><table><thead><tr><th>Runde</th><th>Status</th><th>Punkte</th><th>Frist</th></tr></thead><tbody><?php foreach($rounds as $r):?><tr><td>Runde <?=e($r['round_no'])?></td><td><?=e($r['status'])?></td><td><?=e($r['item_count'])?></td><td><?=e($r['due_at']?date('d.m.Y H:i',strtotime($r['due_at'])):'keine Frist')?></td></tr><?php endforeach;?></tbody></table></div>
+    <h2>Revisionen</h2><div class="table-wrap"><table><thead><tr><th>Runde</th><th>Status</th><th>Punkte</th><th>Frist</th></tr></thead><tbody><?php foreach($rounds as $r):?><tr><td>Runde <?=e($r['round_no'])?></td><td><?=e($r['status'])?></td><td><?=e($r['item_count'])?></td><td><?=e($r['due_at']?date('d.m.Y H:i',strtotime($r['due_at'])):'keine Frist')?><?php if($r['grace_ends_at']):?><br><span class="meta">Nachfrist bis <?=e(date('d.m.Y H:i',strtotime($r['grace_ends_at'])))?></span><?php endif;?></td></tr><?php endforeach;?></tbody></table></div>
     <?php if($revisionItems):?><h3>Änderungspunkte</h3><div class="timeline"><?php foreach($revisionItems as $item):?><div><strong>Runde <?=e($item['round_no'])?> · <?=e($item['description'])?></strong><?php if($item['location_ref']):?><br><span class="meta">Bezug: <?=e($item['location_ref'])?></span><?php endif;?><br><span class="badge"><?=e($item['status'])?></span><?= $item['due_at']?' · <span class="meta">Frist '.e(date('d.m.Y H:i',strtotime($item['due_at']))).'</span>':'' ?></div><?php endforeach;?></div><?php endif;?>
     <?php render('Digitale Abgabe',ob_get_clean());exit;
 }
+
 if (preg_match('#^/auftrag/(\d{8})/digital$#',$path,$m)&&$method==='POST') {
     $s=require_seller();
     $st=db()->prepare("SELECT * FROM orders WHERE order_no=? AND seller_id=?");
@@ -736,21 +765,76 @@ if (preg_match('#^/auftrag/(\d{8})/digital$#',$path,$m)&&$method==='POST') {
     if(!empty($o['archived_at']) || $o['status']==='rejected'){flash('error','Dieser Auftrag ist schreibgeschützt.');redirect('/auftrag/'.$o['order_no'].'/digital');}
     if(($_POST['confirm_complete']??'')!=='1'){flash('error','Bitte bestätige die Vollständigkeitsprüfung vor der finalen Abgabe.');redirect('/auftrag/'.$o['order_no'].'/digital');}
 
-    $text=post('text_content');$pathFile=null;$mime=null;$sha=null;
-    if(isset($_FILES['digital_file'])&&($_FILES['digital_file']['error']??UPLOAD_ERR_NO_FILE)===UPLOAD_ERR_OK){
-        $up=private_upload($_FILES['digital_file'],'order-'.$o['id'].'/digital');
-        $pathFile=$up['path'];$mime=$up['mime'];$sha=$up['sha256'];
-    }
-    if($text===''&&!$pathFile){flash('error','Bitte Text oder Datei einreichen.');redirect('/auftrag/'.$o['order_no'].'/digital');}
+    $rules=offer_digital_rules((int)$o['id']);
+    $text=post('text_content');
+    if(!$rules['allowed']['text'] && $text!==''){flash('error','Text ist für diesen Auftrag nicht als Abgabeformat erlaubt.');redirect('/auftrag/'.$o['order_no'].'/digital');}
+    $textLength=mb_strlen($text);
+    if($rules['required']['text'] && $text===''){flash('error','Für diesen Auftrag ist ein Textbestandteil verpflichtend.');redirect('/auftrag/'.$o['order_no'].'/digital');}
+    if($text!=='' && $textLength<(int)$rules['text']['min_chars']){flash('error','Der Text unterschreitet die erforderliche Mindestlänge.');redirect('/auftrag/'.$o['order_no'].'/digital');}
+    if($text!=='' && (int)$rules['text']['max_chars']>0 && $textLength>(int)$rules['text']['max_chars']){flash('error','Der Text überschreitet die zulässige Maximallänge.');redirect('/auftrag/'.$o['order_no'].'/digital');}
 
-    $q=db()->prepare("SELECT COALESCE(MAX(version_no),0)+1 FROM digital_versions WHERE order_id=?");$q->execute([$o['id']]);$vn=(int)$q->fetchColumn();
-    db()->prepare("INSERT INTO digital_versions(order_id,version_no,file_path,text_content,mime_type,sha256,status) VALUES(?,?,?,?,?,?,'submitted')")
-      ->execute([$o['id'],$vn,$pathFile,$text?:null,$mime,$sha]);
-    db()->prepare("UPDATE revision_rounds SET status='submitted' WHERE order_id=? AND status='open'")->execute([$o['id']]);
-    db()->prepare("UPDATE orders SET status='review',updated_at=NOW() WHERE id=?")->execute([$o['id']]);
-    db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")->execute([$o['id'],'Digitale Version V'.$vn.' wurde eingereicht und wartet auf Prüfung.']);
-    log_event('digital.version_submitted',(int)$s['id'],(int)$o['id'],['version'=>$vn,'mime'=>$mime]);
-    flash('success','Digitale Version V'.$vn.' eingereicht.');redirect('/auftrag/'.$o['order_no'].'/digital');
+    $maxBytes=max(1,(int)$rules['media']['max_file_mb'])*1024*1024;
+    $uploadDefs=[
+      'audio'=>['field'=>'digital_audio','allowed'=>(bool)$rules['allowed']['audio'],'required'=>(bool)$rules['required']['audio']],
+      'video'=>['field'=>'digital_video','allowed'=>(bool)$rules['allowed']['video'],'required'=>(bool)$rules['required']['video']],
+    ];
+    $assets=[];
+
+    try{
+        foreach($uploadDefs as $type=>$def){
+            $file=$_FILES[$def['field']]??null;
+            $hasFile=is_array($file) && (($file['error']??UPLOAD_ERR_NO_FILE)!==UPLOAD_ERR_NO_FILE);
+            if(!$def['allowed'] && $hasFile) throw new RuntimeException(ucfirst($type).' ist für diesen Auftrag nicht erlaubt.');
+            if($def['required'] && !$hasFile) throw new RuntimeException(ucfirst($type).' ist für diesen Auftrag verpflichtend.');
+            if(!$hasFile) continue;
+            if(($file['error']??UPLOAD_ERR_NO_FILE)!==UPLOAD_ERR_OK) throw new RuntimeException('Der '.ucfirst($type).'-Upload ist fehlgeschlagen.');
+            if((int)($file['size']??0)>$maxBytes) throw new RuntimeException(ucfirst($type).' überschreitet die erlaubten '.(int)$rules['media']['max_file_mb'].' MB.');
+
+            $up=private_upload($file,'order-'.$o['id'].'/digital');
+            if($type==='audio' && !str_starts_with((string)$up['mime'],'audio/')) throw new RuntimeException('Die hochgeladene Audiodatei hat kein erlaubtes Audioformat.');
+            if($type==='video' && !str_starts_with((string)$up['mime'],'video/')) throw new RuntimeException('Die hochgeladene Videodatei hat kein erlaubtes Videoformat.');
+
+            $assets[]=[
+              'type'=>$type,
+              'path'=>$up['path'],
+              'mime'=>$up['mime'],
+              'size'=>(int)$up['size'],
+              'sha256'=>$up['sha256'],
+            ];
+        }
+
+        if($text==='' && !$assets) throw new RuntimeException('Bitte mindestens einen erlaubten Abgabebestandteil einreichen.');
+
+        $firstAsset=$assets[0]??null;
+        $q=db()->prepare("SELECT COALESCE(MAX(version_no),0)+1 FROM digital_versions WHERE order_id=?");$q->execute([$o['id']]);$vn=(int)$q->fetchColumn();
+
+        db()->beginTransaction();
+        db()->prepare("INSERT INTO digital_versions(order_id,version_no,file_path,text_content,assets_json,mime_type,sha256,status) VALUES(?,?,?,?,?,?,?,'submitted')")
+          ->execute([
+            $o['id'],$vn,$firstAsset['path']??null,$text?:null,
+            $assets?json_encode($assets,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES):null,
+            $firstAsset['mime']??null,$firstAsset['sha256']??null
+          ]);
+        db()->prepare("UPDATE revision_rounds SET status='submitted' WHERE order_id=? AND status='open'")->execute([$o['id']]);
+        db()->prepare("UPDATE orders SET status='review',updated_at=NOW() WHERE id=?")->execute([$o['id']]);
+        db()->prepare("UPDATE order_components SET status='review',updated_at=NOW() WHERE order_id=? AND component_type='digital' AND status IN('precheck','execution')")->execute([$o['id']]);
+        db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")->execute([$o['id'],'Digitale Version V'.$vn.' wurde eingereicht und wartet auf Prüfung.']);
+        log_event('digital.version_submitted',(int)$s['id'],(int)$o['id'],[
+          'version'=>$vn,
+          'text_chars'=>$textLength,
+          'assets'=>array_map(fn($a)=>['type'=>$a['type'],'mime'=>$a['mime'],'size'=>$a['size'],'sha256'=>$a['sha256']],$assets),
+        ]);
+        db()->commit();
+    }catch(Throwable $e){
+        if(db()->inTransaction())db()->rollBack();
+        foreach($assets as $asset){
+            $real=__DIR__.'/../storage/private/'.ltrim((string)$asset['path'],'/');
+            if(is_file($real))@unlink($real);
+        }
+        flash('error',$e->getMessage());redirect('/auftrag/'.$o['order_no'].'/digital');
+    }
+
+    flash('success','Digitale Version V'.$vn.' vollständig eingereicht.');redirect('/auftrag/'.$o['order_no'].'/digital');
 }
 if (preg_match('#^/admin/auftrag/(\\d{8})/revision$#',$path,$m)&&$method==='POST') {
     require_admin();$st=db()->prepare("SELECT * FROM orders WHERE order_no=?");$st->execute([$m[1]]);$o=$st->fetch();if(!$o)not_found();
