@@ -147,11 +147,59 @@ if($path==='/admin/kategorien'&&$method==='POST'){
  require_admin();$name=post('name');$slug=strtolower(trim(preg_replace('/[^a-z0-9]+/i','-',strtr($name,['ä'=>'ae','ö'=>'oe','ü'=>'ue','ß'=>'ss'])),'-'));db()->prepare("INSERT INTO categories(name,slug,is_system,is_active,sort_order) VALUES(?,?,0,1,999)")->execute([$name,$slug]);flash('success','Kategorie angelegt.');redirect('/admin/kategorien');
 }
 if($path==='/admin/angebote'&&$method==='GET'){
- require_admin();$offers=db()->query("SELECT o.*,c.name category_name FROM offers o JOIN categories c ON c.id=o.category_id ORDER BY o.created_at DESC")->fetchAll();$cats=db()->query("SELECT id,name FROM categories WHERE is_active=1 ORDER BY sort_order,name")->fetchAll();ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Administration</div><h1>Angebote</h1></div></div><form method="post" class="panel"><?=csrf_field()?><div class="form-grid"><label>Titel<input name="title" required></label><label>Kategorie<select name="category_id"><?php foreach($cats as $c):?><option value="<?=$c['id']?>"><?=e($c['name'])?></option><?php endforeach;?></select></label><label>Vergütung (€)<input type="number" step=".01" min="0" name="compensation" required></label><label>Dauer in Tagen<input type="number" min="1" name="duration_days"></label></div><label>Beschreibung<textarea name="description" required></textarea></label><label>Status<select name="status"><option value="draft">Entwurf</option><option value="active">Aktiv</option><option value="inactive">Deaktiviert</option></select></label><button class="btn">Angebot anlegen</button></form><br><div class="table-wrap"><table><thead><tr><th>Titel</th><th>Kategorie</th><th>Status</th><th>Vergütung</th></tr></thead><tbody><?php foreach($offers as $o):?><tr><td><?=e($o['title'])?></td><td><?=e($o['category_name'])?></td><td><?=e($o['status'])?></td><td><?=money($o['compensation'])?></td></tr><?php endforeach;?></tbody></table></div><?php render('Angebote verwalten',ob_get_clean());exit;
+ require_admin();
+ $offers=db()->query("SELECT o.*,c.name category_name FROM offers o JOIN categories c ON c.id=o.category_id ORDER BY o.created_at DESC")->fetchAll();
+ $cats=db()->query("SELECT id,name FROM categories WHERE is_active=1 ORDER BY sort_order,name")->fetchAll();
+ ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Administration</div><h1>Angebote</h1></div></div>
+ <form method="post" class="panel"><?=csrf_field()?>
+   <div class="form-grid">
+     <label>Titel<input name="title" required></label>
+     <label>Kategorie<select name="category_id"><?php foreach($cats as $cat):?><option value="<?=$cat['id']?>"><?=e($cat['name'])?></option><?php endforeach;?></select></label>
+     <label>Vergütung (€)<input type="number" step=".01" min="0" name="compensation" required></label>
+     <label>Dauer in Tagen<input type="number" min="1" name="duration_days"></label>
+     <label>Erfüllungsart<select name="fulfillment_type"><option value="days">Tage</option><option value="units">Einheiten</option><option value="one_time">Einmalig</option><option value="digital">Digital</option><option value="mixed">Kombiniert</option></select></label>
+     <label>Status<select name="status"><option value="draft">Entwurf</option><option value="active">Aktiv</option><option value="inactive">Deaktiviert</option></select></label>
+   </div>
+   <label>Beschreibung<textarea name="description" required></textarea></label>
+   <h3>Nachweise</h3>
+   <div class="form-grid">
+     <label>Pflichtfotos Vorabkontrolle<input type="number" min="1" max="50" name="precheck_required_count" value="1" required></label>
+     <label>Morgen 06:00–10:00<input type="number" min="0" max="20" name="morning_count" value="1" required></label>
+     <label>Mittag 12:00–16:00<input type="number" min="0" max="20" name="midday_count" value="1" required></label>
+     <label>Abend 18:00–23:59<input type="number" min="0" max="20" name="evening_count" value="1" required></label>
+   </div>
+   <button class="btn">Angebot anlegen</button>
+ </form><br>
+ <div class="table-wrap"><table><thead><tr><th>Titel</th><th>Kategorie</th><th>Version</th><th>Status</th><th>Vergütung</th><th></th></tr></thead><tbody><?php foreach($offers as $o):?><tr><td><?=e($o['title'])?></td><td><?=e($o['category_name'])?></td><td>V<?=e($o['current_version'])?></td><td><?=e($o['status'])?></td><td><?=money($o['compensation'])?></td><td><a href="<?=e(url('/admin/angebot/'.$o['id']))?>">Bearbeiten</a></td></tr><?php endforeach;?></tbody></table></div>
+ <?php render('Angebote verwalten',ob_get_clean());exit;
 }
 if($path==='/admin/angebote'&&$method==='POST'){
- require_admin();$title=post('title');$slug=strtolower(trim(preg_replace('/[^a-z0-9]+/i','-',strtr($title,['ä'=>'ae','ö'=>'oe','ü'=>'ue','ß'=>'ss'])),'-')).'-'.substr(bin2hex(random_bytes(3)),0,6);$comp=(float)post('compensation');$days=post('duration_days')!==''?(int)post('duration_days'):null;
- db()->beginTransaction();try{db()->prepare("INSERT INTO offers(category_id,title,slug,description,compensation,duration_days,fulfillment_type,status) VALUES(?,?,?,?,?,?,?,?)")->execute([(int)post('category_id'),$title,$slug,post('description'),$comp,$days,$days?'days':'one_time',post('status','draft')]);$id=(int)db()->lastInsertId();$snap=json_encode(['title'=>$title,'description'=>post('description'),'compensation'=>$comp,'duration_days'=>$days],JSON_UNESCAPED_UNICODE);db()->prepare("INSERT INTO offer_versions(offer_id,version_no,snapshot_json) VALUES(?,1,?)")->execute([$id,$snap]);db()->commit();}catch(Throwable $e){db()->rollBack();throw $e;}flash('success','Angebot angelegt.');redirect('/admin/angebote');
+ require_admin();
+ $title=post('title');
+ $slug=strtolower(trim(preg_replace('/[^a-z0-9]+/i','-',strtr($title,['ä'=>'ae','ö'=>'oe','ü'=>'ue','ß'=>'ss'])),'-')).'-'.substr(bin2hex(random_bytes(3)),0,6);
+ $comp=max(0,(float)post('compensation'));
+ $days=post('duration_days')!==''?max(1,(int)post('duration_days')):null;
+ $type=post('fulfillment_type',$days?'days':'one_time');
+ $rules=[
+   'precheck_required_count'=>max(1,(int)post('precheck_required_count','1')),
+   'daily'=>[
+     'morning'=>max(0,(int)post('morning_count','1')),
+     'midday'=>max(0,(int)post('midday_count','1')),
+     'evening'=>max(0,(int)post('evening_count','1')),
+   ],
+ ];
+ $rulesJson=json_encode($rules,JSON_UNESCAPED_UNICODE);
+ db()->beginTransaction();
+ try{
+   db()->prepare("INSERT INTO offers(category_id,title,slug,description,compensation,duration_days,fulfillment_type,evidence_rules_json,status) VALUES(?,?,?,?,?,?,?,?,?)")
+     ->execute([(int)post('category_id'),$title,$slug,post('description'),$comp,$days,$type,$rulesJson,post('status','draft')]);
+   $id=(int)db()->lastInsertId();
+   $snap=json_encode(['title'=>$title,'category_id'=>(int)post('category_id'),'description'=>post('description'),'compensation'=>$comp,'duration_days'=>$days,'fulfillment_type'=>$type,'evidence_rules'=>$rules,'status'=>post('status','draft')],JSON_UNESCAPED_UNICODE);
+   db()->prepare("INSERT INTO offer_versions(offer_id,version_no,snapshot_json) VALUES(?,1,?)")->execute([$id,$snap]);
+   db()->commit();
+ }catch(Throwable $e){db()->rollBack();throw $e;}
+ flash('success','Angebot mit Nachweisplan angelegt.');
+ redirect('/admin/angebot/'.$id);
 }
 if($path==='/admin/auftraege'&&$method==='GET'){
  require_admin();$orders=db()->query("SELECT o.*,f.title,CONCAT(s.first_name,' ',s.last_name) seller_name FROM orders o JOIN offers f ON f.id=o.offer_id JOIN sellers s ON s.id=o.seller_id ORDER BY o.created_at DESC")->fetchAll();ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Administration</div><h1>Aufträge</h1></div></div><div class="table-wrap"><table><thead><tr><th>Nr.</th><th>Verkäuferin</th><th>Auftrag</th><th>Status</th><th>Wert</th><th></th></tr></thead><tbody><?php foreach($orders as $o):?><tr><td><?=e($o['order_no'])?></td><td><?=e($o['seller_name'])?></td><td><?=e($o['title'])?></td><td><?=e($o['status'])?></td><td><?=money($o['total_compensation'])?></td><td><a href="<?=e(url('/admin/auftrag/'.$o['order_no']))?>">Prüfen</a></td></tr><?php endforeach;?></tbody></table></div><?php render('Aufträge',ob_get_clean());exit;
