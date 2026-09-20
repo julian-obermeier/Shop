@@ -218,6 +218,8 @@ if(preg_match('#^/admin/auftrag/(\\d{8})$#',$path,$m)&&$method==='GET'){
  $srq=db()->prepare("SELECT * FROM spontaneous_requests WHERE order_id=? ORDER BY created_at DESC");$srq->execute([$o['id']]);$spontaneousRequests=$srq->fetchAll();
  $otq=db()->prepare("SELECT * FROM order_tasks WHERE order_id=? ORDER BY created_at DESC");$otq->execute([$o['id']]);$orderTasks=$otq->fetchAll();
  $taskTemplates=db()->query("SELECT id,title,default_compensation FROM task_library WHERE active=1 ORDER BY title")->fetchAll();
+ $dv=db()->prepare("SELECT * FROM digital_versions WHERE order_id=? ORDER BY version_no DESC");$dv->execute([$o['id']]);$digitalVersions=$dv->fetchAll();
+ $rv=db()->prepare("SELECT i.*,r.round_no,r.status round_status,r.due_at FROM revision_items i JOIN revision_rounds r ON r.id=i.revision_round_id WHERE r.order_id=? ORDER BY r.round_no DESC,i.id");$rv->execute([$o['id']]);$revisionItems=$rv->fetchAll();
  $preTotal=0;$preAccepted=0;foreach($evidences as $x){if($x['evidence_type']==='precheck'){$preTotal++;if($x['status']==='accepted')$preAccepted++;}}
  ob_start();?>
  <div class="dashboard-head"><div><div class="eyebrow">Auftrag <?=e($o['order_no'])?></div><h1><?=e($o['title'])?></h1><p class="meta"><?=e($o['seller_name'])?> · <?=e($o['email'])?></p><?php if($o['archived_at']):?><p><span class="badge">ARCHIVIERT · <?=e(date('d.m.Y H:i',strtotime($o['archived_at'])))?></span></p><?php endif;?></div><div><span class="badge"><?=e($o['status'])?></span><div class="price"><?=money($o['total_compensation'])?></div><?php if(!$o['archived_at'] && in_array($o['status'],['completed','rejected'],true)):?><form method="post" action="<?=e(url('/admin/auftrag/'.$o['order_no'].'/archivieren'))?>" style="margin-top:8px"><?=csrf_field()?><button class="btn secondary">Archivieren</button></form><?php elseif($o['archived_at'] && $o['status']!=='rejected'):?><form method="post" action="<?=e(url('/admin/auftrag/'.$o['order_no'].'/wiederherstellen'))?>" style="margin-top:8px"><?=csrf_field()?><button class="btn secondary">Wiederherstellen</button></form><?php endif;?></div></div><?php if($o['archived_at']):?><div class="panel"><strong>Dieser Auftrag ist archiviert und vollständig schreibgeschützt.</strong></div><?php endif;?>
@@ -257,6 +259,27 @@ if(preg_match('#^/admin/auftrag/(\\d{8})$#',$path,$m)&&$method==='GET'){
      <?php if($orderTasks):?><h3>Aufgaben</h3><div class="timeline"><?php foreach($orderTasks as $t):?><div><strong><?=e($t['title'])?></strong> · <?=e($t['status'])?> · <?=money($t['compensation'])?><?php if($t['submission_json']):?><br><span class="meta">Antwort: <?=e((json_decode($t['submission_json'],true)['value']??'–'))?></span><?php endif;?><?php if($t['status']==='submitted'):?><div class="actions" style="margin-top:8px"><form method="post" action="<?=e(url('/admin/aufgabe/'.$t['id'].'/akzeptieren'))?>"><?=csrf_field()?><button class="btn">Akzeptieren</button></form><form method="post" action="<?=e(url('/admin/aufgabe/'.$t['id'].'/ablehnen'))?>"><?=csrf_field()?><button class="btn secondary">Zurückgeben</button></form></div><?php endif;?></div><?php endforeach;?></div><?php endif;?>
    </section>
  </div>
+ <?php if($digitalVersions || $o['fulfillment_type']==='digital' || $o['fulfillment_type']==='mixed'):?>
+ <h2>Digitale Versionen</h2>
+ <div class="timeline">
+ <?php foreach($digitalVersions as $dv):?>
+   <article class="panel">
+     <div class="dashboard-head"><div><strong>V<?=e($dv['version_no'])?></strong> · <span class="badge"><?=e($dv['status'])?></span></div><span class="meta"><?=e(date('d.m.Y H:i',strtotime($dv['created_at'])))?></span></div>
+     <?php if($dv['text_content']):?><div style="white-space:pre-wrap"><?=e($dv['text_content'])?></div><?php endif;?>
+     <?php if($dv['file_path']):?>
+       <?php $mediaUrl=url('/digitale-datei/'.$dv['id']); $mime=(string)($dv['mime_type']??''); ?>
+       <?php if(str_starts_with($mime,'audio/')):?><audio controls preload="metadata" style="width:100%"><source src="<?=e($mediaUrl)?>" type="<?=e($mime)?>"></audio>
+       <?php elseif(str_starts_with($mime,'video/')):?><video controls preload="metadata" playsinline style="width:100%;max-height:520px;border-radius:12px"><source src="<?=e($mediaUrl)?>" type="<?=e($mime)?>"></video>
+       <?php elseif(str_starts_with($mime,'image/')):?><img src="<?=e($mediaUrl)?>" alt="Digitale Version V<?=e($dv['version_no'])?>" style="max-width:100%;max-height:560px;border-radius:12px">
+       <?php else:?><a class="btn secondary" target="_blank" href="<?=e($mediaUrl)?>">Datei öffnen</a><?php endif;?>
+       <div class="actions" style="margin-top:10px"><a class="btn secondary" href="<?=e(url('/admin/digitale-datei/'.$dv['id'].'/download'))?>">Original herunterladen</a></div>
+     <?php endif;?>
+   </article>
+ <?php endforeach;?>
+ <?php if(!$digitalVersions):?><div class="empty">Noch keine digitale Version eingereicht.</div><?php endif;?>
+ </div>
+ <?php if($revisionItems):?><h3>Revisionspunkte</h3><div class="table-wrap"><table><thead><tr><th>Runde</th><th>Punkt</th><th>Status</th><th>Frist</th><th>Aktion</th></tr></thead><tbody><?php foreach($revisionItems as $ri):?><tr><td><?=e($ri['round_no'])?></td><td><?=e($ri['description'])?></td><td><?=e($ri['status'])?></td><td><?=e($ri['due_at']?date('d.m.Y H:i',strtotime($ri['due_at'])):'–')?></td><td><?php if(!$o['archived_at'] && $ri['status']!=='done'):?><div class="actions"><form method="post" action="<?=e(url('/admin/revisionspunkt/'.$ri['id'].'/erledigt'))?>"><?=csrf_field()?><button class="btn">Erledigt</button></form><form method="post" action="<?=e(url('/admin/revisionspunkt/'.$ri['id'].'/unzureichend'))?>"><?=csrf_field()?><button class="btn secondary">Unzureichend</button></form><form method="post" action="<?=e(url('/admin/revisionspunkt/'.$ri['id'].'/erneut'))?>"><?=csrf_field()?><button class="btn secondary">Erneut ändern</button></form></div><?php else:?>–<?php endif;?></td></tr><?php endforeach;?></tbody></table></div><?php endif;?>
+ <?php endif;?>
  <?php if($damageCases):?><h2>Beschädigungsvorgänge</h2><div class="table-wrap"><table><thead><tr><th>Zeit</th><th>Grund</th><th>Status</th><th>Aktion</th></tr></thead><tbody><?php foreach($damageCases as $d):?><tr><td><?=e(date('d.m.Y H:i',strtotime($d['created_at'])))?></td><td><?=e($d['reason'])?></td><td><?=e($d['status'])?></td><td><?php if(in_array($d['status'],['reported','evidence_requested','review'],true)):?><div class="actions"><form method="post" action="<?=e(url('/admin/beschaedigung/'.$d['id'].'/anerkennen'))?>"><?=csrf_field()?><button class="btn">Anerkennen & neu starten</button></form><form method="post" action="<?=e(url('/admin/beschaedigung/'.$d['id'].'/ablehnen'))?>"><?=csrf_field()?><button class="btn danger">Ablehnen</button></form></div><?php endif;?></td></tr><?php endforeach;?></tbody></table></div><?php endif;?>
  <?php render('Auftrag '.$o['order_no'],ob_get_clean());exit;
 }
