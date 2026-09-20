@@ -619,6 +619,8 @@ if (preg_match('#^/admin/angebot/(\\d+)$#',$path,$m)&&$method==='GET') {
     $rules=offer_evidence_rules($o);
     $cats=db()->query("SELECT id,name FROM categories WHERE is_active=1 ORDER BY sort_order,name")->fetchAll();$op=db()->prepare("SELECT * FROM offer_options WHERE offer_id=? ORDER BY id");$op->execute([$o['id']]);$options=$op->fetchAll();
     $ss=db()->prepare("SELECT * FROM offer_shipping_steps WHERE offer_id=? ORDER BY sort_order,id");$ss->execute([$o['id']]);$shippingSteps=$ss->fetchAll();
+    $tp=db()->prepare("SELECT * FROM offer_task_plans WHERE offer_id=? ORDER BY sort_order,id");$tp->execute([$o['id']]);$taskPlans=$tp->fetchAll();
+    $taskTemplates=db()->query("SELECT * FROM task_library WHERE active=1 ORDER BY title")->fetchAll();
     $shippingAddresses=db()->query("SELECT * FROM shipping_addresses WHERE active=1 OR id=".(int)($o['shipping_address_id']??0)." ORDER BY active DESC,label")->fetchAll();
     $shippingRules=json_decode($o['shipping_rules_json']?:'{}',true)?:[];
     $vers=db()->prepare("SELECT version_no,created_at FROM offer_versions WHERE offer_id=? ORDER BY version_no DESC");$vers->execute([$o['id']]);$versions=$vers->fetchAll();
@@ -632,7 +634,28 @@ if (preg_match('#^/admin/angebot/(\\d+)$#',$path,$m)&&$method==='GET') {
 </div><label>Allgemeine Verpackungs-/Versandhinweise<textarea name="shipping_instructions"><?=e($shippingRules['instructions']??'')?></textarea></label>
 <p class="meta"><a href="<?=e(url('/admin/versandadressen'))?>">Empfängeradressen verwalten</a>. Die konkrete Adresse wird Verkäuferinnen erst in der Versandphase angezeigt.</p>
 <button class="btn">Als neue Version speichern</button></form>
-    <section class="panel"><h2>Zusatzoptionen</h2><form method="post" action="<?=e(url('/admin/angebot/'.$o['id'].'/option'))?>"><?=csrf_field()?><label>Bezeichnung<input name="label" required></label><label>Aufpreis (€)<input type="number" step=".01" min="0" name="price" value="0" required></label><button class="btn">Option hinzufügen</button></form><div class="timeline" style="margin-top:18px"><?php foreach($options as $x):?><div><strong><?=e($x['label'])?></strong> · <?=money($x['price'])?> · <?=$x['active']?'aktiv':'inaktiv'?></div><?php endforeach;?></div><h3>Versand-/Endworkflow</h3>
+    <section class="panel"><h2>Zusatzoptionen</h2><form method="post" action="<?=e(url('/admin/angebot/'.$o['id'].'/option'))?>"><?=csrf_field()?><label>Bezeichnung<input name="label" required></label><label>Aufpreis (€)<input type="number" step=".01" min="0" name="price" value="0" required></label><button class="btn">Option hinzufügen</button></form><div class="timeline" style="margin-top:18px"><?php foreach($options as $x):?><div><strong><?=e($x['label'])?></strong> · <?=money($x['price'])?> · <?=$x['active']?'aktiv':'inaktiv'?></div><?php endforeach;?></div>
+    <hr><h3>Vorgeplante Zusatzaufgaben</h3>
+    <form method="post" action="<?=e(url('/admin/angebot/'.$o['id'].'/aufgabenplan'))?>"><?=csrf_field()?>
+      <label>Aus Bibliothek (optional)<select name="template_id"><option value="">Eigene Aufgabe</option><?php foreach($taskTemplates as $t):?><option value="<?=$t['id']?>"><?=e($t['title'])?> · <?=e($t['default_required_photos']??0)?> Foto(s) · <?=money($t['default_compensation'])?></option><?php endforeach;?></select></label>
+      <div class="form-grid">
+        <label>Titel / Überschreibung<input name="title" placeholder="bei Vorlage optional"></label>
+        <label>Antworttyp<select name="response_type"><option value="text">Freitext</option><option value="number">Zahl</option><option value="scale10">Skala 1–10</option><option value="boolean">Ja/Nein</option></select></label>
+        <label>Pflichtfotos<input type="number" min="0" max="20" name="required_photos" value="0"></label>
+        <label>Vergütung je Ausführung (€)<input type="number" step=".01" min="0" name="compensation" value="0"></label>
+        <label>Planung<select name="schedule_type"><option value="day">Bestimmter Tag</option><option value="interval">Intervall</option></select></label>
+        <label>Tag (bei bestimmtem Tag)<input type="number" min="1" name="day_no" value="1"></label>
+        <label>Starttag (Intervall)<input type="number" min="1" name="start_day" value="1"></label>
+        <label>Alle X Tage<input type="number" min="1" name="interval_days" value="1"></label>
+        <label>Fällig um<input type="time" name="due_time" value="20:00"></label>
+        <label>Sortierung<input type="number" name="sort_order" value="<?=e((string)((count($taskPlans)+1)*10))?>"></label>
+      </div>
+      <label>Beschreibung / Überschreibung<textarea name="description"></textarea></label>
+      <label><input type="checkbox" style="width:auto" name="violation_enabled" value="1" checked> Nichterfüllung kann als ein Verstoß gewertet werden</label>
+      <button class="btn secondary">Aufgabe vorplanen</button>
+    </form>
+    <div class="timeline" style="margin-top:14px"><?php foreach($taskPlans as $tp):?><div><strong><?=e($tp['sort_order'].' · '.$tp['title'])?></strong><br><span class="meta"><?php if($tp['schedule_type']==='interval'):?>ab Tag <?=e($tp['start_day'])?> alle <?=e($tp['interval_days'])?> Tage<?php else:?>Tag <?=e($tp['day_no'])?><?php endif;?> · fällig <?=e($tp['due_time']?substr($tp['due_time'],0,5):'23:59')?> · <?=e($tp['required_photos'])?> Foto(s) · <?=money($tp['compensation'])?> je Ausführung · <?=$tp['active']?'aktiv':'inaktiv'?></span><form method="post" action="<?=e(url('/admin/aufgabenplan/'.$tp['id'].'/loeschen'))?>" style="margin-top:6px"><?=csrf_field()?><button class="btn secondary">Entfernen</button></form></div><?php endforeach;?><?php if(!$taskPlans):?><div class="meta">Noch keine Aufgabe fest eingeplant.</div><?php endif;?></div>
+    <h3>Versand-/Endworkflow</h3>
     <form method="post" action="<?=e(url('/admin/angebot/'.$o['id'].'/versandschritt'))?>">
       <?=csrf_field()?>
       <div class="form-grid"><label>Reihenfolge<input type="number" name="sort_order" value="<?=e((string)((count($shippingSteps)+1)*10))?>"></label><label>Titel<input name="title" required></label><label>Pflichtfotos<input type="number" name="required_photos" min="0" max="20" value="0"></label><label>Frist ab Freischaltung (Stunden)<input type="number" name="deadline_hours" min="1"></label></div>
@@ -672,6 +695,47 @@ if (preg_match('#^/admin/angebot/(\\d+)/option$#',$path,$m)&&$method==='POST') {
     db()->prepare("INSERT INTO offer_options(offer_id,label,price,active) VALUES(?,?,?,1)")->execute([(int)$m[1],post('label'),max(0,(float)post('price'))]);flash('success','Zusatzoption hinzugefügt.');redirect('/admin/angebot/'.$m[1]);
 }
 
+
+
+if (preg_match('#^/admin/angebot/(\d+)/aufgabenplan$#',$path,$m) && $method==='POST') {
+    require_admin();
+    $q=db()->prepare("SELECT * FROM offers WHERE id=?");$q->execute([(int)$m[1]]);$offer=$q->fetch();if(!$offer)not_found();
+
+    $template=null;$templateId=post('template_id')!==''?(int)post('template_id'):null;
+    if($templateId){
+        $q=db()->prepare("SELECT * FROM task_library WHERE id=? AND active=1");$q->execute([$templateId]);$template=$q->fetch();
+        if(!$template){flash('error','Aufgabenvorlage wurde nicht gefunden.');redirect('/admin/angebot/'.$offer['id']);}
+    }
+
+    $title=post('title')!==''?post('title'):($template['title']??'');
+    $description=post('description')!==''?post('description'):($template['description']??null);
+    if($title===''){flash('error','Bitte einen Titel oder eine Aufgabenvorlage auswählen.');redirect('/admin/angebot/'.$offer['id']);}
+
+    $fields=$template['fields_json']??json_encode(['response_type'=>post('response_type','text')],JSON_UNESCAPED_UNICODE);
+    $required=post('required_photos')!==''?max(0,(int)post('required_photos')):max(0,(int)($template['default_required_photos']??0));
+    $comp=post('compensation')!==''?max(0,(float)post('compensation')):max(0,(float)($template['default_compensation']??0));
+    $violation=isset($_POST['violation_enabled'])?1:(int)($template['violation_enabled']??0);
+    $schedule=in_array(post('schedule_type'),['day','interval'],true)?post('schedule_type'):'day';
+    $duration=max(1,(int)($offer['duration_days']?:1));
+    $dayNo=$schedule==='day'?max(1,(int)post('day_no','1')):null;
+    $startDay=$schedule==='interval'?max(1,(int)post('start_day','1')):1;
+    $interval=$schedule==='interval'?max(1,(int)post('interval_days','1')):null;
+    if($dayNo!==null && $dayNo>$duration){flash('error','Der geplante Aufgabentag liegt außerhalb der Angebotsdauer.');redirect('/admin/angebot/'.$offer['id']);}
+    if($schedule==='interval' && $startDay>$duration){flash('error','Der Starttag des Intervalls liegt außerhalb der Angebotsdauer.');redirect('/admin/angebot/'.$offer['id']);}
+    $due=post('due_time')!==''?post('due_time').':00':null;
+
+    db()->prepare("INSERT INTO offer_task_plans(offer_id,task_library_id,sort_order,title,description,fields_json,required_photos,compensation,violation_enabled,schedule_type,day_no,start_day,interval_days,due_time,active) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)")
+      ->execute([$offer['id'],$templateId,(int)post('sort_order','0'),$title,$description,$fields,$required,$comp,$violation,$schedule,$dayNo,$startDay,$interval,$due]);
+
+    flash('success','Aufgabe wurde für zukünftige Annahmen vorgeplant.');redirect('/admin/angebot/'.$offer['id']);
+}
+
+if (preg_match('#^/admin/aufgabenplan/(\d+)/loeschen$#',$path,$m) && $method==='POST') {
+    require_admin();
+    $q=db()->prepare("SELECT * FROM offer_task_plans WHERE id=?");$q->execute([(int)$m[1]]);$plan=$q->fetch();if(!$plan)not_found();
+    db()->prepare("DELETE FROM offer_task_plans WHERE id=?")->execute([$plan['id']]);
+    flash('success','Vorgeplante Aufgabe entfernt. Bereits angenommene Aufträge behalten ihren Snapshot.');redirect('/admin/angebot/'.$plan['offer_id']);
+}
 
 /* ---------- V1 completion: precheck, evidence review, offer versioning, notifications ---------- */
 
@@ -978,14 +1042,14 @@ if ($path==='/admin/suche' && $method==='GET') {
 if ($path==='/admin/aufgabenbibliothek' && $method==='GET') {
     require_admin();$rows=db()->query("SELECT * FROM task_library ORDER BY active DESC,title")->fetchAll();
     ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Administration</div><h1>Aufgabenbibliothek</h1></div></div>
-    <form class="panel" method="post"><?=csrf_field()?><label>Titel<input name="title" required></label><label>Beschreibung<textarea name="description"></textarea></label><div class="form-grid"><label>Antworttyp<select name="response_type"><option value="text">Freitext</option><option value="number">Zahl</option><option value="scale10">Skala 1–10</option><option value="boolean">Ja/Nein</option></select></label><label>Standardvergütung (€)<input type="number" step=".01" min="0" name="default_compensation" value="0"></label></div><label><input style="width:auto" type="checkbox" name="violation_enabled" value="1" checked> Nichterfüllung kann Verstoß auslösen</label><button class="btn">Vorlage speichern</button></form>
-    <h2>Vorlagen</h2><div class="table-wrap"><table><thead><tr><th>Titel</th><th>Typ</th><th>Vergütung</th><th>Status</th></tr></thead><tbody><?php foreach($rows as $x):$fields=json_decode($x['fields_json']??'{}',true)?:[];?><tr><td><?=e($x['title'])?></td><td><?=e($fields['response_type']??'text')?></td><td><?=money($x['default_compensation'])?></td><td><?=$x['active']?'Aktiv':'Inaktiv'?></td></tr><?php endforeach;?></tbody></table></div>
+    <form class="panel" method="post"><?=csrf_field()?><label>Titel<input name="title" required></label><label>Beschreibung<textarea name="description"></textarea></label><div class="form-grid"><label>Antworttyp<select name="response_type"><option value="text">Freitext</option><option value="number">Zahl</option><option value="scale10">Skala 1–10</option><option value="boolean">Ja/Nein</option></select></label><label>Pflichtfotos<input type="number" min="0" max="20" name="default_required_photos" value="0"></label><label>Standardvergütung (€)<input type="number" step=".01" min="0" name="default_compensation" value="0"></label></div><label><input style="width:auto" type="checkbox" name="violation_enabled" value="1" checked> Nichterfüllung kann Verstoß auslösen</label><button class="btn">Vorlage speichern</button></form>
+    <h2>Vorlagen</h2><div class="table-wrap"><table><thead><tr><th>Titel</th><th>Typ</th><th>Pflichtfotos</th><th>Vergütung</th><th>Status</th></tr></thead><tbody><?php foreach($rows as $x):$fields=json_decode($x['fields_json']??'{}',true)?:[];?><tr><td><?=e($x['title'])?></td><td><?=e($fields['response_type']??'text')?></td><td><?=e($x['default_required_photos']??0)?></td><td><?=money($x['default_compensation'])?></td><td><?=$x['active']?'Aktiv':'Inaktiv'?></td></tr><?php endforeach;?></tbody></table></div>
     <?php render('Aufgabenbibliothek',ob_get_clean());exit;
 }
 if ($path==='/admin/aufgabenbibliothek' && $method==='POST') {
     require_admin();$fields=json_encode(['response_type'=>post('response_type','text')],JSON_UNESCAPED_UNICODE);
-    db()->prepare("INSERT INTO task_library(title,description,fields_json,default_compensation,violation_enabled,active) VALUES(?,?,?,?,?,1)")
-      ->execute([post('title'),post('description'),$fields,max(0,(float)post('default_compensation')),($_POST['violation_enabled']??'')==='1'?1:0]);
+    db()->prepare("INSERT INTO task_library(title,description,fields_json,default_required_photos,default_compensation,violation_enabled,active) VALUES(?,?,?,?,?,?,1)")
+      ->execute([post('title'),post('description'),$fields,max(0,(int)post('default_required_photos','0')),max(0,(float)post('default_compensation')),($_POST['violation_enabled']??'')==='1'?1:0]);
     flash('success','Aufgabenvorlage gespeichert.');redirect('/admin/aufgabenbibliothek');
 }
 
