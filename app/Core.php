@@ -406,6 +406,22 @@ function private_upload(array $file, string $folder): array {
     ];
 }
 
+function private_image_upload(array $file, string $folder): array {
+    if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+        throw new RuntimeException('Foto-Upload fehlgeschlagen.');
+    }
+    $tmp=(string)($file['tmp_name']??'');
+    if($tmp==='' || !is_uploaded_file($tmp)) {
+        throw new RuntimeException('Ungültiger Foto-Upload.');
+    }
+    $finfo=new finfo(FILEINFO_MIME_TYPE);
+    $mime=(string)$finfo->file($tmp);
+    if(!in_array($mime,['image/jpeg','image/png','image/webp'],true)) {
+        throw new RuntimeException('Für diesen Nachweis ist ausschließlich ein Foto erlaubt.');
+    }
+    return private_upload($file,$folder);
+}
+
 function upload_metadata_json(array $upload): ?string {
     $value=$upload['metadata']??[];
     return $value ? json_encode($value,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES) : null;
