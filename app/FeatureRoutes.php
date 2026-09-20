@@ -992,13 +992,16 @@ if (preg_match('#^/admin/auftrag/(\d{8})/vorabkontrolle-freigeben$#',$path,$m) &
     }
 
     $runId=current_run_id((int)$o['id']);
-    $rules=offer_evidence_rules((int)$o['id']);
-    $required=max(1,(int)$rules['precheck_required_count']);
-    $q=db()->prepare("SELECT COUNT(*) total,SUM(status='accepted') accepted_count,SUM(status<>'accepted') open_count FROM evidences WHERE order_id=? AND order_run_id<=>? AND evidence_type='precheck'");
-    $q->execute([$o['id'],$runId]);$stats=$q->fetch();
-    $accepted=(int)($stats['accepted_count']??0);$open=(int)($stats['open_count']??0);
-    if($accepted<$required || $open>0){
-        flash('error','Die Vorabkontrolle kann erst freigegeben werden, wenn alle '.$required.' Pflichtnachweise des aktuellen Durchlaufs vorhanden und akzeptiert sind.');
+    $progress=order_precheck_component_progress((int)$o['id'],$runId);
+    if(!$progress['complete']){
+        $details=[];
+        foreach($progress['components'] as $row){
+            if((int)$row['required']<1) continue;
+            if(!$row['complete'] || (int)$row['pending']>0){
+                $details[]=$row['component']['title_snapshot'].': '.min((int)$row['accepted'],(int)$row['required']).'/'.$row['required'].' akzeptiert'.((int)$row['pending']>0?' · '.$row['pending'].' in Prüfung':'');
+            }
+        }
+        flash('error','Die Vorabkontrolle ist noch nicht vollständig: '.implode(' | ',$details));
         redirect('/admin/auftrag/'.$o['order_no']);
     }
 
