@@ -1291,7 +1291,7 @@ if (preg_match('#^/admin/verstoss/(\d+)/(bestaetigen|verwerfen)$#',$path,$m) && 
                     if($v['violation_type']==='digital_deadline'){
                         db()->prepare("UPDATE orders SET digital_due_at=DATE_ADD(GREATEST(COALESCE(digital_due_at,NOW()),NOW()),INTERVAL ? DAY),updated_at=NOW() WHERE id=?")
                           ->execute([$extensionDays,$v['order_id']]);
-                    }elseif(preg_match('/^digital-revision-(\d+)-deadline$/',(string)$v['source_key'],$roundMatch)){
+                    }elseif(preg_match('/^digital-revision-(\d+)-deadline(?:-\d+)?$/',(string)$v['source_key'],$roundMatch)){
                         $roundId=(int)$roundMatch[1];
                         $rules=offer_digital_rules((int)$v['order_id']);
                         $newDue=(new DateTimeImmutable('now',new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'))))
