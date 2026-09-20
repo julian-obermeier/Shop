@@ -1,2 +1,2 @@
 document.addEventListener('DOMContentLoaded',()=>{document.querySelectorAll('[data-confirm]').forEach(el=>el.addEventListener('click',e=>{if(!confirm(el.dataset.confirm||'Wirklich fortfahren?'))e.preventDefault()}));const camera=document.querySelector('[data-camera-input]');if(camera){camera.setAttribute('accept','image/*');camera.setAttribute('capture','environment');}});
-if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('/service-worker.js').catch(()=>{}));}
+if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js').catch(()=>{}));}
