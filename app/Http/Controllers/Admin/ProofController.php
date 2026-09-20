@@ -3,13 +3,10 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\ProofSubmission;
-use App\Services\AuditService;
 use App\Services\NotificationService;
-use App\Services\OrderService;
-use App\Services\ReliabilityService;
+use App\Services\V1OrderWorkflowService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ProofController extends Controller
@@ -29,18 +26,22 @@ class ProofController extends Controller
         return Storage::disk('proofs')->download($proof->storage_path,$proof->original_name);
     }
 
-    public function review(Request $request, ProofSubmission $proof, AuditService $audit, NotificationService $notifications, OrderService $orders, ReliabilityService $reliability)
-    {
+    public function review(
+        Request $request,
+        ProofSubmission $proof,
+        NotificationService $notifications,
+        V1OrderWorkflowService $workflow
+    ) {
         abort_unless($proof->review_status==='pending',422,'Dieser Nachweis wurde bereits bewertet.');
-        abort_if($proof->orderDay->order->isTerminal(),422,'Ein endgültig beendeter Auftrag kann nicht nachträglich durch eine Nachweisprüfung verändert werden.');
+        abort_if($proof->orderDay->order->isTerminal(),422,'Ein endgültig beendeter Auftrag kann nicht nachträglich verändert werden.');
 
         $data=$request->validate([
             'review_status'=>['required','in:accepted,rejected'],
             'review_comment'=>['nullable','string','max:1000','required_if:review_status,rejected'],
-            'rejection_kind'=>['nullable','in:technical,non_reproducible','required_if:review_status,rejected'],
+            'rejection_kind'=>['nullable','in:blurred,dark,framing,incomplete,wrong_subject,timing,other','required_if:review_status,rejected'],
+            'resubmit_due_at'=>['nullable','date'],
+            'retake_can_cure_violation'=>['nullable','boolean'],
         ]);
-
-        $before=$proof->toArray();
 
         if($data['review_status']==='accepted'){
             $proof->update([
@@ -52,93 +53,76 @@ class ProofController extends Controller
                 'reviewed_at'=>now(),
             ]);
             $this->refreshDayStatus($proof);
-        } else {
-            $technical=$data['rejection_kind']==='technical';
-            $regularRetryAvailable=$technical && (int)$proof->retry_number < 2;
-            $proof->update([
-                'review_status'=>'rejected',
-                'review_comment'=>$data['review_comment'],
+            return back()->with('success','Nachweis wurde akzeptiert.');
+        }
+
+        $due=!empty($data['resubmit_due_at'])
+            ? \Carbon\CarbonImmutable::parse($data['resubmit_due_at'],'Europe/Berlin')
+            : now('Europe/Berlin')->addHour();
+
+        $proof->update([
+            'review_status'=>'rejected',
+            'review_comment'=>$data['review_comment'],
+            'rejection_kind'=>$data['rejection_kind'],
+            'resubmit_due_at'=>$due,
+            'reviewed_by'=>$request->user()->id,
+            'reviewed_at'=>now(),
+        ]);
+
+        $order=$proof->orderDay->order()->with('user')->firstOrFail();
+        $workflow->createViolation(
+            $order,
+            'insufficient_evidence',
+            $data['review_comment'],
+            $proof->order_day_id,
+            [
+                'proof_submission_id'=>$proof->id,
                 'rejection_kind'=>$data['rejection_kind'],
-                'resubmit_due_at'=>$regularRetryAvailable?now()->addHours(2):null,
-                'reviewed_by'=>$request->user()->id,
-                'reviewed_at'=>now(),
-            ]);
+                'retake_can_cure_violation'=>$request->boolean('retake_can_cure_violation'),
+                'resubmit_due_at'=>$due->toIso8601String(),
+            ]
+        );
 
-            if($technical){
-                $order=$proof->orderDay->order()->with('user')->firstOrFail();
-                $order->update([
-                    'reliability_issue_count'=>DB::raw('reliability_issue_count + 1'),
-                    'last_reliability_issue'=>'Technisch/formal abgelehnter Nachweis mit Nachreichung',
-                ]);
-                $reliability->recordViolation(
-                    $order->user,
-                    $order->fresh(),
-                    'proof_resubmission',
-                    'Technisch/formal abgelehnter Nachweis: '.$data['review_comment'],
-                    ['proof_submission_id'=>$proof->id]
-                );
-            } else {
-                $orders->invalidateDay($proof->orderDay,$data['review_comment']);
-            }
-        }
+        $notifications->send(
+            $order->user,
+            'proof_rejected',
+            'Nachweis nicht ausreichend',
+            $data['review_comment'].' Erneute Aufnahme bis '.$due->format('d.m.Y H:i').' Uhr. Der mögliche Verstoß wird separat geprüft.',
+            route('orders.show',$order)
+        );
 
-        $audit->log('proof.reviewed',$proof,$before,$proof->fresh()->toArray());
-
-        $order=$proof->orderDay->order;
-        if($data['review_status']==='rejected'){
-            $notifications->send(
-                $order->user,
-                'proof_rejected',
-                'Nachweis abgelehnt',
-                $data['rejection_kind']==='technical'
-                    ? ((int)$proof->retry_number < 2
-                        ? $data['review_comment'].' Du hast ab der Ablehnung 2 Stunden Zeit für die reguläre Nachreichung.'
-                        : $data['review_comment'].' Die zwei regulären Nachreichversuche sind ausgeschöpft. Ein weiterer Versuch ist nur nach ausdrücklicher Adminfreigabe möglich.')
-                    : $data['review_comment'].' Der Nachweis ist nicht reproduzierbar; der Tag wird nach den Auftragsregeln behandelt.',
-                route('orders.show',$order)
-            );
-        }
-
-        return back()->with('success','Nachweis wurde geprüft.');
+        return back()->with('success','Nachweis wurde beanstandet; Nachforderung und möglicher Verstoß wurden angelegt.');
     }
 
-    public function grantExtraRetry(Request $request, ProofSubmission $proof, AuditService $audit, NotificationService $notifications)
+    public function grantExtraRetry(Request $request, ProofSubmission $proof, NotificationService $notifications)
     {
-        abort_unless($proof->review_status==='rejected',422,'Zusatzversuche können nur nach einer Ablehnung freigegeben werden.');
-        abort_unless($proof->rejection_kind==='technical',422,'Ein Zusatzversuch ist nur bei einem technisch/formal nachreichbaren Fehler möglich.');
-        abort_unless((int)$proof->retry_number>=2,422,'Zunächst müssen die zwei regulären Nachreichversuche ausgeschöpft sein.');
-        abort_if($proof->extra_retry_granted && $proof->resubmit_due_at?->isFuture(),422,'Für diesen Nachweis ist bereits ein zusätzlicher Versuch freigegeben.');
-
-        $before=$proof->toArray();
+        abort_unless($proof->review_status==='rejected',422,'Eine Nachforderung ist nur bei einem beanstandeten Nachweis möglich.');
         $proof->update([
+            'resubmit_due_at'=>now('Europe/Berlin')->addHour(),
             'extra_retry_granted'=>true,
-            'resubmit_due_at'=>now()->addHours(2),
         ]);
-        $audit->log('proof.extra_retry.granted',$proof,$before,$proof->fresh()->toArray());
 
         $notifications->send(
             $proof->orderDay->order->user,
-            'proof_extra_retry',
-            'Zusätzlicher Nachweisversuch freigegeben',
-            'Für Auftrag #'.$proof->orderDay->order->order_number.' wurde ein weiterer Nachreichversuch freigegeben. Die Frist beträgt 2 Stunden.',
+            'proof_retake_extended',
+            'Nachweisfrist neu gesetzt',
+            'Für Auftrag #'.$proof->orderDay->order->order_number.' wurde eine neue einstündige Nachreichfrist gesetzt.',
             route('orders.show',$proof->orderDay->order)
         );
 
-        return back()->with('success','Zusätzlicher Nachreichversuch wurde für 2 Stunden freigegeben.');
+        return back()->with('success','Neue einstündige Nachreichfrist wurde gesetzt.');
     }
 
     private function refreshDayStatus(ProofSubmission $proof): void
     {
         $day=$proof->orderDay()->with('order','proofs')->firstOrFail();
+        if($day->day_number===0) return;
 
-        if($day->day_number===0){
-            if($day->proofs->where('review_status','accepted')->count()>=1) $day->update(['status'=>'accepted']);
-            return;
-        }
+        $windows=is_array($day->plan) && count($day->plan)
+            ? $day->plan
+            : data_get($day->order->current_requirements ?: $day->order->offer_snapshot,'proof_requirements',[]);
 
-        $windows=data_get($day->order->current_requirements ?: $day->order->offer_snapshot,'proof_requirements',[]);
         $complete=true;
-
         foreach(is_array($windows)?$windows:[] as $window){
             $required=(int)($window['required_images']??0);
             if($required<=0) continue;
