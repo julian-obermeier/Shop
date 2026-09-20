@@ -322,22 +322,105 @@ if ($path==='/admin/einstellungen'&&$method==='POST') {
 }
 
 
-if (preg_match('#^/auftrag/(\\d{8})/versand$#',$path,$m)&&$method==='GET') {
-    $s=require_seller();$st=db()->prepare("SELECT o.*,f.title FROM orders o JOIN offers f ON f.id=o.offer_id WHERE o.order_no=? AND o.seller_id=?");$st->execute([$m[1],$s['id']]);$o=$st->fetch();if(!$o)not_found();
+if (preg_match('#^/auftrag/(\d{8})/versand$#',$path,$m)&&$method==='GET') {
+    $s=require_seller();
+    $st=db()->prepare("SELECT o.*,f.title FROM orders o JOIN offers f ON f.id=o.offer_id WHERE o.order_no=? AND o.seller_id=?");
+    $st->execute([$m[1],$s['id']]);$o=$st->fetch();if(!$o)not_found();
+
+    if($o['status']==='shipping') ensure_order_shipping_steps((int)$o['id']);
+    $q=db()->prepare("SELECT * FROM order_shipping_steps WHERE order_id=? ORDER BY sort_order,id");$q->execute([$o['id']]);$steps=$q->fetchAll();
     $q=db()->prepare("SELECT * FROM shipments WHERE order_id=?");$q->execute([$o['id']]);$ship=$q->fetch();
-    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Auftrag <?=e($o['order_no'])?></div><h1>Versand</h1></div><a class="btn secondary" href="<?=e(url('/auftrag/'.$o['order_no']))?>">Zum Auftrag</a></div>
-    <?php if($ship):?><div class="panel"><h2>Status: <?=e($ship['status'])?></h2><p>Tracking: <?=e($ship['tracking_number']?:'–')?></p><?php if($ship['proof_evidence_id']):?><a href="<?=e(url('/datei/'.$ship['proof_evidence_id']))?>" target="_blank">Versandnachweis ansehen</a><?php endif;?></div><?php endif;?>
-    <?php if(!$ship || $ship['status']==='preparing'):?><form class="panel" method="post" enctype="multipart/form-data"><?=csrf_field()?><h2>Versand nachweisen</h2><div class="form-grid"><label>Versanddienstleister<input name="carrier" placeholder="z. B. DHL"></label><label>Trackingnummer<input name="tracking_number"></label></div><label>Einlieferungsbeleg / Versandnachweis<input data-camera-input type="file" name="evidence"></label><p class="meta">Mindestens Trackingnummer oder ein Versandnachweis ist erforderlich.</p><button class="btn">Als versendet melden</button></form><?php endif;?>
-    <?php render('Versand',ob_get_clean());exit;
+
+    ob_start();?>
+    <div class="dashboard-head"><div><div class="eyebrow">Auftrag <?=e($o['order_no'])?></div><h1>Versandworkflow</h1><p class="meta">Die Schritte werden nacheinander freigeschaltet.</p></div><a class="btn secondary" href="<?=e(url('/auftrag/'.$o['order_no']))?>">Zum Auftrag</a></div>
+
+    <?php if($o['status']!=='shipping' && !$ship):?><div class="panel"><strong>Der Versand ist noch nicht freigeschaltet.</strong><p class="meta">Der Versandworkflow wird nach Abschluss der Durchführung automatisch geöffnet.</p></div><?php endif;?>
+
+    <div class="timeline">
+    <?php foreach($steps as $step):?>
+      <section class="panel">
+        <div class="dashboard-head"><div><strong><?=e($step['title'])?></strong><p class="meta"><?=e($step['instructions']??'')?></p></div><span class="badge"><?=e($step['status'])?></span></div>
+        <?php if($step['status']==='completed'):?>
+          <p class="meta">Abgeschlossen <?=e($step['completed_at']?date('d.m.Y H:i',strtotime($step['completed_at'])):'')?></p>
+        <?php elseif($step['status']==='open' && empty($o['archived_at'])):?>
+          <form method="post" action="<?=e(url('/auftrag/'.$o['order_no'].'/versand-schritt/'.$step['id']))?>" enctype="multipart/form-data">
+            <?=csrf_field()?>
+            <?php if($step['requires_text']):?><label>Angabe / Notiz<textarea name="text_value" required></textarea></label><?php endif;?>
+            <?php if($step['requires_checkbox']):?><label><input type="checkbox" name="confirmed" value="1" required style="width:auto"> Schritt wie beschrieben durchgeführt</label><?php endif;?>
+            <?php for($i=1;$i<=(int)$step['required_photos'];$i++):?><label>Pflichtfoto <?=$i?><input data-camera-input type="file" name="evidence_<?=$i?>" required></label><?php endfor;?>
+            <?php if($step['is_dispatch_step']):?>
+              <div class="form-grid"><label>Versanddienstleister<input name="carrier" placeholder="z. B. DHL"></label><label>Trackingnummer<input name="tracking_number"></label></div>
+              <label>Einlieferungsbeleg / Versandnachweis (falls keine Trackingnummer)<input data-camera-input type="file" name="dispatch_proof"></label>
+              <p class="meta">Für den finalen Versandnachweis ist mindestens eine Trackingnummer oder ein Einlieferungsnachweis erforderlich.</p>
+            <?php endif;?>
+            <button class="btn">Schritt abschließen</button>
+          </form>
+        <?php else:?><p class="meta">Dieser Schritt wird nach Abschluss des vorherigen Schritts freigeschaltet.</p><?php endif;?>
+      </section>
+    <?php endforeach;?>
+    </div>
+
+    <?php if($ship):?><section class="panel"><h2>Sendungsstatus</h2><p>Status: <strong><?=e($ship['status'])?></strong><br>Tracking: <?=e($ship['tracking_number']?:'–')?><?php if($ship['carrier']):?><br>Dienstleister: <?=e($ship['carrier'])?><?php endif;?></p><?php if($ship['proof_evidence_id']):?><a href="<?=e(url('/datei/'.$ship['proof_evidence_id']))?>" target="_blank">Versandnachweis ansehen</a><?php endif;?></section><?php endif;?>
+
+    <?php render('Versandworkflow',ob_get_clean());exit;
 }
-if (preg_match('#^/auftrag/(\\d{8})/versand$#',$path,$m)&&$method==='POST') {
-    $s=require_seller();$st=db()->prepare("SELECT * FROM orders WHERE order_no=? AND seller_id=?");$st->execute([$m[1],$s['id']]);$o=$st->fetch();if(!$o)not_found();
-    $tracking=post('tracking_number');$proofId=null;
-    if(isset($_FILES['evidence'])&&($_FILES['evidence']['error']??UPLOAD_ERR_NO_FILE)===UPLOAD_ERR_OK){$up=private_upload($_FILES['evidence'],'order-'.$o['id']);db()->prepare("INSERT INTO evidences(order_id,seller_id,evidence_type,file_path,mime_type,file_size,sha256) VALUES(?,?,'shipping',?,?,?,?)")->execute([$o['id'],$s['id'],$up['path'],$up['mime'],$up['size'],$up['sha256']]);$proofId=(int)db()->lastInsertId();}
-    if($tracking===''&&!$proofId){flash('error','Bitte Trackingnummer oder Versandnachweis angeben.');redirect('/auftrag/'.$o['order_no'].'/versand');}
-    db()->prepare("INSERT INTO shipments(order_id,tracking_number,carrier,proof_evidence_id,status,shipped_at) VALUES(?,?,?,?,'shipped',NOW()) ON DUPLICATE KEY UPDATE tracking_number=VALUES(tracking_number),carrier=VALUES(carrier),proof_evidence_id=VALUES(proof_evidence_id),status='shipped',shipped_at=NOW()")->execute([$o['id'],$tracking,post('carrier'),$proofId]);
-    db()->prepare("UPDATE orders SET status='shipping',updated_at=NOW() WHERE id=?")->execute([$o['id']]);db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system','Versand nachgewiesen – wartet auf Eingang.')")->execute([$o['id']]);flash('success','Versand wurde dokumentiert.');redirect('/auftrag/'.$o['order_no'].'/versand');
+
+if (preg_match('#^/auftrag/(\d{8})/versand-schritt/(\d+)$#',$path,$m)&&$method==='POST') {
+    $s=require_seller();
+    $st=db()->prepare("SELECT * FROM orders WHERE order_no=? AND seller_id=? AND status='shipping'");
+    $st->execute([$m[1],$s['id']]);$o=$st->fetch();if(!$o){flash('error','Der Versandworkflow ist nicht aktiv.');redirect('/dashboard');}
+
+    $q=db()->prepare("SELECT * FROM order_shipping_steps WHERE id=? AND order_id=? AND status='open'");
+    $q->execute([(int)$m[2],$o['id']]);$step=$q->fetch();if(!$step){flash('error','Dieser Versandschritt ist nicht freigeschaltet.');redirect('/auftrag/'.$o['order_no'].'/versand');}
+
+    if($step['requires_text'] && post('text_value')===''){flash('error','Die erforderliche Angabe fehlt.');redirect('/auftrag/'.$o['order_no'].'/versand');}
+    if($step['requires_checkbox'] && ($_POST['confirmed']??'')!=='1'){flash('error','Bitte bestätige die Durchführung des Schritts.');redirect('/auftrag/'.$o['order_no'].'/versand');}
+
+    $uploadedIds=[];
+    try{
+        for($i=1;$i<=(int)$step['required_photos'];$i++){
+            $key='evidence_'.$i;
+            if(!isset($_FILES[$key]) || ($_FILES[$key]['error']??UPLOAD_ERR_NO_FILE)!==UPLOAD_ERR_OK) throw new RuntimeException('Pflichtfoto '.$i.' fehlt.');
+            $up=private_upload($_FILES[$key],'order-'.$o['id'].'/shipping');
+            db()->prepare("INSERT INTO evidences(order_id,order_run_id,seller_id,evidence_type,source_type,source_id,file_path,mime_type,file_size,sha256) VALUES(?,?,?,'shipping','shipping_step',?,?,?,?,?)")
+              ->execute([$o['id'],current_run_id((int)$o['id']),$s['id'],$step['id'],$up['path'],$up['mime'],$up['size'],$up['sha256']]);
+            $uploadedIds[]=(int)db()->lastInsertId();
+        }
+
+        $tracking=post('tracking_number');$carrier=post('carrier');$dispatchProofId=null;
+        if($step['is_dispatch_step']){
+            if(isset($_FILES['dispatch_proof']) && ($_FILES['dispatch_proof']['error']??UPLOAD_ERR_NO_FILE)===UPLOAD_ERR_OK){
+                $up=private_upload($_FILES['dispatch_proof'],'order-'.$o['id'].'/shipping');
+                db()->prepare("INSERT INTO evidences(order_id,order_run_id,seller_id,evidence_type,source_type,source_id,file_path,mime_type,file_size,sha256) VALUES(?,?,?,'shipping','shipping_step',?,?,?,?,?)")
+                  ->execute([$o['id'],current_run_id((int)$o['id']),$s['id'],$step['id'],$up['path'],$up['mime'],$up['size'],$up['sha256']]);
+                $dispatchProofId=(int)db()->lastInsertId();
+            }
+            if($tracking==='' && !$dispatchProofId && !$uploadedIds) throw new RuntimeException('Bitte Trackingnummer oder Einlieferungsnachweis angeben.');
+        }
+
+        $payload=json_encode(['text'=>post('text_value'),'confirmed'=>(($_POST['confirmed']??'')==='1'),'carrier'=>$carrier,'tracking_number'=>$tracking],JSON_UNESCAPED_UNICODE);
+        db()->beginTransaction();
+        db()->prepare("UPDATE order_shipping_steps SET status='completed',submission_json=?,completed_at=NOW() WHERE id=?")->execute([$payload,$step['id']]);
+        unlock_next_shipping_step((int)$o['id'],(int)$step['sort_order']);
+
+        if($step['is_dispatch_step']){
+            $proof=$dispatchProofId ?: ($uploadedIds[0]??null);
+            db()->prepare("INSERT INTO shipments(order_id,tracking_number,carrier,proof_evidence_id,status,shipped_at) VALUES(?,?,?,?,'shipped',NOW())
+                           ON DUPLICATE KEY UPDATE tracking_number=VALUES(tracking_number),carrier=VALUES(carrier),proof_evidence_id=VALUES(proof_evidence_id),status='shipped',shipped_at=NOW()")
+              ->execute([$o['id'],$tracking?:null,$carrier?:null,$proof]);
+            db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system','Versand nachgewiesen – wartet auf Eingang.')")->execute([$o['id']]);
+        }else{
+            db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")->execute([$o['id'],'Versandschritt abgeschlossen: '.$step['title']]);
+        }
+        db()->commit();
+    }catch(Throwable $e){
+        if(db()->inTransaction())db()->rollBack();
+        flash('error',$e->getMessage());redirect('/auftrag/'.$o['order_no'].'/versand');
+    }
+
+    flash('success','Versandschritt abgeschlossen.');redirect('/auftrag/'.$o['order_no'].'/versand');
 }
+
 if (preg_match('#^/admin/auftrag/(\\d{8})/wareneingang$#',$path,$m)&&$method==='POST') {
     require_admin();$st=db()->prepare("SELECT * FROM orders WHERE order_no=?");$st->execute([$m[1]]);$o=$st->fetch();if(!$o)not_found();
     db()->prepare("UPDATE shipments SET status='received',received_at=NOW() WHERE order_id=?")->execute([$o['id']]);db()->prepare("UPDATE orders SET status='review',updated_at=NOW() WHERE id=?")->execute([$o['id']]);db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system','Sendung ist eingegangen und befindet sich in der Abschlussprüfung.')")->execute([$o['id']]);flash('success','Wareneingang bestätigt.');redirect('/admin/auftrag/'.$o['order_no']);
