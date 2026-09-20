@@ -330,21 +330,72 @@ if (preg_match('#^/admin/auftrag/(\\d{8})/wareneingang$#',$path,$m)&&$method==='
     require_admin();$st=db()->prepare("SELECT * FROM orders WHERE order_no=?");$st->execute([$m[1]]);$o=$st->fetch();if(!$o)not_found();
     db()->prepare("UPDATE shipments SET status='received',received_at=NOW() WHERE order_id=?")->execute([$o['id']]);db()->prepare("UPDATE orders SET status='review',updated_at=NOW() WHERE id=?")->execute([$o['id']]);db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system','Sendung ist eingegangen und befindet sich in der Abschlussprüfung.')")->execute([$o['id']]);flash('success','Wareneingang bestätigt.');redirect('/admin/auftrag/'.$o['order_no']);
 }
-if (preg_match('#^/auftrag/(\\d{8})/digital$#',$path,$m)&&$method==='GET') {
-    $s=require_seller();$st=db()->prepare("SELECT o.*,f.title FROM orders o JOIN offers f ON f.id=o.offer_id WHERE o.order_no=? AND o.seller_id=?");$st->execute([$m[1],$s['id']]);$o=$st->fetch();if(!$o)not_found();
-    $v=db()->prepare("SELECT * FROM digital_versions WHERE order_id=? ORDER BY version_no DESC");$v->execute([$o['id']]);$versions=$v->fetchAll();$rr=db()->prepare("SELECT r.*,COUNT(i.id) item_count FROM revision_rounds r LEFT JOIN revision_items i ON i.revision_round_id=r.id WHERE r.order_id=? GROUP BY r.id ORDER BY r.round_no DESC");$rr->execute([$o['id']]);$rounds=$rr->fetchAll();
-    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Digitale Abgabe · <?=e($o['order_no'])?></div><h1><?=e($o['title'])?></h1></div><a class="btn secondary" href="<?=e(url('/auftrag/'.$o['order_no']))?>">Zum Auftrag</a></div>
-    <form class="panel" method="post" enctype="multipart/form-data"><?=csrf_field()?><h2>Neue Version einreichen</h2><label>Textinhalt (optional)<textarea name="text_content"></textarea></label><label>Datei (optional: Audio/Video/Bild)<input type="file" name="digital_file"></label><p class="meta">Mindestens Text oder Datei erforderlich. Jede Einreichung erzeugt eine neue unveränderliche Version.</p><button class="btn">Version final einreichen</button></form>
-    <h2>Versionen</h2><div class="table-wrap"><table><thead><tr><th>Version</th><th>Zeitpunkt</th><th>Status</th><th>Inhalt</th></tr></thead><tbody><?php foreach($versions as $x):?><tr><td>V<?=e($x['version_no'])?></td><td><?=e(date('d.m.Y H:i',strtotime($x['created_at'])))?></td><td><?=e($x['status'])?></td><td><?= $x['file_path']?'Datei':'Text' ?></td></tr><?php endforeach;?></tbody></table></div>
-    <h2>Revisionen</h2><div class="table-wrap"><table><tbody><?php foreach($rounds as $r):?><tr><td>Runde <?=e($r['round_no'])?></td><td><?=e($r['status'])?></td><td><?=e($r['item_count'])?> Änderungspunkte</td><td><?=e($r['due_at']?:'keine Frist')?></td></tr><?php endforeach;?></tbody></table></div>
+if (preg_match('#^/auftrag/(\d{8})/digital$#',$path,$m)&&$method==='GET') {
+    $s=require_seller();
+    $st=db()->prepare("SELECT o.*,f.title FROM orders o JOIN offers f ON f.id=o.offer_id WHERE o.order_no=? AND o.seller_id=?");
+    $st->execute([$m[1],$s['id']]);$o=$st->fetch();if(!$o)not_found();
+    $v=db()->prepare("SELECT * FROM digital_versions WHERE order_id=? ORDER BY version_no DESC");$v->execute([$o['id']]);$versions=$v->fetchAll();
+    $rr=db()->prepare("SELECT r.*,COUNT(i.id) item_count FROM revision_rounds r LEFT JOIN revision_items i ON i.revision_round_id=r.id WHERE r.order_id=? GROUP BY r.id ORDER BY r.round_no DESC");$rr->execute([$o['id']]);$rounds=$rr->fetchAll();
+    $locked=!empty($o['archived_at']) || $o['status']==='rejected';
+
+    ob_start();?>
+    <div class="dashboard-head"><div><div class="eyebrow">Digitale Abgabe · <?=e($o['order_no'])?></div><h1><?=e($o['title'])?></h1><?php if($locked):?><span class="badge">Schreibgeschützt</span><?php endif;?></div><a class="btn secondary" href="<?=e(url('/auftrag/'.$o['order_no']))?>">Zum Auftrag</a></div>
+
+    <?php if(!$locked):?>
+    <form class="panel" method="post" enctype="multipart/form-data"><?=csrf_field()?>
+      <h2>Neue Version einreichen</h2>
+      <label>Textinhalt (optional)<textarea name="text_content"></textarea></label>
+      <label>Datei (optional: Audio/Video/Bild)<input type="file" name="digital_file" accept="audio/*,video/mp4,image/jpeg,image/png,image/webp"></label>
+      <p class="meta">Mindestens Text oder Datei erforderlich. Jede Einreichung erzeugt eine neue, unveränderliche Version.</p>
+      <label><input type="checkbox" name="confirm_complete" value="1" required style="width:auto"> Ich habe die Abgabe geprüft und bestätige, dass sie vollständig eingereicht werden soll.</label>
+      <button class="btn">Version final einreichen</button>
+    </form>
+    <?php else:?><div class="panel"><strong>Dieser Auftrag ist schreibgeschützt.</strong><p class="meta">Vorhandene Versionen bleiben lesbar, können aber nicht verändert oder ersetzt werden.</p></div><?php endif;?>
+
+    <h2>Versionen</h2>
+    <div class="timeline">
+    <?php foreach($versions as $x):?>
+      <article class="panel">
+        <div class="dashboard-head"><div><strong>V<?=e($x['version_no'])?></strong> · <span class="badge"><?=e($x['status'])?></span></div><span class="meta"><?=e(date('d.m.Y H:i',strtotime($x['created_at'])))?></span></div>
+        <?php if($x['text_content']):?><div style="white-space:pre-wrap"><?=e($x['text_content'])?></div><?php endif;?>
+        <?php if($x['file_path']):?>
+          <?php $mediaUrl=url('/digitale-datei/'.$x['id']); $mime=(string)($x['mime_type']??''); ?>
+          <?php if(str_starts_with($mime,'audio/')):?><audio controls preload="metadata" style="width:100%"><source src="<?=e($mediaUrl)?>" type="<?=e($mime)?>"></audio>
+          <?php elseif(str_starts_with($mime,'video/')):?><video controls preload="metadata" playsinline style="width:100%;max-height:520px;border-radius:12px"><source src="<?=e($mediaUrl)?>" type="<?=e($mime)?>"></video>
+          <?php elseif(str_starts_with($mime,'image/')):?><img src="<?=e($mediaUrl)?>" alt="Digitale Version V<?=e($x['version_no'])?>" style="max-width:100%;max-height:560px;border-radius:12px">
+          <?php else:?><a href="<?=e($mediaUrl)?>" target="_blank">Datei innerhalb der Plattform öffnen</a><?php endif;?>
+          <p class="meta">Keine Downloadfunktion für Verkäuferinnen.</p>
+        <?php endif;?>
+      </article>
+    <?php endforeach;?>
+    <?php if(!$versions):?><div class="empty">Noch keine digitale Version eingereicht.</div><?php endif;?>
+    </div>
+
+    <h2>Revisionen</h2><div class="table-wrap"><table><thead><tr><th>Runde</th><th>Status</th><th>Punkte</th><th>Frist</th></tr></thead><tbody><?php foreach($rounds as $r):?><tr><td>Runde <?=e($r['round_no'])?></td><td><?=e($r['status'])?></td><td><?=e($r['item_count'])?></td><td><?=e($r['due_at']?date('d.m.Y H:i',strtotime($r['due_at'])):'keine Frist')?></td></tr><?php endforeach;?></tbody></table></div>
     <?php render('Digitale Abgabe',ob_get_clean());exit;
 }
-if (preg_match('#^/auftrag/(\\d{8})/digital$#',$path,$m)&&$method==='POST') {
-    $s=require_seller();$st=db()->prepare("SELECT * FROM orders WHERE order_no=? AND seller_id=?");$st->execute([$m[1],$s['id']]);$o=$st->fetch();if(!$o)not_found();$text=post('text_content');$pathFile=null;$mime=null;$sha=null;
-    if(isset($_FILES['digital_file'])&&($_FILES['digital_file']['error']??UPLOAD_ERR_NO_FILE)===UPLOAD_ERR_OK){$up=private_upload($_FILES['digital_file'],'order-'.$o['id'].'/digital');$pathFile=$up['path'];$mime=$up['mime'];$sha=$up['sha256'];}
+if (preg_match('#^/auftrag/(\d{8})/digital$#',$path,$m)&&$method==='POST') {
+    $s=require_seller();
+    $st=db()->prepare("SELECT * FROM orders WHERE order_no=? AND seller_id=?");
+    $st->execute([$m[1],$s['id']]);$o=$st->fetch();if(!$o)not_found();
+    if(!empty($o['archived_at']) || $o['status']==='rejected'){flash('error','Dieser Auftrag ist schreibgeschützt.');redirect('/auftrag/'.$o['order_no'].'/digital');}
+    if(($_POST['confirm_complete']??'')!=='1'){flash('error','Bitte bestätige die Vollständigkeitsprüfung vor der finalen Abgabe.');redirect('/auftrag/'.$o['order_no'].'/digital');}
+
+    $text=post('text_content');$pathFile=null;$mime=null;$sha=null;
+    if(isset($_FILES['digital_file'])&&($_FILES['digital_file']['error']??UPLOAD_ERR_NO_FILE)===UPLOAD_ERR_OK){
+        $up=private_upload($_FILES['digital_file'],'order-'.$o['id'].'/digital');
+        $pathFile=$up['path'];$mime=$up['mime'];$sha=$up['sha256'];
+    }
     if($text===''&&!$pathFile){flash('error','Bitte Text oder Datei einreichen.');redirect('/auftrag/'.$o['order_no'].'/digital');}
-    $q=db()->prepare("SELECT COALESCE(MAX(version_no),0)+1 FROM digital_versions WHERE order_id=?");$q->execute([$o['id']]);$vn=(int)$q->fetchColumn();db()->prepare("INSERT INTO digital_versions(order_id,version_no,file_path,text_content,mime_type,sha256,status) VALUES(?,?,?,?,?,?,'submitted')")->execute([$o['id'],$vn,$pathFile,$text?:null,$mime,$sha]);
-    db()->prepare("UPDATE revision_rounds SET status='submitted' WHERE order_id=? AND status='open'")->execute([$o['id']]);db()->prepare("UPDATE orders SET status='review',updated_at=NOW() WHERE id=?")->execute([$o['id']]);db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")->execute([$o['id'],'Digitale Version V'.$vn.' wurde eingereicht und wartet auf Prüfung.']);flash('success','Digitale Version V'.$vn.' eingereicht.');redirect('/auftrag/'.$o['order_no'].'/digital');
+
+    $q=db()->prepare("SELECT COALESCE(MAX(version_no),0)+1 FROM digital_versions WHERE order_id=?");$q->execute([$o['id']]);$vn=(int)$q->fetchColumn();
+    db()->prepare("INSERT INTO digital_versions(order_id,version_no,file_path,text_content,mime_type,sha256,status) VALUES(?,?,?,?,?,?,'submitted')")
+      ->execute([$o['id'],$vn,$pathFile,$text?:null,$mime,$sha]);
+    db()->prepare("UPDATE revision_rounds SET status='submitted' WHERE order_id=? AND status='open'")->execute([$o['id']]);
+    db()->prepare("UPDATE orders SET status='review',updated_at=NOW() WHERE id=?")->execute([$o['id']]);
+    db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")->execute([$o['id'],'Digitale Version V'.$vn.' wurde eingereicht und wartet auf Prüfung.']);
+    log_event('digital.version_submitted',(int)$s['id'],(int)$o['id'],['version'=>$vn,'mime'=>$mime]);
+    flash('success','Digitale Version V'.$vn.' eingereicht.');redirect('/auftrag/'.$o['order_no'].'/digital');
 }
 if (preg_match('#^/admin/auftrag/(\\d{8})/revision$#',$path,$m)&&$method==='POST') {
     require_admin();$st=db()->prepare("SELECT * FROM orders WHERE order_no=?");$st->execute([$m[1]]);$o=$st->fetch();if(!$o)not_found();
