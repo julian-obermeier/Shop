@@ -25,3 +25,38 @@ jobs:
           test -f app/FeatureRoutes.php
           test -f database/schema.sql
           test -f install/index.php
+
+  schema-smoke:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: shop_v1
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -proot"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install MySQL client
+        run: sudo apt-get update && sudo apt-get install -y default-mysql-client
+      - name: Apply fresh schema
+        env:
+          MYSQL_PWD: root
+        run: mysql -h 127.0.0.1 -uroot shop_v1 < database/schema.sql
+      - name: Verify critical tables
+        env:
+          MYSQL_PWD: root
+        run: |
+          mysql -N -h 127.0.0.1 -uroot shop_v1 -e "SHOW TABLES" > /tmp/tables.txt
+          grep -qx "orders" /tmp/tables.txt
+          grep -qx "evidences" /tmp/tables.txt
+          grep -qx "offer_task_plans" /tmp/tables.txt
+          grep -qx "order_acceptance_confirmations" /tmp/tables.txt
+          grep -qx "system_outages" /tmp/tables.txt
+          grep -qx "order_interim_summaries" /tmp/tables.txt
