@@ -292,6 +292,88 @@ function parse_window_setting(string $key, string $fallback): array {
     return $parts;
 }
 
+function task_plan_occurrence_days(array $plan, int $duration): array {
+    $duration = max(1, $duration);
+    if (($plan['schedule_type'] ?? 'day') === 'interval') {
+        $start = max(1, (int)($plan['start_day'] ?? 1));
+        $interval = max(1, (int)($plan['interval_days'] ?? 1));
+        $days = [];
+        for ($day = $start; $day <= $duration; $day += $interval) $days[] = $day;
+        return $days;
+    }
+    $day = max(1, (int)($plan['day_no'] ?? 1));
+    return $day <= $duration ? [$day] : [];
+}
+
+function offer_task_plan_summary(int $offerId, ?int $durationDays = null): array {
+    $q = db()->prepare("SELECT * FROM offer_task_plans WHERE offer_id=? AND active=1 ORDER BY sort_order,id");
+    $q->execute([$offerId]);
+    $plans = $q->fetchAll();
+
+    if ($durationDays === null) {
+        $d = db()->prepare("SELECT duration_days FROM offers WHERE id=?");
+        $d->execute([$offerId]);
+        $durationDays = (int)($d->fetchColumn() ?: 1);
+    }
+    $duration = max(1, (int)$durationDays);
+    $executions = 0;$photos = 0;$compensation = 0.0;
+    foreach ($plans as &$plan) {
+        $days = task_plan_occurrence_days($plan, $duration);
+        $plan['_occurrence_days'] = $days;
+        $count = count($days);
+        $executions += $count;
+        $photos += $count * max(0, (int)$plan['required_photos']);
+        $compensation += $count * max(0, (float)$plan['compensation']);
+    }
+    unset($plan);
+
+    return [
+        'plans' => $plans,
+        'executions' => $executions,
+        'required_photos' => $photos,
+        'compensation' => round($compensation, 2),
+    ];
+}
+
+function snapshot_offer_task_plans(int $offerId, int $orderId): array {
+    $summary = offer_task_plan_summary($offerId);
+    $insert = db()->prepare("INSERT INTO order_task_specs(order_id,source_plan_id,sort_order,title,description,fields_json,required_photos,compensation,violation_enabled,schedule_type,day_no,start_day,interval_days,due_time) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+    foreach ($summary['plans'] as $plan) {
+        $insert->execute([
+            $orderId,$plan['id'],$plan['sort_order'],$plan['title'],$plan['description'],$plan['fields_json'],
+            $plan['required_photos'],$plan['compensation'],$plan['violation_enabled'],$plan['schedule_type'],
+            $plan['day_no'],$plan['start_day'],$plan['interval_days'],$plan['due_time'],
+        ]);
+    }
+    return $summary;
+}
+
+function instantiate_planned_order_tasks(int $orderId): void {
+    $q = db()->prepare("SELECT o.duration_days,o.started_at,o.planned_start_date FROM orders o WHERE o.id=?");
+    $q->execute([$orderId]);$order=$q->fetch();if(!$order)return;
+
+    $duration=max(1,(int)($order['duration_days']?:1));
+    $dayRows=db()->prepare("SELECT day_no,calendar_date FROM order_days WHERE order_id=? ORDER BY day_no");
+    $dayRows->execute([$orderId]);$calendar=[];
+    foreach($dayRows->fetchAll() as $row)$calendar[(int)$row['day_no']]=$row['calendar_date'];
+
+    $fallbackDate=$order['started_at']?date('Y-m-d',strtotime($order['started_at'])):($order['planned_start_date']?:date('Y-m-d'));
+    $specs=db()->prepare("SELECT * FROM order_task_specs WHERE order_id=? ORDER BY sort_order,id");
+    $specs->execute([$orderId]);
+    $insert=db()->prepare("INSERT IGNORE INTO order_tasks(order_id,source_spec_id,title,description,due_at,planned_day_no,fields_json,required_photos,compensation,violation_enabled,status) VALUES(?,?,?,?,?,?,?,?,?,?,'open')");
+
+    foreach($specs->fetchAll() as $spec){
+        foreach(task_plan_occurrence_days($spec,$duration) as $dayNo){
+            $date=$calendar[$dayNo]??date('Y-m-d',strtotime($fallbackDate.' +'.($dayNo-1).' day'));
+            $time=$spec['due_time']?:'23:59:00';
+            $insert->execute([
+                $orderId,$spec['id'],$spec['title'],$spec['description'],$date.' '.$time,$dayNo,
+                $spec['fields_json'],$spec['required_photos'],$spec['compensation'],$spec['violation_enabled']
+            ]);
+        }
+    }
+}
+
 function schedule_order_days(int $orderId, ?DateTimeImmutable $startedAt = null): void {
     $q = db()->prepare('SELECT o.duration_days FROM orders o WHERE o.id=?');
     $q->execute([$orderId]);
@@ -413,6 +495,7 @@ function start_order_on_planned_date(int $orderId, ?DateTimeImmutable $now = nul
         }
 
         schedule_order_days($orderId, $planned);
+        instantiate_planned_order_tasks($orderId);
         schedule_existing_extra_days($orderId);
         $pdo->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")
             ->execute([$orderId,'Der vereinbarte Starttag ist erreicht. Der Auftrag wurde automatisch gestartet.']);
