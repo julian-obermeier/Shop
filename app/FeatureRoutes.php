@@ -232,3 +232,103 @@ if (preg_match('#^/admin/angebot/(\\d+)/option$#',$path,$m)&&$method==='POST') {
     require_admin();$st=db()->prepare("SELECT id FROM offers WHERE id=?");$st->execute([(int)$m[1]]);if(!$st->fetchColumn())not_found();
     db()->prepare("INSERT INTO offer_options(offer_id,label,price,active) VALUES(?,?,?,1)")->execute([(int)$m[1],post('label'),max(0,(float)post('price'))]);flash('success','Zusatzoption hinzugefügt.');redirect('/admin/angebot/'.$m[1]);
 }
+
+
+/* ---------- V1 completion: precheck, evidence review, offer versioning, notifications ---------- */
+
+if (preg_match('#^/admin/nachweis/(\\d+)/ablehnen$#',$path,$m) && $method==='POST') {
+    require_admin();
+    $reason=post('reason');
+    if($reason===''){flash('error','Bitte einen Beanstandungsgrund angeben.');redirect('/admin/auftraege');}
+    $q=db()->prepare("SELECT e.*,o.order_no,o.seller_id FROM evidences e JOIN orders o ON o.id=e.order_id WHERE e.id=?");
+    $q->execute([(int)$m[1]]);$ev=$q->fetch();if(!$ev)not_found();
+    db()->prepare("UPDATE evidences SET status='rejected',rejection_reason=?,reviewed_at=NOW() WHERE id=?")->execute([$reason,$ev['id']]);
+    notify_seller((int)$ev['seller_id'],'evidence.rejected','Nachweis beanstandet','Ein Nachweis im Auftrag '.$ev['order_no'].' wurde beanstandet: '.$reason,'/auftrag/'.$ev['order_no'],null,true);
+    log_event('evidence.rejected',(int)$ev['seller_id'],(int)$ev['order_id'],['evidence_id'=>(int)$ev['id'],'reason'=>$reason]);
+    flash('success','Nachweis wurde beanstandet.');redirect('/admin/auftrag/'.$ev['order_no']);
+}
+
+if (preg_match('#^/admin/auftrag/(\\d{8})/vorabkontrolle-freigeben$#',$path,$m) && $method==='POST') {
+    require_admin();
+    $q=db()->prepare("SELECT * FROM orders WHERE order_no=? AND status='precheck'");
+    $q->execute([$m[1]]);$o=$q->fetch();if(!$o)not_found();
+    $q=db()->prepare("SELECT COUNT(*) total,SUM(status='accepted') accepted_count,SUM(status<>'accepted') open_count FROM evidences WHERE order_id=? AND evidence_type='precheck'");
+    $q->execute([$o['id']]);$stats=$q->fetch();
+    if((int)($stats['total']??0)<1 || (int)($stats['open_count']??0)>0){
+        flash('error','Die Vorabkontrolle kann erst freigegeben werden, wenn mindestens ein Vorabnachweis vorhanden und alle Vorabnachweise akzeptiert sind.');
+        redirect('/admin/auftrag/'.$o['order_no']);
+    }
+    $started=new DateTimeImmutable('now',new DateTimeZone((string)app_config('app.timezone','Europe/Berlin')));
+    db()->beginTransaction();
+    try{
+        db()->prepare("UPDATE orders SET status='running',started_at=?,updated_at=NOW() WHERE id=?")->execute([$started->format('Y-m-d H:i:s'),$o['id']]);
+        db()->prepare("UPDATE order_runs SET status='running',started_at=? WHERE id=?")->execute([$started->format('Y-m-d H:i:s'),current_run_id((int)$o['id'])]);
+        schedule_order_days((int)$o['id'],$started);
+        db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")->execute([$o['id'],'Vorabkontrolle vollständig freigegeben. Der Auftrag ist jetzt gestartet.']);
+        log_event('precheck.approved',(int)$o['seller_id'],(int)$o['id'],['started_at'=>$started->format(DATE_ATOM)]);
+        db()->commit();
+    }catch(Throwable $e){db()->rollBack();throw $e;}
+    notify_seller((int)$o['seller_id'],'order.started','Auftrag gestartet','Die Vorabkontrolle für Auftrag '.$o['order_no'].' wurde vollständig freigegeben. Der Auftrag ist jetzt gestartet.','/auftrag/'.$o['order_no'],null,true);
+    flash('success','Vorabkontrolle vollständig freigegeben – Auftrag gestartet.');redirect('/admin/auftrag/'.$o['order_no']);
+}
+
+if ($path==='/benachrichtigungen' && $method==='GET') {
+    $s=require_seller();
+    $q=db()->prepare("SELECT * FROM notifications WHERE seller_id=? ORDER BY created_at DESC LIMIT 100");$q->execute([$s['id']]);$rows=$q->fetchAll();
+    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Konto</div><h1>Benachrichtigungen</h1></div><form method="post" action="<?=e(url('/benachrichtigungen/alle-gelesen'))?>"><?=csrf_field()?><button class="btn secondary">Alle als gelesen markieren</button></form></div>
+    <div class="timeline"><?php foreach($rows as $n):?><div class="<?=$n['read_at']?'':'panel'?>"><strong><?=e($n['title'])?></strong><p><?=e($n['body']??'')?></p><small class="meta"><?=e(date('d.m.Y H:i',strtotime($n['created_at'])))?></small><?php if($n['link']):?> · <a href="<?=e(url($n['link']))?>">Öffnen</a><?php endif;?></div><?php endforeach;?><?php if(!$rows):?><div class="empty">Keine Benachrichtigungen vorhanden.</div><?php endif;?></div>
+    <?php render('Benachrichtigungen',ob_get_clean());exit;
+}
+if ($path==='/benachrichtigungen/alle-gelesen' && $method==='POST') {
+    $s=require_seller();db()->prepare("UPDATE notifications SET read_at=NOW() WHERE seller_id=? AND read_at IS NULL")->execute([$s['id']]);redirect('/benachrichtigungen');
+}
+if ($path==='/email-bestaetigung-neu' && $method==='POST') {
+    $s=require_seller();
+    if($s['email_verified_at']){flash('success','Die E-Mail-Adresse ist bereits bestätigt.');redirect('/dashboard');}
+    db()->prepare("DELETE FROM email_verifications WHERE seller_id=?")->execute([$s['id']]);
+    [$raw,$hash]=make_token();
+    db()->prepare("INSERT INTO email_verifications(seller_id,token_hash,expires_at) VALUES(?,?,DATE_ADD(NOW(),INTERVAL 24 HOUR))")->execute([$s['id'],$hash]);
+    send_app_mail($s['email'],'E-Mail bestätigen','<p>Bitte bestätige deine E-Mail:</p><p><a href="'.e(url('/email-bestaetigen?token='.$raw)).'">E-Mail bestätigen</a></p>');
+    flash('success','Bestätigungs-E-Mail wurde erneut versendet.');redirect('/dashboard');
+}
+
+if (preg_match('#^/admin/angebot/(\\d+)$#',$path,$m) && $method==='GET') {
+    require_admin();
+    $q=db()->prepare("SELECT * FROM offers WHERE id=?");$q->execute([(int)$m[1]]);$o=$q->fetch();if(!$o)not_found();
+    $cats=db()->query("SELECT id,name FROM categories WHERE is_active=1 ORDER BY sort_order,name")->fetchAll();
+    $v=db()->prepare("SELECT version_no,created_at FROM offer_versions WHERE offer_id=? ORDER BY version_no DESC");$v->execute([$o['id']]);$versions=$v->fetchAll();
+    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Angebot</div><h1><?=e($o['title'])?></h1></div><a class="btn secondary" href="<?=e(url('/admin/angebote'))?>">Zurück</a></div>
+    <div class="grid two"><form class="panel" method="post"><?=csrf_field()?><h2>Angebot bearbeiten</h2><label>Titel<input name="title" value="<?=e($o['title'])?>" required></label><label>Kategorie<select name="category_id"><?php foreach($cats as $cat):?><option value="<?=$cat['id']?>" <?=$cat['id']==$o['category_id']?'selected':''?>><?=e($cat['name'])?></option><?php endforeach;?></select></label><div class="form-grid"><label>Vergütung (€)<input type="number" step=".01" min="0" name="compensation" value="<?=e($o['compensation'])?>" required></label><label>Dauer Tage<input type="number" min="1" name="duration_days" value="<?=e($o['duration_days']??'')?>"></label></div><label>Erfüllungsart<select name="fulfillment_type"><?php foreach(['days'=>'Tage','units'=>'Einheiten','one_time'=>'Einmalig','digital'=>'Digital','mixed'=>'Kombiniert'] as $k=>$label):?><option value="<?=$k?>" <?=$o['fulfillment_type']===$k?'selected':''?>><?=e($label)?></option><?php endforeach;?></select></label><label>Beschreibung<textarea name="description" required><?=e($o['description'])?></textarea></label><label>Status<select name="status"><?php foreach(['draft'=>'Entwurf','active'=>'Aktiv','inactive'=>'Deaktiviert'] as $k=>$label):?><option value="<?=$k?>" <?=$o['status']===$k?'selected':''?>><?=e($label)?></option><?php endforeach;?></select></label><button class="btn">Neue Version speichern</button></form>
+    <aside class="panel"><h2>Versionen</h2><p>Aktuelle Version: <strong>V<?=e($o['current_version'])?></strong></p><div class="timeline"><?php foreach($versions as $ver):?><div>V<?=e($ver['version_no'])?> · <?=e(date('d.m.Y H:i',strtotime($ver['created_at'])))?></div><?php endforeach;?></div><hr><form method="post" action="<?=e(url('/admin/angebot/'.$o['id'].'/duplizieren'))?>"><?=csrf_field()?><button class="btn secondary">Angebot duplizieren</button></form></aside></div>
+    <?php render('Angebot bearbeiten',ob_get_clean());exit;
+}
+if (preg_match('#^/admin/angebot/(\\d+)$#',$path,$m) && $method==='POST') {
+    require_admin();
+    $q=db()->prepare("SELECT * FROM offers WHERE id=?");$q->execute([(int)$m[1]]);$o=$q->fetch();if(!$o)not_found();
+    $newVersion=(int)$o['current_version']+1;
+    $days=post('duration_days')!==''?(int)post('duration_days'):null;
+    $snapshot=['category_id'=>(int)post('category_id'),'title'=>post('title'),'description'=>post('description'),'compensation'=>(float)post('compensation'),'duration_days'=>$days,'fulfillment_type'=>post('fulfillment_type'),'status'=>post('status')];
+    db()->beginTransaction();
+    try{
+        db()->prepare("UPDATE offers SET category_id=?,title=?,description=?,compensation=?,duration_days=?,fulfillment_type=?,status=?,current_version=?,updated_at=NOW() WHERE id=?")
+            ->execute([$snapshot['category_id'],$snapshot['title'],$snapshot['description'],$snapshot['compensation'],$days,$snapshot['fulfillment_type'],$snapshot['status'],$newVersion,$o['id']]);
+        db()->prepare("INSERT INTO offer_versions(offer_id,version_no,snapshot_json) VALUES(?,?,?)")->execute([$o['id'],$newVersion,json_encode($snapshot,JSON_UNESCAPED_UNICODE)]);
+        db()->commit();
+    }catch(Throwable $e){db()->rollBack();throw $e;}
+    flash('success','Angebot als Version V'.$newVersion.' gespeichert. Bestehende Aufträge behalten ihre ursprüngliche Version.');redirect('/admin/angebot/'.$o['id']);
+}
+if (preg_match('#^/admin/angebot/(\\d+)/duplizieren$#',$path,$m) && $method==='POST') {
+    require_admin();
+    $q=db()->prepare("SELECT * FROM offers WHERE id=?");$q->execute([(int)$m[1]]);$o=$q->fetch();if(!$o)not_found();
+    $title=$o['title'].' – Kopie';$slug=preg_replace('/[^a-z0-9-]/','',strtolower(str_replace(' ','-',$title))).'-'.substr(bin2hex(random_bytes(3)),0,6);
+    db()->beginTransaction();try{
+        db()->prepare("INSERT INTO offers(category_id,title,slug,description,compensation,duration_days,fulfillment_type,evidence_rules_json,shipping_rules_json,status,current_version) VALUES(?,?,?,?,?,?,?,?,?,'draft',1)")
+            ->execute([$o['category_id'],$title,$slug,$o['description'],$o['compensation'],$o['duration_days'],$o['fulfillment_type'],$o['evidence_rules_json'],$o['shipping_rules_json']]);
+        $id=(int)db()->lastInsertId();
+        $snap=json_encode(['category_id'=>(int)$o['category_id'],'title'=>$title,'description'=>$o['description'],'compensation'=>(float)$o['compensation'],'duration_days'=>$o['duration_days'],'fulfillment_type'=>$o['fulfillment_type'],'status'=>'draft'],JSON_UNESCAPED_UNICODE);
+        db()->prepare("INSERT INTO offer_versions(offer_id,version_no,snapshot_json) VALUES(?,1,?)")->execute([$id,$snap]);
+        $opt=db()->prepare("INSERT INTO offer_options(offer_id,label,price,requirements_json,active) SELECT ?,label,price,requirements_json,active FROM offer_options WHERE offer_id=?");$opt->execute([$id,$o['id']]);
+        db()->commit();
+    }catch(Throwable $e){db()->rollBack();throw $e;}
+    flash('success','Angebot wurde als Entwurf dupliziert.');redirect('/admin/angebot/'.$id);
+}
