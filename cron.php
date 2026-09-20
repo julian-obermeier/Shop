@@ -3,171 +3,99 @@ declare(strict_types=1);
 require __DIR__.'/app/Core.php';
 
 $pdo=db();
-$tz=new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'));
-$nowObj=new DateTimeImmutable('now',$tz);
-$now=$nowObj->format('Y-m-d H:i:s');
+$now=new DateTimeImmutable('now',new DateTimeZone((string)app_config('app.timezone','Europe/Berlin')));
+$nowSql=$now->format('Y-m-d H:i:s');
+$grace=max(0,(int)setting_value('grace_minutes','60'));
 
-$pdo->prepare("DELETE FROM email_verifications WHERE expires_at < ?")->execute([$now]);
-$pdo->prepare("DELETE FROM password_resets WHERE expires_at < ? OR used_at IS NOT NULL")->execute([$now]);
+$pdo->prepare("DELETE FROM email_verifications WHERE expires_at < ?")->execute([$nowSql]);
+$pdo->prepare("DELETE FROM password_resets WHERE expires_at < ? OR used_at IS NOT NULL")->execute([$nowSql]);
 
-// Reguläre Nachweisfenster öffnen, erinnern und abschließen.
-$q=$pdo->query("SELECT ew.*,o.order_no,o.seller_id,o.status order_status
- FROM evidence_windows ew
- JOIN orders o ON o.id=ew.order_id
- WHERE o.status='running' AND ew.status IN('planned','open','submitted')");
-$windows=$q->fetchAll();
+function cron_provisional_violation(int $orderId, int $sellerId, string $sourceKey, string $type, string $reason): void {
+    $q=db()->prepare("SELECT id FROM violations WHERE source_key=? LIMIT 1");$q->execute([$sourceKey]);
+    if($q->fetchColumn()) return;
+    db()->beginTransaction();
+    try{
+        db()->prepare("INSERT INTO violations(order_id,violation_type,source_key,status,reason,extension_days) VALUES(?,?,?,'open',?,1)")
+          ->execute([$orderId,$type,$sourceKey,$reason]);
+        $vid=(int)db()->lastInsertId();
+        db()->prepare("INSERT INTO extra_days(order_id,source_type,source_id,status,paid,amount,reason) VALUES(?,'violation',?,'provisional',0,0,?)")
+          ->execute([$orderId,$vid,$reason]);
+        db()->commit();
+        notify_seller($sellerId,'violation.open','Möglicher Verstoß erkannt',$reason.' · Ein zusätzlicher Tag wurde bis zur Adminprüfung vorläufig vorgemerkt.',null,'violation-'.$sourceKey,true);
+    }catch(Throwable $e){db()->rollBack();throw $e;}
+}
 
+/* Zeitfenster öffnen und bereits vollständig belegte Fenster abschließen. */
+$pdo->prepare("UPDATE evidence_windows SET status='open' WHERE status='planned' AND starts_at<=? AND ends_at>=?")->execute([$nowSql,$nowSql]);
+
+$windows=$pdo->query("SELECT ew.*,o.seller_id,o.order_no FROM evidence_windows ew JOIN orders o ON o.id=ew.order_id WHERE ew.status IN('planned','open') AND o.status='running'")->fetchAll();
 foreach($windows as $w){
-    $windowId=(int)$w['id'];
-    $orderId=(int)$w['order_id'];
-    $sellerId=(int)$w['seller_id'];
-    $required=(int)$w['required_count'];
-
-    $count=$pdo->prepare("SELECT COUNT(*) FROM evidences
-      WHERE order_id=? AND order_run_id <=> ? AND evidence_type='daily'
-      AND day_no=? AND window_key=? AND status IN('submitted','accepted')");
-    $count->execute([$orderId,$w['order_run_id'],$w['day_no'],$w['window_key']]);
-    $submitted=(int)$count->fetchColumn();
-
-    if($submitted >= $required){
-        if($w['status']!=='submitted') $pdo->prepare("UPDATE evidence_windows SET status='submitted' WHERE id=?")->execute([$windowId]);
+    $cnt=$pdo->prepare("SELECT COUNT(*) FROM evidences WHERE order_id=? AND evidence_type='daily' AND day_no=? AND window_key=? AND status<>'rejected'");
+    $cnt->execute([$w['order_id'],$w['day_no'],$w['window_key']]);$submitted=(int)$cnt->fetchColumn();
+    if($submitted>=(int)$w['required_count']){
+        $pdo->prepare("UPDATE evidence_windows SET status='submitted' WHERE id=?")->execute([$w['id']]);
         continue;
     }
 
-    $start=new DateTimeImmutable($w['starts_at'],$tz);
-    $end=new DateTimeImmutable($w['ends_at'],$tz);
-    $grace=new DateTimeImmutable($w['grace_ends_at']?:$w['ends_at'],$tz);
+    $startTs=strtotime($w['starts_at']);$endTs=strtotime($w['ends_at']);$nowTs=$now->getTimestamp();
+    $diffStart=$startTs-$nowTs;$diffEnd=$endTs-$nowTs;
 
-    if($nowObj >= $start && $nowObj <= $grace && $w['status']==='planned'){
-        $pdo->prepare("UPDATE evidence_windows SET status='open' WHERE id=?")->execute([$windowId]);
-        notify_seller($sellerId,'evidence.window.open','Nachweisfenster geöffnet',
-            'Für Auftrag '.$w['order_no'].' ist das Nachweisfenster '.window_label($w['window_key']).' geöffnet.',
-            '/auftrag/'.$w['order_no'],'window-open-'.$windowId,true);
-    }
+    if($diffStart<=3600 && $diffStart>3300) notify_seller((int)$w['seller_id'],'evidence.reminder','Nachweis in 60 Minuten','Für Auftrag '.$w['order_no'].' beginnt das Zeitfenster „'.$w['window_key'].'“ in etwa 60 Minuten.','/auftrag/'.$w['order_no'],'window-'.$w['id'].'-60m');
+    if($diffStart<=900 && $diffStart>600) notify_seller((int)$w['seller_id'],'evidence.reminder','Nachweis in 15 Minuten','Für Auftrag '.$w['order_no'].' beginnt das Zeitfenster „'.$w['window_key'].'“ in etwa 15 Minuten.','/auftrag/'.$w['order_no'],'window-'.$w['id'].'-15m');
+    if($nowTs>=$startTs && $nowTs<$startTs+300) notify_seller((int)$w['seller_id'],'evidence.open','Nachweisfenster geöffnet','Das Zeitfenster „'.$w['window_key'].'“ für Auftrag '.$w['order_no'].' ist jetzt geöffnet.','/auftrag/'.$w['order_no'],'window-'.$w['id'].'-open');
 
-    foreach([60=>'60 Minuten',15=>'15 Minuten'] as $minutes=>$label){
-        $threshold=$end->modify('-'.$minutes.' minutes');
-        if($nowObj >= $threshold && $nowObj <= $end){
-            notify_seller($sellerId,'evidence.window.reminder','Nachweis bald fällig',
-                'Für Auftrag '.$w['order_no'].' fehlen noch '.max(0,$required-$submitted).' Nachweis(e) im Fenster '.window_label($w['window_key']).'. Ende: '.$end->format('H:i').' Uhr.',
-                '/auftrag/'.$w['order_no'],'window-reminder-'.$minutes.'-'.$windowId,true);
+    if(strtotime($w['grace_ends_at']??$w['ends_at'])<$nowTs){
+        $missing=max(0,(int)$w['required_count']-$submitted);
+        $pdo->prepare("UPDATE evidence_windows SET status='missed' WHERE id=?")->execute([$w['id']]);
+        for($i=1;$i<=$missing;$i++){
+            cron_provisional_violation((int)$w['order_id'],(int)$w['seller_id'],'window-'.$w['id'].'-missing-'.$i,'missing_evidence','Pflichtnachweis fehlt: Tag '.$w['day_no'].' / '.$w['window_key'].' ('.$i.'/'.$missing.').');
         }
     }
-
-    if($nowObj > $end && $nowObj <= $grace){
-        notify_seller($sellerId,'evidence.window.grace','Nachfrist läuft',
-            'Das reguläre Fenster '.window_label($w['window_key']).' ist beendet. Die Nachfrist läuft bis '.$grace->format('H:i').' Uhr.',
-            '/auftrag/'.$w['order_no'],'window-grace-'.$windowId,true);
-    }
-
-    if($nowObj > $grace && $submitted < $required){
-        $missing=$required-$submitted;
-        $pdo->prepare("UPDATE evidence_windows SET status='missed' WHERE id=?")->execute([$windowId]);
-
-        for($n=1;$n<=$missing;$n++){
-            $sourceKey='window:'.$windowId.':missing:'.$n;
-            $ins=$pdo->prepare("INSERT IGNORE INTO violations(order_id,violation_type,status,reason,source_key,extension_days)
-              VALUES(?,'missing_evidence','open',?,?,1)");
-            $reason='Fehlender Nachweis – Tag '.$w['day_no'].' / '.window_label($w['window_key']);
-            $ins->execute([$orderId,$reason,$sourceKey]);
-            if($ins->rowCount()>0){
-                $violationId=(int)$pdo->lastInsertId();
-                $pdo->prepare("INSERT INTO extra_days(order_id,source_type,source_id,paid,amount,reason)
-                  VALUES(?,'violation',?,0,0,?)")->execute([$orderId,$violationId,$reason]);
-                $extraDayId=(int)$pdo->lastInsertId();
-                schedule_extra_day($extraDayId);
-                log_event('violation.provisional',$sellerId,$orderId,['violation_id'=>$violationId,'window_id'=>$windowId,'source_key'=>$sourceKey]);
-            }
-        }
-
-        notify_seller($sellerId,'evidence.window.missed','Nachweisfrist verpasst',
-            'Für Auftrag '.$w['order_no'].' fehlen im Fenster '.window_label($w['window_key']).' '.$missing.' Pflichtnachweis(e). Die möglichen Verstöße warten auf Adminprüfung.',
-            '/auftrag/'.$w['order_no'],'window-missed-'.$windowId,true);
-        $pdo->prepare("INSERT INTO chat_messages(order_id,sender_type,message)
-          SELECT ?,'system',? WHERE NOT EXISTS(
-            SELECT 1 FROM system_events WHERE order_id=? AND event_type=? AND payload_json LIKE ?
-          )")->execute([$orderId,
-            'Nachweisfenster '.window_label($w['window_key']).' an Tag '.$w['day_no'].' verpasst: '.$missing.' mögliche(r) Verstoß/Verstöße.',
-            $orderId,'window.missed','%"window_id":'.$windowId.'%']);
-        log_event('window.missed',$sellerId,$orderId,['window_id'=>$windowId,'missing'=>$missing]);
-    }
 }
 
-// Tage aus den zugehörigen Fenstern ableiten.
-$days=$pdo->query("SELECT d.id,d.order_id,d.order_run_id,d.day_no,
- SUM(w.status IN('planned','open')) open_count,
- COUNT(w.id) window_count
- FROM order_days d
- LEFT JOIN evidence_windows w ON w.order_id=d.order_id AND w.order_run_id<=>d.order_run_id AND w.day_no=d.day_no
- JOIN orders o ON o.id=d.order_id
- WHERE o.status='running'
- GROUP BY d.id")->fetchAll();
-foreach($days as $d){
-    if((int)$d['window_count']===0) continue;
-    if((int)$d['open_count']===0){
-        $pdo->prepare("UPDATE order_days SET status='completed' WHERE id=?")->execute([$d['id']]);
-    } else {
-        $pdo->prepare("UPDATE order_days SET status=CASE WHEN calendar_date=CURDATE() THEN 'active' ELSE status END WHERE id=?")->execute([$d['id']]);
-    }
-}
-
-// Ist der aktuelle Durchlauf vollständig beendet, physische Aufträge in Versand überführen.
-$running=$pdo->query("SELECT o.id,o.order_no,o.seller_id,f.fulfillment_type,
- r.id run_id
- FROM orders o JOIN offers f ON f.id=o.offer_id
- JOIN order_runs r ON r.id=(SELECT rr.id FROM order_runs rr WHERE rr.order_id=o.id ORDER BY rr.run_no DESC LIMIT 1)
- WHERE o.status='running'")->fetchAll();
-foreach($running as $o){
-    $p=$pdo->prepare("SELECT COUNT(*) FROM order_days WHERE order_id=? AND order_run_id=? AND status<>'completed'");
-    $p->execute([$o['id'],$o['run_id']]);$open=(int)$p->fetchColumn();
-    $all=$pdo->prepare("SELECT COUNT(*) FROM order_days WHERE order_id=? AND order_run_id=?");
-    $all->execute([$o['id'],$o['run_id']]);$allCount=(int)$all->fetchColumn();
-    if($allCount>0 && $open===0 && $o['fulfillment_type']!=='digital'){
-        $pdo->prepare("UPDATE orders SET status='shipping',updated_at=? WHERE id=? AND status='running'")->execute([$now,$o['id']]);
-        notify_seller((int)$o['seller_id'],'order.shipping','Durchführung abgeschlossen',
-            'Die Durchführung von Auftrag '.$o['order_no'].' ist abgeschlossen. Bitte führe jetzt den Versandworkflow aus.',
-            '/auftrag/'.$o['order_no'].'/versand','order-shipping-'.$o['id'],true);
-        $pdo->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system','Alle Durchführungstage abgeschlossen. Versandphase gestartet.')")->execute([$o['id']]);
-    }
-}
-
-// Spontane Fotoanforderungen: Frist + 1h Grace; jedes fehlende Foto = möglicher Verstoß.
-$sp=$pdo->query("SELECT r.*,o.order_no,o.seller_id FROM spontaneous_requests r JOIN orders o ON o.id=r.order_id
- WHERE o.status='running' AND r.status NOT IN('reviewed','missed')")->fetchAll();
-foreach($sp as $r){
-    $cnt=$pdo->prepare("SELECT COUNT(*) FROM evidences WHERE order_id=? AND evidence_type='spontaneous'
-      AND reference_type='spontaneous_request' AND reference_id=? AND status IN('submitted','accepted')");
-    $cnt->execute([$r['order_id'],$r['id']]);$submitted=(int)$cnt->fetchColumn();
-    if($submitted >= (int)$r['required_count']){
+/* Spontane Nachweise: Halbzeit-/Enderinnerung und fehlende Bilder einzeln als mögliche Verstöße. */
+$spontaneous=$pdo->query("SELECT sr.*,o.seller_id,o.order_no FROM spontaneous_requests sr JOIN orders o ON o.id=sr.order_id WHERE sr.status NOT IN('reviewed','missed') AND o.status IN('running','shipping','review')")->fetchAll();
+foreach($spontaneous as $r){
+    $cnt=$pdo->prepare("SELECT COUNT(*) FROM evidences WHERE source_type='spontaneous' AND source_id=? AND status<>'rejected'");$cnt->execute([$r['id']]);$submitted=(int)$cnt->fetchColumn();
+    if($submitted>=(int)$r['required_count']){
         $pdo->prepare("UPDATE spontaneous_requests SET status='uploaded' WHERE id=?")->execute([$r['id']]);
         continue;
     }
-    $due=new DateTimeImmutable($r['due_at'],$tz);
-    $grace=new DateTimeImmutable($r['grace_ends_at']?:$r['due_at'],$tz);
-    if($nowObj>$due && $nowObj<=$grace){
-        notify_seller((int)$r['seller_id'],'spontaneous.grace','Nachfrist für spontanen Nachweis',
-          'Für Auftrag '.$r['order_no'].' läuft die Nachfrist einer spontanen Fotoanforderung bis '.$grace->format('H:i').' Uhr.',
-          '/auftrag/'.$r['order_no'],'spontaneous-grace-'.$r['id'],true);
-    }
-    if($nowObj>$grace){
-        $missing=(int)$r['required_count']-$submitted;
+    $created=strtotime($r['created_at']);$due=strtotime($r['due_at']);$nowTs=$now->getTimestamp();$mid=$created+(int)(($due-$created)/2);
+    if($nowTs>=$mid && $nowTs<$due) notify_seller((int)$r['seller_id'],'spontaneous.reminder','Spontaner Nachweis noch offen','Der spontane Nachweis für Auftrag '.$r['order_no'].' ist noch offen.','/auftrag/'.$r['order_no'].'/spontan/'.$r['id'],'spontaneous-'.$r['id'].'-half');
+    if($due-$nowTs<=900 && $due-$nowTs>0) notify_seller((int)$r['seller_id'],'spontaneous.reminder','Spontaner Nachweis bald fällig','Der spontane Nachweis für Auftrag '.$r['order_no'].' ist in weniger als 15 Minuten fällig.','/auftrag/'.$r['order_no'].'/spontan/'.$r['id'],'spontaneous-'.$r['id'].'-soon');
+    if(strtotime($r['grace_ends_at'])<$nowTs){
+        $missing=max(0,(int)$r['required_count']-$submitted);
         $pdo->prepare("UPDATE spontaneous_requests SET status='missed' WHERE id=?")->execute([$r['id']]);
-        for($n=1;$n<=$missing;$n++){
-            $sourceKey='spontaneous:'.$r['id'].':missing:'.$n;
-            $ins=$pdo->prepare("INSERT IGNORE INTO violations(order_id,violation_type,status,reason,source_key,extension_days)
-              VALUES(?,'spontaneous_missing','open',?,?,1)");
-            $reason='Spontaner Nachweis nicht erfüllt';
-            $ins->execute([$r['order_id'],$reason,$sourceKey]);
-            if($ins->rowCount()>0){
-                $vid=(int)$pdo->lastInsertId();
-                $pdo->prepare("INSERT INTO extra_days(order_id,source_type,source_id,paid,amount,reason) VALUES(?,'violation',?,0,0,?)")->execute([$r['order_id'],$vid,$reason]);
-                schedule_extra_day((int)$pdo->lastInsertId());
-            }
-        }
-        notify_seller((int)$r['seller_id'],'spontaneous.missed','Spontane Fotoanforderung verpasst',
-          'Es fehlen '.$missing.' Foto(s). Die möglichen Verstöße warten auf Adminprüfung.',
-          '/auftrag/'.$r['order_no'],'spontaneous-missed-'.$r['id'],true);
+        for($i=1;$i<=$missing;$i++) cron_provisional_violation((int)$r['order_id'],(int)$r['seller_id'],'spontaneous-'.$r['id'].'-missing-'.$i,'spontaneous_missing','Spontaner Nachweis fehlt ('.$i.'/'.$missing.').');
     }
 }
 
-echo '['.$nowObj->format(DATE_ATOM)."] cron ok; windows=".count($windows)."\n";
+/* Zusatzaufgaben: die gesamte Aufgabe zählt bei Nichterfüllung höchstens als ein möglicher Verstoß. */
+$tasks=$pdo->query("SELECT t.*,o.seller_id,o.order_no FROM order_tasks t JOIN orders o ON o.id=t.order_id WHERE t.status='open' AND t.due_at IS NOT NULL AND t.violation_enabled=1")->fetchAll();
+foreach($tasks as $t){
+    $deadline=(new DateTimeImmutable($t['due_at']))->modify('+'.$grace.' minutes');
+    if($deadline<$now){
+        cron_provisional_violation((int)$t['order_id'],(int)$t['seller_id'],'task-'.$t['id'].'-missed','task_missing','Zusatzaufgabe „'.$t['title'].'“ wurde nicht fristgerecht eingereicht.');
+    }
+}
+
+/* Individuelle Angebote: 24h / 1h Erinnerung und automatisches Ablaufen. */
+$assignments=$pdo->query("SELECT a.*,o.title,s.email FROM offer_assignments a JOIN offers o ON o.id=a.offer_id JOIN sellers s ON s.id=a.seller_id WHERE a.status='assigned'")->fetchAll();
+foreach($assignments as $a){
+    $deadline=strtotime($a['acceptance_deadline']);$diff=$deadline-$now->getTimestamp();
+    if($diff<=0){
+        $pdo->prepare("UPDATE offer_assignments SET status='expired',updated_at=NOW() WHERE id=? AND status='assigned'")->execute([$a['id']]);
+        notify_seller((int)$a['seller_id'],'private_offer.expired','Individuelles Angebot abgelaufen','Das individuelle Angebot „'.$a['title'].'“ wurde nicht innerhalb der Annahmefrist angenommen.','/individuelle-angebote','private-offer-'.$a['id'].'-expired',true);
+        continue;
+    }
+    if($diff<=3600 && !$a['reminded_1h_at']){
+        notify_seller((int)$a['seller_id'],'private_offer.reminder','Individuelles Angebot läuft bald ab','Das Angebot „'.$a['title'].'“ läuft in weniger als einer Stunde ab.','/individuelle-angebote','private-offer-'.$a['id'].'-1h',true);
+        $pdo->prepare("UPDATE offer_assignments SET reminded_1h_at=NOW() WHERE id=?")->execute([$a['id']]);
+    }elseif($diff<=86400 && $diff>3600 && !$a['reminded_24h_at']){
+        notify_seller((int)$a['seller_id'],'private_offer.reminder','Individuelles Angebot läuft morgen ab','Das Angebot „'.$a['title'].'“ läuft innerhalb der nächsten 24 Stunden ab.','/individuelle-angebote','private-offer-'.$a['id'].'-24h',true);
+        $pdo->prepare("UPDATE offer_assignments SET reminded_24h_at=NOW() WHERE id=?")->execute([$a['id']]);
+    }
+}
+
+echo '['.date('c')."] cron ok\n";
