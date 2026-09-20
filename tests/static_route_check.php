@@ -4,6 +4,7 @@ declare(strict_types=1);
 $files=[
     'index.php',
     'app/FeatureRoutes.php',
+    'app/SellerAdminRoutes.php',
     'app/OperationsRoutes.php',
     'app/OrderChangeRoutes.php',
     'app/PublicPages.php',
@@ -39,6 +40,7 @@ $required=[
     'GET /dashboard',
     'GET /wallet',
     'GET /admin/angebote',
+    'GET /admin/verkaeuferinnen',
     'GET /admin/auftraege',
     'GET /admin/ausfaelle',
     'GET /admin/versandadressen',
