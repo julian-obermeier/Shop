@@ -396,10 +396,17 @@ if (preg_match('#^/admin/startdatum/(\d+)/(genehmigen|ablehnen)$#',$path,$m) && 
 
 
 if (preg_match('#^/admin/auftrag/(\d{8})/optionen$#',$path,$m) && $method==='POST') {
-    require_admin();
+    $a=require_admin();
     $q=db()->prepare("SELECT * FROM orders WHERE order_no=?");$q->execute([$m[1]]);$o=$q->fetch();if(!$o)not_found();
     if(!in_array($o['status'],['precheck','running','shipping','review','payout'],true) || $o['archived_at']){
         flash('error','Optionen können bei diesem Auftrag nicht mehr geändert werden.');redirect('/admin/auftrag/'.$o['order_no']);
+    }
+
+    $reason=post('change_reason');
+    $effectiveDay=post('effective_day_no')!==''?max(1,(int)post('effective_day_no')):null;
+    if($reason===''){flash('error','Bitte einen Änderungsgrund angeben.');redirect('/admin/auftrag/'.$o['order_no']);}
+    if($o['status']!=='precheck' && $effectiveDay===null){
+        flash('error','Bei einem bereits gestarteten Auftrag muss ein Wirksamkeitstag angegeben werden.');redirect('/admin/auftrag/'.$o['order_no']);
     }
 
     $requested=array_values(array_unique(array_map('intval',(array)($_POST['option_ids']??[]))));
@@ -412,9 +419,14 @@ if (preg_match('#^/admin/auftrag/(\d{8})/optionen$#',$path,$m) && $method==='POS
         if(count($selected)!==count($requested)){flash('error','Mindestens eine Option gehört nicht zu diesem Angebot.');redirect('/admin/auftrag/'.$o['order_no']);}
     }
 
-    $oldQ=db()->prepare("SELECT COALESCE(SUM(price_snapshot),0) FROM order_options WHERE order_id=?");$oldQ->execute([$o['id']]);$oldTotal=(float)$oldQ->fetchColumn();
+    $oldRowsQ=db()->prepare("SELECT offer_option_id,label_snapshot,price_snapshot FROM order_options WHERE order_id=? ORDER BY id");
+    $oldRowsQ->execute([$o['id']]);$oldRows=$oldRowsQ->fetchAll();
+    $oldTotal=array_sum(array_map(fn($x)=>(float)$x['price_snapshot'],$oldRows));
     $newTotal=0.0;foreach($selected as $opt)$newTotal+=(float)$opt['price'];
     $delta=round($newTotal-$oldTotal,2);
+
+    $oldDisplay=$oldRows ? implode(', ',array_map(fn($x)=>$x['label_snapshot'].' ('.money($x['price_snapshot']).')',$oldRows)) : 'Keine';
+    $newDisplay=$selected ? implode(', ',array_map(fn($x)=>$x['label'].' ('.money($x['price']).')',$selected)) : 'Keine';
 
     db()->beginTransaction();
     try{
@@ -428,14 +440,20 @@ if (preg_match('#^/admin/auftrag/(\d{8})/optionen$#',$path,$m) && $method==='POS
             db()->prepare("INSERT INTO wallet_entries(seller_id,order_id,entry_type,amount,description) VALUES(?,?,'reserved',?,'Optionsänderung durch Admin')")
               ->execute([$o['seller_id'],$o['id'],$delta]);
         }
+        db()->prepare("INSERT INTO order_changes(order_id,admin_id,field_name,old_value,new_value,reason,effective_day_no) VALUES(?,?,?,?,?,?,?)")
+          ->execute([$o['id'],$a['id'],'Zusatzoptionen',$oldDisplay,$newDisplay,$reason,$effectiveDay]);
+        if(abs($delta)>0.0001){
+            db()->prepare("INSERT INTO order_changes(order_id,admin_id,field_name,old_value,new_value,reason,effective_day_no) VALUES(?,?,?,?,?,?,?)")
+              ->execute([$o['id'],$a['id'],'Auftragswert',money($o['total_compensation']),money((float)$o['total_compensation']+$delta),$reason,$effectiveDay]);
+        }
         db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")
-          ->execute([$o['id'],'Zusatzoptionen wurden durch den Admin geändert. Änderung des Auftragswerts: '.money($delta).'.']);
-        log_event('order.options_changed_by_admin',(int)$o['seller_id'],(int)$o['id'],['option_ids'=>$requested,'old_options_total'=>$oldTotal,'new_options_total'=>$newTotal,'delta'=>$delta]);
+          ->execute([$o['id'],'Zusatzoptionen wurden durch den Admin geändert.'.($effectiveDay?' Wirksam ab Durchführungstag '.$effectiveDay.'.':'').' Grund: '.$reason.' Änderung des Auftragswerts: '.money($delta).'.']);
+        log_event('order.options_changed_by_admin',(int)$o['seller_id'],(int)$o['id'],['option_ids'=>$requested,'old_options_total'=>$oldTotal,'new_options_total'=>$newTotal,'delta'=>$delta,'effective_day_no'=>$effectiveDay,'reason'=>$reason,'admin_id'=>(int)$a['id']]);
         db()->commit();
     }catch(Throwable $e){db()->rollBack();throw $e;}
 
-    notify_seller((int)$o['seller_id'],'order.options_changed','Zusatzoptionen geändert','Die Zusatzoptionen für Auftrag '.$o['order_no'].' wurden angepasst. Neuer Auftragswert: '.money((float)$o['total_compensation']+$delta).'.','/auftrag/'.$o['order_no'],null,true);
-    flash('success','Zusatzoptionen aktualisiert. Neuer Auftragswert: '.money((float)$o['total_compensation']+$delta).'.');
+    notify_seller((int)$o['seller_id'],'order.options_changed','Zusatzoptionen geändert','Die Zusatzoptionen für Auftrag '.$o['order_no'].' wurden angepasst.'.($effectiveDay?' Wirksam ab Durchführungstag '.$effectiveDay.'.':'').' Neuer Auftragswert: '.money((float)$o['total_compensation']+$delta).'.','/auftrag/'.$o['order_no'],null,true);
+    flash('success','Zusatzoptionen aktualisiert und Änderung dokumentiert. Neuer Auftragswert: '.money((float)$o['total_compensation']+$delta).'.');
     redirect('/admin/auftrag/'.$o['order_no']);
 }
 
