@@ -151,7 +151,9 @@ if (preg_match('#^/admin/verkaeuferin/(\d+)/loeschen$#',$path,$m) && $method==='
       db()->prepare("DELETE FROM email_verifications WHERE seller_id=?")->execute([$s['id']]);
       db()->prepare("DELETE FROM password_resets WHERE seller_id=?")->execute([$s['id']]);
       db()->prepare("UPDATE payout_profiles SET iban=NULL,bic=NULL,account_holder=NULL,paypal=NULL WHERE seller_id=?")->execute([$s['id']]);
-      log_event('seller.anonymized',(int)$s['id'],null,['former_email'=>$s['email']]);
+      db()->prepare("UPDATE system_events SET payload_json=? WHERE seller_id=? AND event_type='seller.updated'")
+        ->execute([json_encode(['redacted'=>true],JSON_UNESCAPED_UNICODE),$s['id']]);
+      log_event('seller.anonymized',(int)$s['id'],null,['seller_id'=>(int)$s['id']]);
       db()->commit();
     }catch(Throwable $e){db()->rollBack();throw $e;}
 
