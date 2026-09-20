@@ -461,17 +461,22 @@ CREATE TABLE IF NOT EXISTS spontaneous_requests (
 CREATE TABLE IF NOT EXISTS order_tasks (
  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
  order_id BIGINT UNSIGNED NOT NULL,
+ source_spec_id BIGINT UNSIGNED NULL,
  title VARCHAR(190) NOT NULL,
  description TEXT NULL,
  due_at DATETIME NULL,
+ planned_day_no INT NULL,
  fields_json JSON NULL,
+ required_photos INT NOT NULL DEFAULT 0,
  submission_json JSON NULL,
  compensation DECIMAL(10,2) NOT NULL DEFAULT 0,
  violation_enabled TINYINT(1) NOT NULL DEFAULT 1,
  status ENUM('open','submitted','accepted','rejected') NOT NULL DEFAULT 'open',
  submitted_at DATETIME NULL,
  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
- FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE
+ FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE,
+ FOREIGN KEY(source_spec_id) REFERENCES order_task_specs(id) ON DELETE SET NULL,
+ UNIQUE(order_id,source_spec_id,planned_day_no)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS task_library (
@@ -479,11 +484,58 @@ CREATE TABLE IF NOT EXISTS task_library (
  title VARCHAR(190) NOT NULL,
  description TEXT NULL,
  fields_json JSON NULL,
+ default_required_photos INT NOT NULL DEFAULT 0,
  default_compensation DECIMAL(10,2) NOT NULL DEFAULT 0,
  violation_enabled TINYINT(1) NOT NULL DEFAULT 1,
  active TINYINT(1) NOT NULL DEFAULT 1,
  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
  updated_at DATETIME NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS offer_task_plans (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ offer_id BIGINT UNSIGNED NOT NULL,
+ task_library_id BIGINT UNSIGNED NULL,
+ sort_order INT NOT NULL DEFAULT 0,
+ title VARCHAR(190) NOT NULL,
+ description TEXT NULL,
+ fields_json JSON NULL,
+ required_photos INT NOT NULL DEFAULT 0,
+ compensation DECIMAL(10,2) NOT NULL DEFAULT 0,
+ violation_enabled TINYINT(1) NOT NULL DEFAULT 1,
+ schedule_type ENUM('day','interval') NOT NULL DEFAULT 'day',
+ day_no INT NULL,
+ start_day INT NOT NULL DEFAULT 1,
+ interval_days INT NULL,
+ due_time TIME NULL,
+ active TINYINT(1) NOT NULL DEFAULT 1,
+ created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ updated_at DATETIME NULL,
+ FOREIGN KEY(offer_id) REFERENCES offers(id) ON DELETE CASCADE,
+ FOREIGN KEY(task_library_id) REFERENCES task_library(id) ON DELETE SET NULL,
+ INDEX(offer_id,active,sort_order)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS order_task_specs (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ order_id BIGINT UNSIGNED NOT NULL,
+ source_plan_id BIGINT UNSIGNED NULL,
+ sort_order INT NOT NULL DEFAULT 0,
+ title VARCHAR(190) NOT NULL,
+ description TEXT NULL,
+ fields_json JSON NULL,
+ required_photos INT NOT NULL DEFAULT 0,
+ compensation DECIMAL(10,2) NOT NULL DEFAULT 0,
+ violation_enabled TINYINT(1) NOT NULL DEFAULT 1,
+ schedule_type ENUM('day','interval') NOT NULL DEFAULT 'day',
+ day_no INT NULL,
+ start_day INT NOT NULL DEFAULT 1,
+ interval_days INT NULL,
+ due_time TIME NULL,
+ created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE,
+ FOREIGN KEY(source_plan_id) REFERENCES offer_task_plans(id) ON DELETE SET NULL,
+ INDEX(order_id,sort_order)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS offer_assignments (
