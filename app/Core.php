@@ -585,6 +585,10 @@ function reject_if_archived_route(string $path, string $method): void {
         $q=db()->prepare('SELECT o.order_no,o.archived_at FROM damage_cases d JOIN orders o ON o.id=d.order_id WHERE d.id=?');$q->execute([(int)$m[1]]);$o=$q->fetch();
         if($o && $o['archived_at']){flash('error','Der archivierte Auftrag ist schreibgeschützt.');redirect('/admin/auftrag/'.$o['order_no']);}
         return;
+    }elseif(preg_match('#^/admin/revisionspunkt/(\d+)/#',$path,$m)){
+        $q=db()->prepare('SELECT o.order_no,o.archived_at FROM revision_items i JOIN revision_rounds r ON r.id=i.revision_round_id JOIN orders o ON o.id=r.order_id WHERE i.id=?');$q->execute([(int)$m[1]]);$o=$q->fetch();
+        if($o && $o['archived_at']){flash('error','Der archivierte Auftrag ist schreibgeschützt.');redirect('/admin/auftrag/'.$o['order_no']);}
+        return;
     }
 
     if($orderNo!==null){
