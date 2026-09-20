@@ -468,6 +468,69 @@ if (preg_match('#^/auftrag/(\d{8})/versand-schritt/(\d+)$#',$path,$m)&&$method==
     flash('success','Versandschritt abgeschlossen.');redirect('/auftrag/'.$o['order_no'].'/versand');
 }
 
+if (preg_match('#^/admin/auftrag/(\d{8})/versanderstattung$#',$path,$m)&&$method==='POST') {
+    require_admin();
+    $q=db()->prepare("SELECT o.*,sh.id shipment_id,sh.claimed_shipping_cost,sh.approved_reimbursement,sh.proof_evidence_id
+                      FROM orders o JOIN shipments sh ON sh.order_id=o.id
+                      WHERE o.order_no=?");
+    $q->execute([$m[1]]);$o=$q->fetch();if(!$o)not_found();
+    if(in_array($o['status'],['completed','rejected'],true) || !empty($o['archived_at'])){
+        flash('error','Bei einem abgeschlossenen oder archivierten Auftrag kann die Versandkostenerstattung nicht mehr geändert werden.');
+        redirect('/admin/auftrag/'.$o['order_no']);
+    }
+
+    $shippingSnapshot=order_shipping_snapshot($o);
+    if(($shippingSnapshot['cost_mode']??'seller')!=='reimburse' || $o['claimed_shipping_cost']===null){
+        flash('error','Für diesen Auftrag liegt keine erstattungsfähige Versandkostenanforderung vor.');
+        redirect('/admin/auftrag/'.$o['order_no']);
+    }
+    if($o['approved_reimbursement']!==null){
+        flash('error','Über die Versandkostenerstattung wurde bereits entschieden.');
+        redirect('/admin/auftrag/'.$o['order_no']);
+    }
+
+    $decision=post('decision');
+    $approved=$decision==='approve' ? max(0,(float)$o['claimed_shipping_cost']) : 0.0;
+    if(!in_array($decision,['approve','reject'],true)){
+        flash('error','Ungültige Entscheidung.');
+        redirect('/admin/auftrag/'.$o['order_no']);
+    }
+    if($decision==='approve' && !$o['proof_evidence_id']){
+        flash('error','Ohne Versand-/Kostenbeleg kann keine Erstattung bestätigt werden.');
+        redirect('/admin/auftrag/'.$o['order_no']);
+    }
+
+    db()->beginTransaction();
+    try{
+        db()->prepare("UPDATE shipments SET approved_reimbursement=? WHERE id=?")->execute([$approved,$o['shipment_id']]);
+        if($approved>0){
+            db()->prepare("UPDATE orders SET total_compensation=total_compensation+?,updated_at=NOW() WHERE id=?")->execute([$approved,$o['id']]);
+            db()->prepare("INSERT INTO wallet_entries(seller_id,order_id,entry_type,amount,description) VALUES(?,?,'reserved',?,'Versandkostenerstattung vorgemerkt')")
+              ->execute([$o['seller_id'],$o['id'],$approved]);
+        }
+        $message=$approved>0
+          ? 'Versandkostenerstattung in Höhe von '.money($approved).' bestätigt und bis zum Abschluss vorgemerkt.'
+          : 'Versandkostenerstattung wurde abgelehnt.';
+        db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")->execute([$o['id'],$message]);
+        log_event('shipping.reimbursement_decided',(int)$o['seller_id'],(int)$o['id'],['decision'=>$decision,'claimed'=>(float)$o['claimed_shipping_cost'],'approved'=>$approved]);
+        db()->commit();
+    }catch(Throwable $e){db()->rollBack();throw $e;}
+
+    notify_seller(
+        (int)$o['seller_id'],
+        'shipping.reimbursement_decided',
+        $approved>0?'Versandkosten bestätigt':'Versandkostenerstattung abgelehnt',
+        $approved>0
+          ? 'Für Auftrag '.$o['order_no'].' wurden '.money($approved).' Versandkosten vorgemerkt. Die Freigabe erfolgt mit dem normalen Auftragsabschluss.'
+          : 'Für Auftrag '.$o['order_no'].' wurde die beantragte Versandkostenerstattung abgelehnt.',
+        '/auftrag/'.$o['order_no'].'/versand',
+        null,
+        true
+    );
+    flash('success',$approved>0?'Versandkostenerstattung bestätigt und vorgemerkt.':'Versandkostenerstattung abgelehnt.');
+    redirect('/admin/auftrag/'.$o['order_no']);
+}
+
 if (preg_match('#^/admin/auftrag/(\\d{8})/wareneingang$#',$path,$m)&&$method==='POST') {
     require_admin();$st=db()->prepare("SELECT * FROM orders WHERE order_no=?");$st->execute([$m[1]]);$o=$st->fetch();if(!$o)not_found();
     db()->prepare("UPDATE shipments SET status='received',received_at=NOW() WHERE order_id=?")->execute([$o['id']]);db()->prepare("UPDATE orders SET status='review',updated_at=NOW() WHERE id=?")->execute([$o['id']]);db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system','Sendung ist eingegangen und befindet sich in der Abschlussprüfung.')")->execute([$o['id']]);flash('success','Wareneingang bestätigt.');redirect('/admin/auftrag/'.$o['order_no']);
