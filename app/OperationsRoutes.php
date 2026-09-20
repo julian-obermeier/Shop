@@ -795,6 +795,10 @@ if (preg_match('#^/admin/angebot/(\d+)/bestandteil$#',$path,$m) && $method==='PO
 
     $title=post('title');
     $categoryId=(int)post('category_id');
+    if($title==='' || $categoryId<1){flash('error','Titel und Kategorie sind erforderlich.');redirect('/admin/angebot/'.$offer['id']);}
+    if($categoryId===(int)$offer['category_id']){flash('error','Die Hauptkategorie ist bereits Bestandteil des Angebots.');redirect('/admin/angebot/'.$offer['id']);}
+    $dup=db()->prepare("SELECT COUNT(*) FROM offer_components WHERE offer_id=? AND category_id=? AND active=1");$dup->execute([$offer['id'],$categoryId]);
+    if((int)$dup->fetchColumn()>0){flash('error','Diese Kategorie ist bereits als aktiver Kombi-Bestandteil enthalten.');redirect('/admin/angebot/'.$offer['id']);}
     $type=in_array(post('component_type'),['physical','digital'],true)?post('component_type'):'physical';
     $comp=max(0,(float)post('compensation','0'));
     $duration=post('duration_days')!==''?max(1,(int)post('duration_days')):null;
@@ -830,6 +834,13 @@ if (preg_match('#^/admin/angebotsbestandteil/(\d+)/umschalten$#',$path,$m) && $m
     require_admin();
     $q=db()->prepare("SELECT oc.*,o.current_version,o.id offer_id,o.title offer_title,o.category_id primary_category,o.compensation offer_compensation,o.duration_days offer_duration,o.fulfillment_type FROM offer_components oc JOIN offers o ON o.id=oc.offer_id WHERE oc.id=?");
     $q->execute([(int)$m[1]]);$component=$q->fetch();if(!$component)not_found();
+
+    if(!(int)$component['active']){
+        if((int)$component['category_id']===(int)$component['primary_category']){flash('error','Dieser Bestandteil kann nicht aktiviert werden, weil seine Kategorie der Hauptkategorie entspricht.');redirect('/admin/angebot/'.$component['offer_id']);}
+        $dup=db()->prepare("SELECT COUNT(*) FROM offer_components WHERE offer_id=? AND category_id=? AND active=1 AND id<>?");
+        $dup->execute([$component['offer_id'],$component['category_id'],$component['id']]);
+        if((int)$dup->fetchColumn()>0){flash('error','Diese Kategorie ist bereits durch einen anderen aktiven Kombi-Bestandteil belegt.');redirect('/admin/angebot/'.$component['offer_id']);}
+    }
 
     db()->beginTransaction();
     try{
