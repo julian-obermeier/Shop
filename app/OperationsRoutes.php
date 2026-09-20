@@ -578,3 +578,41 @@ if (preg_match('#^/admin/revisionspunkt/(\d+)/(erledigt|unzureichend|erneut)$#',
     flash('success','Revisionspunkt aktualisiert.');
     redirect('/admin/auftrag/'.$i['order_no']);
 }
+
+
+if (preg_match('#^/admin/verkaeuferin/(\d+)$#',$path,$m) && $method==='GET') {
+    require_admin();
+    $q=db()->prepare("SELECT * FROM sellers WHERE id=?");$q->execute([(int)$m[1]]);$s=$q->fetch();if(!$s)not_found();
+
+    $q=db()->prepare("SELECT o.*,f.title FROM orders o JOIN offers f ON f.id=o.offer_id WHERE o.seller_id=? ORDER BY o.created_at DESC");$q->execute([$s['id']]);$orders=$q->fetchAll();
+    $q=db()->prepare("SELECT entry_type,COALESCE(SUM(amount),0) total FROM wallet_entries WHERE seller_id=? GROUP BY entry_type");$q->execute([$s['id']]);$wallet=[];foreach($q->fetchAll() as $r)$wallet[$r['entry_type']]=$r['total'];
+    $q=db()->prepare("SELECT * FROM payout_requests WHERE seller_id=? ORDER BY created_at DESC LIMIT 20");$q->execute([$s['id']]);$payouts=$q->fetchAll();
+    $q=db()->prepare("SELECT * FROM system_events WHERE seller_id=? ORDER BY created_at DESC LIMIT 100");$q->execute([$s['id']]);$events=$q->fetchAll();
+
+    ob_start();?>
+    <div class="dashboard-head">
+      <div><div class="eyebrow">Verkäuferinnenakte</div><h1><?=e($s['first_name'].' '.$s['last_name'])?></h1><p class="meta"><?=e($s['email'])?> · registriert <?=e(date('d.m.Y H:i',strtotime($s['created_at'])))?></p></div>
+      <div class="actions"><a class="btn" href="<?=e(url('/admin/verkaeuferin/'.$s['id'].'/bearbeiten'))?>">Bearbeiten</a><a class="btn secondary" href="<?=e(url('/admin/verkaeuferinnen'))?>">Zurück</a></div>
+    </div>
+
+    <div class="grid two">
+      <section class="panel"><h2>Stammdaten</h2><p><strong>E-Mail:</strong> <?=e($s['email'])?><br><strong>Telefon:</strong> <?=e($s['phone'])?><br><strong>Geburtsdatum:</strong> <?=e(date('d.m.Y',strtotime($s['birth_date'])))?><br><strong>Anschrift:</strong><br><?=e($s['street'])?><br><?=e($s['postal_code'].' '.$s['city'])?></p><p><span class="badge <?=$s['email_verified_at']?'ok':'bad'?>">E-Mail <?=$s['email_verified_at']?'bestätigt':'nicht bestätigt'?></span></p></section>
+      <section class="panel"><h2>Wallet</h2><p>Vorgemerkt: <strong><?=money($wallet['reserved']??0)?></strong><br>In Prüfung: <strong><?=money($wallet['review']??0)?></strong><br>Verfügbar: <strong><?=money($wallet['available']??0)?></strong><br>Ausgezahlt: <strong><?=money($wallet['paid']??0)?></strong><br>Storniert: <strong><?=money($wallet['cancelled']??0)?></strong></p></section>
+    </div>
+
+    <h2>Aufträge</h2>
+    <div class="table-wrap"><table><thead><tr><th>Nr.</th><th>Auftrag</th><th>Status</th><th>Wert</th><th>Archiv</th><th></th></tr></thead><tbody>
+    <?php foreach($orders as $o):?><tr><td><?=e($o['order_no'])?></td><td><?=e($o['title'])?></td><td><?=e($o['status'])?></td><td><?=money($o['total_compensation'])?></td><td><?=$o['archived_at']?e(date('d.m.Y H:i',strtotime($o['archived_at']))):'–'?></td><td><a href="<?=e(url('/admin/auftrag/'.$o['order_no']))?>">Öffnen</a></td></tr><?php endforeach;?>
+    </tbody></table></div>
+
+    <h2>Auszahlungen</h2>
+    <div class="table-wrap"><table><thead><tr><th>Datum</th><th>Betrag</th><th>Gebühr</th><th>Netto</th><th>Methode</th><th>Status</th></tr></thead><tbody>
+    <?php foreach($payouts as $p):?><tr><td><?=e(date('d.m.Y H:i',strtotime($p['created_at'])))?></td><td><?=money($p['amount'])?></td><td><?=money($p['fee'])?></td><td><?=money($p['net_amount'])?></td><td><?=e($p['method'])?></td><td><?=e($p['status'])?></td></tr><?php endforeach;?>
+    </tbody></table></div>
+
+    <h2>Änderungs- und Systemverlauf</h2>
+    <div class="timeline"><?php foreach($events as $ev):?><div><strong><?=e($ev['event_type'])?></strong> · <?=e(date('d.m.Y H:i',strtotime($ev['created_at'])))?><?php if($ev['payload_json']):?><details><summary>Details</summary><pre style="white-space:pre-wrap"><?=e(json_encode(json_decode($ev['payload_json'],true),JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE))?></pre></details><?php endif;?></div><?php endforeach;?><?php if(!$events):?><div class="empty">Keine protokollierten Ereignisse.</div><?php endif;?></div>
+
+    <?php if(!$s['deleted_at']):?><section class="panel" style="margin-top:22px"><h2>Konto anonymisieren / löschen</h2><p class="meta">Das Login wird deaktiviert und personenbezogene Profildaten sowie Auszahlungsprofile werden anonymisiert bzw. entfernt. Historische Aufträge, Zahlungen und Nachweise bleiben aus Nachweis-/Abwicklungsgründen erhalten.</p><form method="post" action="<?=e(url('/admin/verkaeuferin/'.$s['id'].'/loeschen'))?>"><?=csrf_field()?><label>Zur Bestätigung <strong>LOESCHEN</strong> eingeben<input name="confirm" required></label><button class="btn danger" data-confirm="Verkäuferinnenkonto wirklich anonymisieren und deaktivieren?">Konto anonymisieren und deaktivieren</button></form></section><?php endif;?>
+    <?php render('Verkäuferinnenakte',ob_get_clean());exit;
+}
