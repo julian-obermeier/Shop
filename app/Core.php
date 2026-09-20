@@ -560,12 +560,12 @@ function normalize_digital_rules(?array $rules): array {
         ],
         'deadline'=>[
             'hours_after_acceptance'=>max(1,(int)($deadline['hours_after_acceptance']??72)),
-            'grace_minutes'=>max(0,(int)($deadline['grace_minutes']??60)),
+            'grace_minutes'=>max(0,min(60,(int)($deadline['grace_minutes']??60))),
             'violation_effect'=>in_array(($deadline['violation_effect']??'log_only'),['log_only','extension_day'],true)?$deadline['violation_effect']:'log_only',
         ],
         'revision'=>[
             'deadline_hours'=>max(1,(int)($revision['deadline_hours']??48)),
-            'grace_minutes'=>max(0,(int)($revision['grace_minutes']??60)),
+            'grace_minutes'=>max(0,min(60,(int)($revision['grace_minutes']??60))),
             'violation_effect'=>in_array(($revision['violation_effect']??'log_only'),['log_only','extension_day'],true)?$revision['violation_effect']:'log_only',
         ],
     ];
