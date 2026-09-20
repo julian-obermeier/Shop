@@ -26,6 +26,15 @@ function cron_provisional_violation(int $orderId, int $sellerId, string $sourceK
     }catch(Throwable $e){db()->rollBack();throw $e;}
 }
 
+
+function cron_log_only_deadline(int $orderId, int $sellerId, string $sourceKey, string $eventType, string $reason, string $link): void {
+    $q=db()->prepare("SELECT COUNT(*) FROM system_events WHERE order_id=? AND event_type=? AND payload_json LIKE ?");
+    $q->execute([$orderId,$eventType,'%"source_key":"'.$sourceKey.'"%']);
+    if((int)$q->fetchColumn()>0) return;
+    log_event($eventType,$sellerId,$orderId,['source_key'=>$sourceKey,'reason'=>$reason]);
+    notify_seller($sellerId,$eventType,'Digitale Frist überschritten',$reason,$link,'deadline-'.$sourceKey,true);
+}
+
 /* Zeitfenster öffnen und bereits vollständig belegte Fenster abschließen. */
 $pdo->prepare("UPDATE evidence_windows ew
                JOIN orders o ON o.id=ew.order_id
@@ -118,6 +127,49 @@ foreach($tasks as $t){
     $deadline=(new DateTimeImmutable($t['due_at']))->modify('+'.$grace.' minutes');
     if($deadline<$now){
         cron_provisional_violation((int)$t['order_id'],(int)$t['seller_id'],'task-'.$t['id'].'-missed','task_missing','Zusatzaufgabe „'.$t['title'].'“ wurde nicht fristgerecht eingereicht.');
+    }
+}
+
+
+/* Digitale Erstabgabe und Revisionen: individuelle Frist + Nachfrist überwachen. */
+$digitalOrders=$pdo->query("SELECT o.* FROM orders o
+    WHERE o.digital_due_at IS NOT NULL
+      AND o.status IN('running','review')
+      AND NOT EXISTS (SELECT 1 FROM digital_versions d WHERE d.order_id=o.id)")->fetchAll();
+foreach($digitalOrders as $o){
+    $rules=offer_digital_rules((int)$o['id']);
+    $graceMinutes=max(0,(int)$rules['deadline']['grace_minutes']);
+    $graceEnd=(new DateTimeImmutable($o['digital_due_at'],new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'))))
+        ->modify('+'.$graceMinutes.' minutes');
+    if($graceEnd >= $now) continue;
+
+    $source='digital-initial-'.$o['id'];
+    $reason='Die digitale Erstabgabe für Auftrag '.$o['order_no'].' wurde nicht innerhalb der Frist einschließlich Nachfrist eingereicht.';
+    if(($rules['deadline']['violation_effect']??'log_only')==='extension_day'){
+        cron_provisional_violation((int)$o['id'],(int)$o['seller_id'],$source,'digital_deadline_missing',$reason);
+    }else{
+        cron_log_only_deadline((int)$o['id'],(int)$o['seller_id'],$source,'digital.deadline_missed',$reason,'/auftrag/'.$o['order_no'].'/digital');
+    }
+}
+
+$digitalRevisions=$pdo->query("SELECT r.*,o.seller_id,o.order_no
+    FROM revision_rounds r
+    JOIN orders o ON o.id=r.order_id
+    WHERE r.status='open' AND r.due_at IS NOT NULL AND o.status IN('running','review')")->fetchAll();
+foreach($digitalRevisions as $r){
+    $rules=offer_digital_rules((int)$r['order_id']);
+    $graceEnd=$r['grace_ends_at']
+        ? new DateTimeImmutable($r['grace_ends_at'],new DateTimeZone((string)app_config('app.timezone','Europe/Berlin')))
+        : (new DateTimeImmutable($r['due_at'],new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'))))
+            ->modify('+'.max(0,(int)$rules['revision']['grace_minutes']).' minutes');
+    if($graceEnd >= $now) continue;
+
+    $source='digital-revision-'.$r['id'];
+    $reason='Die Revision '.$r['round_no'].' für Auftrag '.$r['order_no'].' wurde nicht innerhalb der Frist einschließlich Nachfrist eingereicht.';
+    if(($rules['revision']['violation_effect']??'log_only')==='extension_day'){
+        cron_provisional_violation((int)$r['order_id'],(int)$r['seller_id'],$source,'digital_revision_missing',$reason);
+    }else{
+        cron_log_only_deadline((int)$r['order_id'],(int)$r['seller_id'],$source,'digital.revision_deadline_missed',$reason,'/auftrag/'.$r['order_no'].'/digital');
     }
 }
 
