@@ -291,6 +291,8 @@ CREATE TABLE IF NOT EXISTS digital_versions (
  mime_type VARCHAR(120) NULL,
  sha256 CHAR(64) NULL,
  status VARCHAR(40) NOT NULL DEFAULT 'draft',
+ review_note TEXT NULL,
+ reviewed_at DATETIME NULL,
  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
  UNIQUE(order_id,version_no),
  FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE
