@@ -125,6 +125,7 @@ CREATE TABLE IF NOT EXISTS orders (
  duration_days INT NULL,
  started_at DATETIME NULL,
  completed_at DATETIME NULL,
+ archived_at DATETIME NULL,
  rejection_reason TEXT NULL,
  reference_type VARCHAR(60) NULL,
  reference_id BIGINT UNSIGNED NULL,
@@ -132,7 +133,7 @@ CREATE TABLE IF NOT EXISTS orders (
  updated_at DATETIME NULL,
  FOREIGN KEY(seller_id) REFERENCES sellers(id),
  FOREIGN KEY(offer_id) REFERENCES offers(id),
- INDEX(seller_id,status), INDEX(status)
+ INDEX(seller_id,status), INDEX(status), INDEX(archived_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS order_options (
