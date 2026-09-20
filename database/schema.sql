@@ -122,6 +122,7 @@ CREATE TABLE IF NOT EXISTS orders (
  status ENUM('precheck','running','shipping','review','payout','completed','rejected','archived') NOT NULL DEFAULT 'precheck',
  base_compensation DECIMAL(10,2) NOT NULL,
  total_compensation DECIMAL(10,2) NOT NULL,
+ released_amount DECIMAL(10,2) NULL,
  duration_days INT NULL,
  started_at DATETIME NULL,
  completed_at DATETIME NULL,
