@@ -465,10 +465,14 @@ if (preg_match('#^/admin/auftrag/(\\d{8})/vorabkontrolle-freigeben$#',$path,$m) 
     require_admin();
     $q=db()->prepare("SELECT * FROM orders WHERE order_no=? AND status='precheck'");
     $q->execute([$m[1]]);$o=$q->fetch();if(!$o)not_found();
-    $q=db()->prepare("SELECT COUNT(*) total,SUM(status='accepted') accepted_count,SUM(status<>'accepted') open_count FROM evidences WHERE order_id=? AND evidence_type='precheck'");
-    $q->execute([$o['id']]);$stats=$q->fetch();
-    if((int)($stats['total']??0)<1 || (int)($stats['open_count']??0)>0){
-        flash('error','Die Vorabkontrolle kann erst freigegeben werden, wenn mindestens ein Vorabnachweis vorhanden und alle Vorabnachweise akzeptiert sind.');
+    $runId=current_run_id((int)$o['id']);
+    $rules=offer_evidence_rules((int)$o['id']);
+    $required=max(1,(int)$rules['precheck_required_count']);
+    $q=db()->prepare("SELECT COUNT(*) total,SUM(status='accepted') accepted_count,SUM(status<>'accepted') open_count FROM evidences WHERE order_id=? AND order_run_id<=>? AND evidence_type='precheck'");
+    $q->execute([$o['id'],$runId]);$stats=$q->fetch();
+    $total=(int)($stats['total']??0);$accepted=(int)($stats['accepted_count']??0);$open=(int)($stats['open_count']??0);
+    if($accepted<$required || $open>0){
+        flash('error','Die Vorabkontrolle kann erst freigegeben werden, wenn alle '.$required.' Pflichtnachweise des aktuellen Durchlaufs vorhanden und akzeptiert sind.');
         redirect('/admin/auftrag/'.$o['order_no']);
     }
     $started=new DateTimeImmutable('now',new DateTimeZone((string)app_config('app.timezone','Europe/Berlin')));
