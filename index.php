@@ -120,6 +120,8 @@ if(preg_match('#^/auftrag/(\d{8})$#',$path,$m)&&$method==='GET'){
  $aoq=db()->prepare("SELECT * FROM offer_options WHERE offer_id=? AND active=1 ORDER BY id");$aoq->execute([$o['offer_id']]);$availableOptions=$aoq->fetchAll();
  $soq=db()->prepare("SELECT * FROM order_options WHERE order_id=? ORDER BY id");$soq->execute([$o['id']]);$selectedOptions=$soq->fetchAll();
  $selectedOptionIds=array_map(fn($x)=>(int)$x['offer_option_id'],$selectedOptions);
+ $sdq=db()->prepare("SELECT * FROM order_start_date_requests WHERE order_id=? ORDER BY created_at DESC");$sdq->execute([$o['id']]);$startDateRequests=$sdq->fetchAll();
+ $pendingStartDateRequest=null;foreach($startDateRequests as $sdr){if($sdr['status']==='pending'){$pendingStartDateRequest=$sdr;break;}}
  $ev=db()->prepare("SELECT * FROM evidences WHERE order_id=? ORDER BY created_at DESC");$ev->execute([$o['id']]);$evidences=$ev->fetchAll();
  $rules=offer_evidence_rules($o);$preRequired=max(1,(int)$rules['precheck_required_count']);
  $preAccepted=count(array_filter($evidences,fn($x)=>$x['evidence_type']==='precheck'&&(int)($x['order_run_id']??0)===(int)$currentRunId&&$x['status']==='accepted'));
@@ -137,6 +139,20 @@ if(preg_match('#^/auftrag/(\d{8})$#',$path,$m)&&$method==='GET'){
 <?php else:?><input type="<?=$fld['field_type']==='number'?'number':($fld['field_type']==='date'?'date':'text')?>" name="attr[<?=e($key)?>]" value="<?=e(is_array($val)?implode(', ',$val):$val)?>" <?=$fld['required']?'required':''?>><?php endif;?>
 </label><?php endforeach;?>
 <label>Pflichtfoto<input data-camera-input type="file" name="evidence" required></label><button class="btn">Nachweis einreichen</button></form><?php else:?><p class="meta">Die Vorabkontrolle ist abgeschlossen bzw. befindet sich nicht mehr in der Vorbereitungsphase.</p><?php endif;?></section></div>
+<section class="panel" style="margin-top:18px"><h2>Startdatum</h2>
+<?php if($o['planned_start_date']):?>
+  <p>Vereinbarter Start: <strong><?=e(date('d.m.Y',strtotime($o['planned_start_date'])))?></strong></p>
+  <p class="meta"><?php if($o['precheck_approved_at']):?>Vorabkontrolle vollständig freigegeben · automatischer Start am vereinbarten Datum.<?php else:?>Die Vorabkontrolle muss vor diesem Datum vollständig freigegeben sein.<?php endif;?></p>
+  <?php if($o['status']==='precheck'):?>
+    <?php if($pendingStartDateRequest):?><div class="card"><strong>Änderung beantragt: <?=e(date('d.m.Y',strtotime($pendingStartDateRequest['requested_date'])))?></strong><p><?=e($pendingStartDateRequest['reason'])?></p><span class="badge">WARTET AUF ADMIN</span></div>
+    <?php else:?><details><summary>Startdatum ändern</summary><form method="post" action="<?=e(url('/auftrag/'.$o['order_no'].'/startdatum-aendern'))?>" style="margin-top:12px"><?=csrf_field()?><label>Neues Startdatum<input type="date" name="requested_date" min="<?=e(date('Y-m-d',strtotime('+1 day')))?>" required></label><label>Grund<textarea name="reason" required></textarea></label><button class="btn secondary">Änderung beantragen</button></form></details><?php endif;?>
+  <?php endif;?>
+<?php elseif($o['status']==='precheck'):?>
+  <p>Lege fest, wann die Durchführung starten soll. Das früheste mögliche Datum ist morgen.</p>
+  <form method="post" action="<?=e(url('/auftrag/'.$o['order_no'].'/startdatum'))?>"><?=csrf_field()?><label>Startdatum<input type="date" name="start_date" min="<?=e(date('Y-m-d',strtotime('+1 day')))?>" required></label><button class="btn">Startdatum festlegen</button></form>
+<?php else:?><p class="meta">Für diesen Auftrag ist kein separates Startdatum hinterlegt.</p><?php endif;?>
+<?php if($startDateRequests):?><h3>Änderungshistorie</h3><div class="timeline"><?php foreach($startDateRequests as $r):?><div><strong><?=e(date('d.m.Y',strtotime($r['requested_date'])))?></strong> · <?=e($r['status'])?><br><span class="meta"><?=e($r['reason'])?><?php if($r['admin_note']):?> · Admin: <?=e($r['admin_note'])?><?php endif;?></span></div><?php endforeach;?></div><?php endif;?>
+</section>
 <section class="panel" style="margin-top:18px"><h2>Zusatzoptionen & Auftragswert</h2>
 <?php if($o['status']==='precheck'):?><form method="post" action="<?=e(url('/auftrag/'.$o['order_no'].'/optionen'))?>"><?=csrf_field()?>
 <?php foreach($availableOptions as $opt):?><label style="display:flex;gap:10px;align-items:flex-start"><input type="checkbox" style="width:auto;margin-top:5px" name="option_ids[]" value="<?=e($opt['id'])?>" <?=in_array((int)$opt['id'],$selectedOptionIds,true)?'checked':''?>><span><?=e($opt['label'])?> · <?=$opt['price']>0?('+'.money($opt['price'])):'kostenlos'?></span></label><?php endforeach;?>
