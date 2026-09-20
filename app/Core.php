@@ -204,7 +204,7 @@ function try_start_order_after_precheck(int $orderId): bool {
     try{
         db()->prepare("UPDATE orders SET status='running',started_at=NOW(),updated_at=NOW() WHERE id=? AND status='precheck'")->execute([$orderId]);
         db()->prepare("UPDATE order_runs SET status='running',started_at=COALESCE(started_at,NOW()) WHERE order_id=? AND status='precheck'")->execute([$orderId]);
-        create_order_schedule($orderId);
+        schedule_order_days($orderId,new DateTimeImmutable('now',new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'))));
         db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system','Vorabkontrolle vollständig freigegeben. Der Auftrag ist gestartet.')")->execute([$orderId]);
         db()->commit();return true;
     }catch(Throwable $e){db()->rollBack();throw $e;}
@@ -255,9 +255,10 @@ function offer_evidence_rules(int $orderId): array {
 }
 
 function schedule_order_days(int $orderId, DateTimeImmutable $startedAt): void {
-    $q=db()->prepare('SELECT duration_days FROM orders WHERE id=?');
+    $q=db()->prepare('SELECT o.duration_days,f.evidence_rules_json FROM orders o JOIN offers f ON f.id=o.offer_id WHERE o.id=?');
     $q->execute([$orderId]);
-    $duration=(int)$q->fetchColumn();
+    $order=$q->fetch();
+    $duration=(int)($order['duration_days']??0);
     if($duration<1) return;
 
     $runId=current_run_id($orderId);
@@ -267,36 +268,24 @@ function schedule_order_days(int $orderId, DateTimeImmutable $startedAt): void {
     $exists->execute([$orderId,$runId]);
     if((int)$exists->fetchColumn()>0) return;
 
-    $rules=offer_evidence_rules($orderId);
-    $windowDefs=[
+    $rules=offer_evidence_rules($order);
+    $windows=[
         'morning'=>parse_window_setting('window_morning','06:00-10:00'),
         'midday'=>parse_window_setting('window_midday','12:00-16:00'),
         'evening'=>parse_window_setting('window_evening','18:00-23:59'),
     ];
-    $windows=[];
-    foreach($windowDefs as $key=>$range){
-        $count=(int)$rules['daily'][$key];
-        if($count>0) $windows[$key]=['range'=>$range,'count'=>$count];
-    }
-
     $grace=max(0,(int)setting_value('grace_minutes','60'));
     $tz=new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'));
     $startedAt=$startedAt->setTimezone($tz);
     $sameDate=$startedAt->format('Y-m-d');
 
     $futureSameDay=[];
-    foreach($windows as $key=>$def){
-        $ws=new DateTimeImmutable($sameDate.' '.$def['range'][0].':00',$tz);
-        if($ws>$startedAt) $futureSameDay[$key]=$def;
+    foreach($windows as $key=>$range){
+        if((int)($rules['daily'][$key]??0)<=0) continue;
+        $ws=new DateTimeImmutable($sameDate.' '.$range[0].':00',$tz);
+        if($ws>$startedAt) $futureSameDay[$key]=$range;
     }
-
-    if(!$windows) {
-        $firstDate=new DateTimeImmutable($sameDate.' 00:00:00',$tz);
-    } else {
-        $firstDate=$futureSameDay
-            ? new DateTimeImmutable($sameDate.' 00:00:00',$tz)
-            : (new DateTimeImmutable($sameDate.' 00:00:00',$tz))->modify('+1 day');
-    }
+    $firstDate=$futureSameDay ? new DateTimeImmutable($sameDate.' 00:00:00',$tz) : (new DateTimeImmutable($sameDate.' 00:00:00',$tz))->modify('+1 day');
 
     $dayIns=db()->prepare("INSERT INTO order_days(order_id,order_run_id,day_no,day_type,calendar_date,status) VALUES(?,?,?,'regular',?,'planned')");
     $winIns=db()->prepare("INSERT INTO evidence_windows(order_id,order_run_id,day_no,window_key,starts_at,ends_at,grace_ends_at,required_count,status) VALUES(?,?,?,?,?,?,?,?,?)");
@@ -305,13 +294,14 @@ function schedule_order_days(int $orderId, DateTimeImmutable $startedAt): void {
         $date=$firstDate->modify('+'.($day-1).' day');
         $dayIns->execute([$orderId,$runId,$day,$date->format('Y-m-d')]);
         $use=($day===1 && $firstDate->format('Y-m-d')===$sameDate)?$futureSameDay:$windows;
-        foreach($use as $key=>$def){
-            $range=$def['range'];
+        foreach($use as $key=>$range){
+            $required=(int)($rules['daily'][$key]??0);
+            if($required<=0) continue;
             $start=new DateTimeImmutable($date->format('Y-m-d').' '.$range[0].':00',$tz);
             $end=new DateTimeImmutable($date->format('Y-m-d').' '.$range[1].':00',$tz);
             $graceEnd=$end->modify('+'.$grace.' minutes');
             $status=$start<=new DateTimeImmutable('now',$tz)?'open':'planned';
-            $winIns->execute([$orderId,$runId,$day,$key,$start->format('Y-m-d H:i:s'),$end->format('Y-m-d H:i:s'),$graceEnd->format('Y-m-d H:i:s'),$def['count'],$status]);
+            $winIns->execute([$orderId,$runId,$day,$key,$start->format('Y-m-d H:i:s'),$end->format('Y-m-d H:i:s'),$graceEnd->format('Y-m-d H:i:s'),$required,$status]);
         }
     }
 }
