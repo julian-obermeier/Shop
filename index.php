@@ -576,6 +576,7 @@ if(preg_match('#^/admin/auftrag/(\\d{8})$#',$path,$m)&&$method==='GET'){
  $dv=db()->prepare("SELECT * FROM digital_versions WHERE order_id=? ORDER BY version_no DESC");$dv->execute([$o['id']]);$digitalVersions=$dv->fetchAll();
  $rv=db()->prepare("SELECT i.*,r.round_no,r.status round_status,r.due_at FROM revision_items i JOIN revision_rounds r ON r.id=i.revision_round_id WHERE r.order_id=? ORDER BY r.round_no DESC,i.id");$rv->execute([$o['id']]);$revisionItems=$rv->fetchAll();
  $currentRunId=current_run_id((int)$o['id']);$rules=offer_evidence_rules((int)$o['id']);
+ $adminValue=order_value_breakdown($o);
  $adminPrecheckProgress=order_precheck_component_progress((int)$o['id'],$currentRunId);
  $preRequired=(int)$adminPrecheckProgress['required_total'];$preAccepted=(int)$adminPrecheckProgress['accepted_total'];$preTotal=$preAccepted+(int)$adminPrecheckProgress['pending_total'];
  ob_start();?>
@@ -632,7 +633,18 @@ if(preg_match('#^/admin/auftrag/(\\d{8})$#',$path,$m)&&$method==='GET'){
    <?php foreach($adminAvailableOptions as $opt):?><label style="display:flex;gap:10px;align-items:flex-start"><input type="checkbox" style="width:auto;margin-top:5px" name="option_ids[]" value="<?=e($opt['id'])?>" <?=in_array((int)$opt['id'],$adminSelectedOptionIds,true)?'checked':''?>><span><?=e($opt['label'])?> · <?=$opt['price']>0?('+'.money($opt['price'])):'kostenlos'?><?=$opt['active']?'':' · deaktivierte Angebotsoption'?></span></label><?php endforeach;?>
    <?php if($adminAvailableOptions):?><div class="form-grid" style="margin-top:10px"><label>Wirksam ab Durchführungstag<input type="number" min="1" name="effective_day_no" placeholder="bei laufendem Auftrag erforderlich"></label><label>Änderungsgrund<input name="change_reason" required placeholder="Warum werden die Optionen geändert?"></label></div><button class="btn secondary">Optionen als Admin aktualisieren</button><?php else:?><p class="meta">Keine Optionen vorhanden.</p><?php endif;?></form>
    <?php else:?><div class="timeline"><?php foreach($adminSelectedOptions as $opt):?><div><?=e($opt['label_snapshot'])?> · <?=money($opt['price_snapshot'])?></div><?php endforeach;?></div><?php endif;?>
-   <p><strong>Gesamtwert: <?=money($o['total_compensation'])?></strong></p>
+   <div class="form-grid">
+     <div><span class="meta">Grundvergütung</span><br><strong><?=money($adminValue['base']??0)?></strong></div>
+     <?php if(($adminValue['components']??0)!=0):?><div><span class="meta">Kombi-Bestandteile</span><br><strong>+<?=money($adminValue['components'])?></strong></div><?php endif;?>
+     <div><span class="meta">Optionen</span><br><strong><?=money($adminValue['options']??0)?></strong></div>
+     <div><span class="meta">Aufgaben</span><br><strong><?=money($adminValue['tasks']??0)?></strong></div>
+     <?php if(($adminValue['shipping_fixed']??0)>0):?><div><span class="meta">Versandzuschuss</span><br><strong>+<?=money($adminValue['shipping_fixed'])?></strong></div><?php endif;?>
+     <?php if(($adminValue['shipping_reimbursement']??0)>0):?><div><span class="meta">Versandkostenerstattung</span><br><strong>+<?=money($adminValue['shipping_reimbursement'])?></strong></div><?php endif;?>
+     <?php if(($adminValue['bonus']??0)>0):?><div><span class="meta">Bonus</span><br><strong>+<?=money($adminValue['bonus'])?></strong></div><?php endif;?>
+     <?php if(($adminValue['paid_extra_days']??0)>0):?><div><span class="meta">Bezahlte Zusatztage</span><br><strong>+<?=money($adminValue['paid_extra_days'])?></strong></div><?php endif;?>
+     <?php if(abs((float)($adminValue['other_adjustments']??0))>=0.01):?><div><span class="meta">Weitere Anpassungen</span><br><strong><?=($adminValue['other_adjustments']>0?'+':'')?><?=money($adminValue['other_adjustments'])?></strong></div><?php endif;?>
+   </div>
+   <p><strong>Gesamtwert: <?=money($adminValue['total']??$o['total_compensation'])?></strong><?php if(($adminValue['released_amount']??null)!==null):?><br><span class="meta">Final freigegeben: <?=money($adminValue['released_amount'])?></span><?php endif;?></p>
    <hr><h3>Bonus</h3>
    <?php if(!$o['archived_at'] && in_array($o['status'],['precheck','running','shipping','review','payout'],true)):?><form method="post" action="<?=e(url('/admin/auftrag/'.$o['order_no'].'/bonus'))?>"><?=csrf_field()?><div class="form-grid"><label>Betrag (€)<input type="number" name="amount" step=".01" min=".01" required></label><label>Hinweis (optional)<input name="note"></label></div><button class="btn">Bonus vormerken</button></form><?php endif;?>
    <?php if($adminBonuses):?><div class="timeline" style="margin-top:12px"><?php foreach($adminBonuses as $b):?><div><strong><?=money($b['amount'])?></strong> · <?=e($b['status'])?><?= $b['note']?' · '.e($b['note']):'' ?><?php if($b['status']==='reserved' && !$o['archived_at']):?><form method="post" action="<?=e(url('/admin/bonus/'.$b['id'].'/entfernen'))?>" style="margin-top:6px"><?=csrf_field()?><button class="btn secondary">Bonus entfernen</button></form><?php endif;?></div><?php endforeach;?></div><?php endif;?>
