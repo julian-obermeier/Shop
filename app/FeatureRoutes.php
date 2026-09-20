@@ -575,7 +575,7 @@ if (preg_match('#^/auftrag/(\d{8})/spontan/(\d+)$#',$path,$m) && $method==='GET'
     $q=db()->prepare("SELECT r.*,o.order_no,o.id order_id FROM spontaneous_requests r JOIN orders o ON o.id=r.order_id WHERE o.order_no=? AND r.id=? AND o.seller_id=?");
     $q->execute([$m[1],(int)$m[2],$s['id']]);$r=$q->fetch();if(!$r)not_found();
     if($r['status']==='requested')db()->prepare("UPDATE spontaneous_requests SET status='seen' WHERE id=?")->execute([$r['id']]);
-    $cnt=db()->prepare("SELECT COUNT(*) FROM evidences WHERE order_id=? AND evidence_type='spontaneous' AND reference_type='spontaneous_request' AND reference_id=? AND status IN('submitted','accepted')");
+    $cnt=db()->prepare("SELECT COUNT(*) FROM evidences WHERE order_id=? AND evidence_type='spontaneous' AND source_type='spontaneous' AND source_id=? AND status IN('submitted','accepted')");
     $cnt->execute([$r['order_id'],$r['id']]);$submitted=(int)$cnt->fetchColumn();
     $grace=new DateTimeImmutable($r['grace_ends_at'],new DateTimeZone((string)app_config('app.timezone','Europe/Berlin')));$expired=new DateTimeImmutable('now',$grace->getTimezone())>$grace;
     ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Spontaner Nachweis · <?=e($r['order_no'])?></div><h1>Zusätzliche Fotoanforderung</h1></div><a class="btn secondary" href="<?=e(url('/auftrag/'.$r['order_no']))?>">Zum Auftrag</a></div>
@@ -592,9 +592,9 @@ if (preg_match('#^/auftrag/(\d{8})/spontan/(\d+)$#',$path,$m) && $method==='POST
     if(new DateTimeImmutable('now',$tz)>new DateTimeImmutable($r['grace_ends_at'],$tz)){flash('error','Die Nachfrist ist abgelaufen.');redirect('/auftrag/'.$r['order_no'].'/spontan/'.$r['id']);}
     try{
         $up=private_upload($_FILES['evidence']??[],'order-'.$r['order_id'].'/spontaneous');
-        db()->prepare("INSERT INTO evidences(order_id,order_run_id,seller_id,evidence_type,file_path,mime_type,file_size,sha256,reference_type,reference_id) VALUES(?,?,?,'spontaneous',?,?,?,?, 'spontaneous_request',?)")
+        db()->prepare("INSERT INTO evidences(order_id,order_run_id,seller_id,evidence_type,source_type,source_id,file_path,mime_type,file_size,sha256) VALUES(?,?,?,'spontaneous','spontaneous',?,?,?,?,?)")
           ->execute([$r['order_id'],current_run_id((int)$r['order_id']),$s['id'],$up['path'],$up['mime'],$up['size'],$up['sha256'],$r['id']]);
-        $cnt=db()->prepare("SELECT COUNT(*) FROM evidences WHERE order_id=? AND evidence_type='spontaneous' AND reference_type='spontaneous_request' AND reference_id=? AND status IN('submitted','accepted')");
+        $cnt=db()->prepare("SELECT COUNT(*) FROM evidences WHERE order_id=? AND evidence_type='spontaneous' AND source_type='spontaneous' AND source_id=? AND status IN('submitted','accepted')");
         $cnt->execute([$r['order_id'],$r['id']]);$submitted=(int)$cnt->fetchColumn();
         if($submitted >= (int)$r['required_count'])db()->prepare("UPDATE spontaneous_requests SET status='uploaded' WHERE id=?")->execute([$r['id']]);
         flash('success','Spontanes Foto wurde eingereicht.');
