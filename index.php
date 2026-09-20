@@ -835,6 +835,14 @@ if(preg_match('#^/admin/nachweis/(\d+)/ablehnen$#',$path,$m)&&$method==='POST'){
    db()->commit();
  }catch(Throwable $e){db()->rollBack();throw $e;}
 
+ log_event('evidence.rejected',(int)$ev['seller_id'],(int)$ev['order_id'],[
+   'evidence_id'=>(int)$ev['id'],
+   'reason'=>$reason,
+   'retake_id'=>$retakeId,
+   'violation_id'=>$violationId,
+   'cure_violation_on_success'=>$cureViolation,
+ ]);
+
  if($retakeId){
    notify_seller((int)$ev['seller_id'],'evidence.retake','Neuaufnahme erforderlich','Ein Nachweis wurde beanstandet. Bitte reiche die angeforderte Neuaufnahme fristgerecht ein.','/auftrag/'.$ev['order_no'].'/retake/'.$retakeId,null,true);
  }else{
