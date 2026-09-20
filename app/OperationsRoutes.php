@@ -664,6 +664,7 @@ if (preg_match('#^/admin/angebot/(\d+)/als-vorlage$#',$path,$m) && $method==='PO
 
     $q=db()->prepare("SELECT label,price,requirements_json,active FROM offer_options WHERE offer_id=? ORDER BY id");$q->execute([$offer['id']]);$options=$q->fetchAll();
     $q=db()->prepare("SELECT sort_order,title,instructions,required_photos,requires_text,requires_checkbox,is_dispatch_step,deadline_hours,active FROM offer_shipping_steps WHERE offer_id=? ORDER BY sort_order,id");$q->execute([$offer['id']]);$steps=$q->fetchAll();
+    $q=db()->prepare("SELECT task_library_id,sort_order,title,description,fields_json,required_photos,compensation,violation_enabled,schedule_type,day_no,start_day,interval_days,due_time,active FROM offer_task_plans WHERE offer_id=? ORDER BY sort_order,id");$q->execute([$offer['id']]);$taskPlans=$q->fetchAll();
 
     $snapshot=[
       'offer'=>[
@@ -682,6 +683,7 @@ if (preg_match('#^/admin/angebot/(\d+)/als-vorlage$#',$path,$m) && $method==='PO
       ],
       'options'=>$options,
       'shipping_steps'=>$steps,
+      'task_plans'=>$taskPlans,
       'source_offer_id'=>(int)$offer['id'],
       'created_at'=>date(DATE_ATOM),
     ];
@@ -694,7 +696,7 @@ if (preg_match('#^/admin/angebot/(\d+)/als-vorlage$#',$path,$m) && $method==='PO
 if ($path==='/admin/angebotsvorlagen' && $method==='GET') {
     require_admin();
     $rows=db()->query("SELECT * FROM offer_templates ORDER BY active DESC,name,id DESC")->fetchAll();
-    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Administration</div><h1>Angebotsvorlagen</h1><p class="meta">Vorlagen enthalten Angebotsdaten, Nachweisplan, Versandbedingungen, Zusatzoptionen und den konfigurierten Versand-/Endworkflow.</p></div><a class="btn secondary" href="<?=e(url('/admin/angebote'))?>">Angebote</a></div>
+    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Administration</div><h1>Angebotsvorlagen</h1><p class="meta">Vorlagen enthalten Angebotsdaten, Nachweisplan, Versandbedingungen, Zusatzoptionen, vorgeplante Zusatzaufgaben und den konfigurierten Versand-/Endworkflow.</p></div><a class="btn secondary" href="<?=e(url('/admin/angebote'))?>">Angebote</a></div>
     <div class="grid"><?php foreach($rows as $r):$snap=json_decode($r['snapshot_json'],true)?:[];$offer=$snap['offer']??[];?><article class="card"><span class="badge"><?=$r['active']?'AKTIV':'INAKTIV'?></span><h3><?=e($r['name'])?></h3><p class="meta">Basis: <?=e($offer['title']??'–')?> · <?=isset($offer['compensation'])?money($offer['compensation']):'–'?></p><div class="actions"><?php if($r['active']):?><form method="post" action="<?=e(url('/admin/angebotsvorlage/'.$r['id'].'/verwenden'))?>"><?=csrf_field()?><button class="btn">Als neuen Entwurf verwenden</button></form><?php endif;?><form method="post" action="<?=e(url('/admin/angebotsvorlage/'.$r['id'].'/umschalten'))?>"><?=csrf_field()?><button class="btn secondary"><?=$r['active']?'Deaktivieren':'Aktivieren'?></button></form></div></article><?php endforeach;?><?php if(!$rows):?><div class="empty">Noch keine Angebotsvorlagen vorhanden. Speichere eine Vorlage aus einem bestehenden Angebot.</div><?php endif;?></div>
     <?php render('Angebotsvorlagen',ob_get_clean());exit;
 }
@@ -726,7 +728,12 @@ if (preg_match('#^/admin/angebotsvorlage/(\d+)/verwenden$#',$path,$m) && $method
         db()->prepare("INSERT INTO offer_shipping_steps(offer_id,sort_order,title,instructions,required_photos,requires_text,requires_checkbox,is_dispatch_step,deadline_hours,active) VALUES(?,?,?,?,?,?,?,?,?,?)")
           ->execute([$offerId,(int)$step['sort_order'],$step['title'],$step['instructions']??null,(int)$step['required_photos'],(int)$step['requires_text'],(int)$step['requires_checkbox'],(int)$step['is_dispatch_step'],$step['deadline_hours']??null,(int)($step['active']??1)]);
       }
+      foreach((array)($snap['task_plans']??[]) as $plan){
+        db()->prepare("INSERT INTO offer_task_plans(offer_id,task_library_id,sort_order,title,description,fields_json,required_photos,compensation,violation_enabled,schedule_type,day_no,start_day,interval_days,due_time,active) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+          ->execute([$offerId,$plan['task_library_id']??null,(int)($plan['sort_order']??0),$plan['title'],$plan['description']??null,$plan['fields_json']??null,(int)($plan['required_photos']??0),(float)($plan['compensation']??0),(int)($plan['violation_enabled']??1),$plan['schedule_type']??'day',$plan['day_no']??null,(int)($plan['start_day']??1),$plan['interval_days']??null,$plan['due_time']??null,(int)($plan['active']??1)]);
+      }
       db()->commit();
+      bump_offer_version($offerId,'created_from_template');
     }catch(Throwable $e){db()->rollBack();throw $e;}
 
     flash('success','Neuer Angebotsentwurf aus Vorlage erstellt.');redirect('/admin/angebot/'.$offerId);
