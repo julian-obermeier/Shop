@@ -1864,6 +1864,26 @@ function collect_admin_deadlines(): array {
         WHERE rr.due_at IS NOT NULL AND rr.status='open' AND o.archived_at IS NULL")->fetchAll();
     $add($rows,'revision','Digitale Revision');
 
+    $rows=db()->query($sqlBase.",er.id,er.due_at,er.status,er.instructions details
+        FROM evidence_retake_requests er
+        JOIN orders o ON o.id=er.order_id
+        JOIN sellers s ON s.id=o.seller_id
+        JOIN offers f ON f.id=o.offer_id
+        JOIN categories c ON c.id=f.category_id
+        WHERE er.status='requested' AND o.archived_at IS NULL")->fetchAll();
+    $add($rows,'retake','Nachweis-Neuaufnahme');
+
+    $rows=db()->query($sqlBase.",o.id,o.digital_due_at due_at,o.status,'Digitale Erstabgabe' details
+        FROM orders o
+        JOIN sellers s ON s.id=o.seller_id
+        JOIN offers f ON f.id=o.offer_id
+        JOIN categories c ON c.id=f.category_id
+        WHERE o.digital_due_at IS NOT NULL
+          AND o.status IN('precheck','running','review')
+          AND o.archived_at IS NULL
+          AND NOT EXISTS(SELECT 1 FROM digital_versions dv WHERE dv.order_id=o.id)")->fetchAll();
+    $add($rows,'digital_initial','Digitale Erstabgabe','order_id');
+
     $rows=db()->query($sqlBase.",o.id,o.shipping_due_at due_at,o.status,'Gesamt-Versandfrist' details
         FROM orders o
         JOIN sellers s ON s.id=o.seller_id
