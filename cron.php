@@ -27,12 +27,25 @@ function cron_provisional_violation(int $orderId, int $sellerId, string $sourceK
 }
 
 /* Zeitfenster öffnen und bereits vollständig belegte Fenster abschließen. */
-$pdo->prepare("UPDATE evidence_windows SET status='open' WHERE status='planned' AND starts_at<=? AND ends_at>=?")->execute([$nowSql,$nowSql]);
+$pdo->prepare("UPDATE evidence_windows ew
+               JOIN orders o ON o.id=ew.order_id
+               SET ew.status='open'
+               WHERE ew.status='planned'
+                 AND o.status='running'
+                 AND ew.order_run_id=(SELECT r.id FROM order_runs r WHERE r.order_id=o.id ORDER BY r.run_no DESC LIMIT 1)
+                 AND ew.starts_at<=?
+                 AND ew.ends_at>=?")
+    ->execute([$nowSql,$nowSql]);
 
-$windows=$pdo->query("SELECT ew.*,o.seller_id,o.order_no FROM evidence_windows ew JOIN orders o ON o.id=ew.order_id WHERE ew.status IN('planned','open') AND o.status='running'")->fetchAll();
+$windows=$pdo->query("SELECT ew.*,o.seller_id,o.order_no
+                     FROM evidence_windows ew
+                     JOIN orders o ON o.id=ew.order_id
+                     WHERE ew.status IN('planned','open')
+                       AND o.status='running'
+                       AND ew.order_run_id=(SELECT r.id FROM order_runs r WHERE r.order_id=o.id ORDER BY r.run_no DESC LIMIT 1)")->fetchAll();
 foreach($windows as $w){
-    $cnt=$pdo->prepare("SELECT COUNT(*) FROM evidences WHERE order_id=? AND evidence_type='daily' AND day_no=? AND window_key=? AND status<>'rejected'");
-    $cnt->execute([$w['order_id'],$w['day_no'],$w['window_key']]);$submitted=(int)$cnt->fetchColumn();
+    $cnt=$pdo->prepare("SELECT COUNT(*) FROM evidences WHERE order_id=? AND order_run_id<=>? AND evidence_type='daily' AND day_no=? AND window_key=? AND status<>'rejected'");
+    $cnt->execute([$w['order_id'],$w['order_run_id'],$w['day_no'],$w['window_key']]);$submitted=(int)$cnt->fetchColumn();
     if($submitted>=(int)$w['required_count']){
         $pdo->prepare("UPDATE evidence_windows SET status='submitted' WHERE id=?")->execute([$w['id']]);
         continue;
@@ -119,11 +132,13 @@ foreach($startable->fetchAll() as $row){
 $runningOrders=$pdo->query("SELECT id FROM orders WHERE status='running'")->fetchAll();
 foreach($runningOrders as $row){
     $orderId=(int)$row['id'];
-    $days=$pdo->prepare("SELECT * FROM order_days WHERE order_id=? AND status IN('planned','active') ORDER BY day_no");
-    $days->execute([$orderId]);
+    $runId=current_run_id($orderId);
+    if(!$runId) continue;
+    $days=$pdo->prepare("SELECT * FROM order_days WHERE order_id=? AND order_run_id=? AND status IN('planned','active') ORDER BY day_no");
+    $days->execute([$orderId,$runId]);
     foreach($days->fetchAll() as $day){
-        $w=$pdo->prepare("SELECT status,grace_ends_at FROM evidence_windows WHERE order_id=? AND order_run_id<=>? AND day_no=?");
-        $w->execute([$orderId,$day['order_run_id'],$day['day_no']]);
+        $w=$pdo->prepare("SELECT status,grace_ends_at FROM evidence_windows WHERE order_id=? AND order_run_id=? AND day_no=?");
+        $w->execute([$orderId,$runId,$day['day_no']]);
         $windowsForDay=$w->fetchAll();
         $terminal=true;$missed=false;
         if($windowsForDay){
