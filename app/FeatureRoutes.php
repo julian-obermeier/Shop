@@ -1913,11 +1913,16 @@ if (preg_match('#^/auftrag/(\d{8})/aufgabe/(\d+)$#',$path,$m) && $method==='GET'
     $q->execute([$t['id']]);$taskEvidence=$q->fetchAll();
     $validPhotos=count(array_filter($taskEvidence,fn($e)=>in_array($e['status'],['submitted','accepted'],true)));
     $requiredPhotos=max(0,(int)($t['required_photos']??0));
-    $canWork=in_array($t['status'],['open','rejected'],true) && empty($t['archived_at']);
+    $taskGrace=max(0,min(60,(int)setting_value('grace_minutes','60')));
+    $taskDueTs=$t['due_at']?strtotime($t['due_at']):null;
+    $taskGraceEndTs=$taskDueTs!==null?$taskDueTs+($taskGrace*60):null;
+    $taskExpired=$taskGraceEndTs!==null && time()>$taskGraceEndTs;
+    $canWork=in_array($t['status'],['open','rejected'],true) && empty($t['archived_at']) && !$taskExpired;
 
     ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Zusatzaufgabe · <?=e($t['order_no'])?></div><h1><?=e($t['title'])?></h1></div><a class="btn secondary" href="<?=e(url('/auftrag/'.$t['order_no']))?>">Zum Auftrag</a></div>
     <div class="grid two">
-      <section class="panel"><h2>Aufgabe</h2><p><?=nl2br(e($t['description']??''))?></p><p class="meta">Frist: <?=e($t['due_at']?date('d.m.Y H:i',strtotime($t['due_at'])):'keine feste Frist')?><?php if((float)$t['compensation']>0):?><br>Vergütung: <?=money($t['compensation'])?><?php endif;?><?php if($t['planned_day_no']):?><br>Geplant für Durchführungstag <?=e($t['planned_day_no'])?><?php endif;?></p>
+      <section class="panel"><h2>Aufgabe</h2><p><?=nl2br(e($t['description']??''))?></p><p class="meta">Frist: <?=e($t['due_at']?date('d.m.Y H:i',strtotime($t['due_at'])):'keine feste Frist')?><?php if($taskDueTs!==null && $taskGrace>0):?><br>Nachfrist bis: <?=e(date('d.m.Y H:i',$taskGraceEndTs))?><?php endif;?><?php if((float)$t['compensation']>0):?><br>Vergütung: <?=money($t['compensation'])?><?php endif;?><?php if($t['planned_day_no']):?><br>Geplant für Durchführungstag <?=e($t['planned_day_no'])?><?php endif;?></p>
+      <?php if($taskExpired):?><p><span class="badge bad">Frist einschließlich Nachfrist abgelaufen</span></p><?php endif;?>
       <?php if($requiredPhotos>0):?><h3>Pflichtfotos</h3><p><strong><?=e($validPhotos)?> / <?=e($requiredPhotos)?></strong> gültig eingereicht</p><div class="progress"><span style="width:<?=e((string)min(100,round(($validPhotos/$requiredPhotos)*100)))?>%"></span></div>
       <div class="timeline" style="margin-top:12px"><?php foreach($taskEvidence as $ev):?><div>Foto <?=e($ev['id'])?> · <span class="badge"><?=e($ev['status'])?></span> · <?=e(date('d.m.Y H:i',strtotime($ev['created_at'])))?><?php if($ev['status']==='rejected'&&$ev['rejection_reason']):?><br><span class="meta"><?=e($ev['rejection_reason'])?></span><?php endif;?></div><?php endforeach;?></div>
       <?php if($canWork && $validPhotos<$requiredPhotos):?><form method="post" action="<?=e(url('/auftrag/'.$t['order_no'].'/aufgabe/'.$t['id'].'/foto'))?>" enctype="multipart/form-data" style="margin-top:12px"><?=csrf_field()?><label>Nächstes Pflichtfoto<input data-camera-input type="file" name="evidence" accept="image/*" capture="environment" required></label><button class="btn secondary">Foto einreichen</button></form><?php endif;?>
@@ -1938,6 +1943,8 @@ if (preg_match('#^/auftrag/(\d{8})/aufgabe/(\d+)/foto$#',$path,$m) && $method===
     $q=db()->prepare("SELECT t.*,o.order_no,o.archived_at FROM order_tasks t JOIN orders o ON o.id=t.order_id WHERE o.order_no=? AND t.id=? AND o.seller_id=?");
     $q->execute([$m[1],(int)$m[2],$s['id']]);$t=$q->fetch();if(!$t)not_found();
     if(!in_array($t['status'],['open','rejected'],true)||$t['archived_at']){flash('error','Für diese Aufgabe können keine weiteren Fotos eingereicht werden.');redirect('/auftrag/'.$t['order_no'].'/aufgabe/'.$t['id']);}
+    $taskGrace=max(0,min(60,(int)setting_value('grace_minutes','60')));
+    if($t['due_at'] && time()>strtotime($t['due_at'])+($taskGrace*60)){flash('error','Die Frist einschließlich Nachfrist ist abgelaufen.');redirect('/auftrag/'.$t['order_no'].'/aufgabe/'.$t['id']);}
     $required=max(0,(int)($t['required_photos']??0));
     $q=db()->prepare("SELECT COUNT(*) FROM evidences WHERE source_type='task' AND source_id=? AND status IN('submitted','accepted')");
     $q->execute([$t['id']]);if((int)$q->fetchColumn()>=$required){flash('error','Alle geforderten Pflichtfotos sind bereits vorhanden.');redirect('/auftrag/'.$t['order_no'].'/aufgabe/'.$t['id']);}
@@ -1953,10 +1960,14 @@ if (preg_match('#^/auftrag/(\d{8})/aufgabe/(\d+)/foto$#',$path,$m) && $method===
 
 if (preg_match('#^/auftrag/(\d{8})/aufgabe/(\d+)$#',$path,$m) && $method==='POST') {
     $s=require_seller();$q=db()->prepare("SELECT t.*,o.seller_id,o.order_no FROM order_tasks t JOIN orders o ON o.id=t.order_id WHERE o.order_no=? AND t.id=? AND o.seller_id=? AND t.status IN('open','rejected')");$q->execute([$m[1],(int)$m[2],$s['id']]);$t=$q->fetch();if(!$t)not_found();
+    $taskGrace=max(0,min(60,(int)setting_value('grace_minutes','60')));
+    if($t['due_at'] && time()>strtotime($t['due_at'])+($taskGrace*60)){flash('error','Die Frist einschließlich Nachfrist ist abgelaufen.');redirect('/auftrag/'.$t['order_no'].'/aufgabe/'.$t['id']);}
     $required=max(0,(int)($t['required_photos']??0));$pc=db()->prepare("SELECT COUNT(*) FROM evidences WHERE source_type='task' AND source_id=? AND status IN('submitted','accepted')");$pc->execute([$t['id']]);
     if((int)$pc->fetchColumn()<$required){flash('error','Bitte reiche zuerst alle Pflichtfotos ein.');redirect('/auftrag/'.$t['order_no'].'/aufgabe/'.$t['id']);}
-    $payload=json_encode(['value'=>post('value')],JSON_UNESCAPED_UNICODE);db()->prepare("UPDATE order_tasks SET submission_json=?,status='submitted',submitted_at=NOW() WHERE id=?")->execute([$payload,$t['id']]);
-    flash('success','Zusatzaufgabe wurde eingereicht.');redirect('/auftrag/'.$t['order_no']);
+    $late=$t['due_at']&&strtotime($t['due_at'])<time();
+    $payload=json_encode(['value'=>post('value'),'late'=>$late],JSON_UNESCAPED_UNICODE);db()->prepare("UPDATE order_tasks SET submission_json=?,status='submitted',submitted_at=NOW() WHERE id=?")->execute([$payload,$t['id']]);
+    log_event('task.submitted',(int)$s['id'],(int)$t['order_id'],['task_id'=>(int)$t['id'],'late'=>$late]);
+    flash('success','Zusatzaufgabe wurde eingereicht.'.($late?' Die Einreichung erfolgte innerhalb der Nachfrist.':''));redirect('/auftrag/'.$t['order_no']);
 }
 if (preg_match('#^/admin/aufgabe/(\d+)/(akzeptieren|ablehnen)$#',$path,$m) && $method==='POST') {
     require_admin();$q=db()->prepare("SELECT t.*,o.order_no,o.seller_id FROM order_tasks t JOIN orders o ON o.id=t.order_id WHERE t.id=?");$q->execute([(int)$m[1]]);$t=$q->fetch();if(!$t)not_found();
