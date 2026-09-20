@@ -233,3 +233,93 @@ function public_imprint_html(): string {
     </section>
     <?php return ob_get_clean();
 }
+
+
+function public_terms_html(): string {
+    $name=(string)setting_value('operator_name','Betreiber');
+    $email=(string)setting_value('operator_email',setting_value('support_email',app_config('mail.from','')));
+    ob_start(); ?>
+    <section class="legal">
+      <div class="eyebrow">Vertragsrahmen</div><h1>Allgemeine Geschäftsbedingungen – Entwurf</h1>
+      <div class="panel"><strong>Prüfhinweis:</strong> Dieser Text bildet die vereinbarte Plattformlogik ab und muss vor einem öffentlichen Produktivbetrieb juristisch geprüft und an die tatsächliche Betreiber- und Steuersituation angepasst werden.</div>
+
+      <h2>1. Anbieter und Geltungsbereich</h2>
+      <p>Diese Plattform wird von <?=e($name)?> betrieben. Sie dient ausschließlich der Abwicklung von Ankaufangeboten des Betreibers gegenüber registrierten volljährigen Verkäuferinnen. Es gibt innerhalb der Plattform keine fremden Käufer und keine öffentlichen Verkäuferinnenprofile.</p>
+
+      <h2>2. Registrierung</h2>
+      <p>Die Registrierung ist nur für volljährige Personen ab 18 Jahren vorgesehen. Registrierungs- und Kontaktdaten sind vollständig und wahrheitsgemäß anzugeben. Die E-Mail-Adresse muss bestätigt werden, bevor ein Ankaufangebot verbindlich angenommen werden kann.</p>
+
+      <h2>3. Angebote</h2>
+      <p>Der Betreiber legt Inhalt, Vergütung, Dauer oder sonstigen Erfüllungsumfang, Nachweise, Zusatzoptionen, Aufgaben, Versandbedingungen und weitere Anforderungen des jeweiligen Angebots fest. Maßgeblich für einen angenommenen Auftrag ist die bei Annahme gespeicherte Angebotsversion.</p>
+
+      <h2>4. Vertragsschluss innerhalb der Plattform</h2>
+      <p>Mit der ausdrücklichen Annahme eines Angebots und den dazugehörigen Pflichtbestätigungen wird der Auftrag angelegt. Die Plattform speichert Zeitpunkt, Angebotsversion, vereinbarte Vergütung und die wesentlichen Auftragsbedingungen als historische Auftragsbestätigung.</p>
+
+      <h2>5. Persönliche Leistung</h2>
+      <p>Aufträge sind persönlich zu erfüllen. Eigene physische Artikel und selbst erstellte digitale Inhalte dürfen nicht durch Fremdware oder fremde Leistungen ersetzt werden, sofern der konkrete Auftrag nicht ausdrücklich etwas anderes vorsieht.</p>
+
+      <h2>6. Nachweise und Dokumentation</h2>
+      <p>Erforderliche Nachweise sind über die vorgesehenen Plattformfunktionen einzureichen. Eingereichte Dateien bleiben Teil der Auftragshistorie. Technische Metadaten, Hashwerte, Dateieigenschaften und Qualitätsindikatoren können zur Dokumentation und Integritätsprüfung gespeichert werden.</p>
+
+      <h2>7. Fristen, Nachfristen und Verstöße</h2>
+      <p>Für Nachweise und Aufgaben gelten die im Auftrag angezeigten Fristen. Mögliche Pflichtverletzungen können zunächst automatisiert oder manuell erfasst und anschließend vom Betreiber geprüft werden. Erst eine bestätigte Entscheidung löst die im Auftrag vorgesehene Konsequenz aus.</p>
+
+      <h2>8. Nachträgliche Änderungen</h2>
+      <p>Nachträgliche Änderungen eines bereits angenommenen Auftrags werden separat protokolliert. Die ursprüngliche Auftragsbestätigung bleibt unverändert erhalten. Änderungen werden mit Altwert, Neuwert, Grund und Zeitpunkt dokumentiert und der Verkäuferin mitgeteilt.</p>
+
+      <h2>9. Vergütung und Wallet</h2>
+      <p>Die vereinbarte Vergütung wird zunächst als vorgemerkt geführt. Vorgemerkte Beträge sind noch nicht auszahlbar. Nach der Abschlussprüfung werden freigegebene Beträge verfügbar. Teilfreigaben, Boni, Versandzuschüsse oder andere ausdrücklich vereinbarte Vergütungsbestandteile werden im jeweiligen Auftrag dokumentiert.</p>
+
+      <h2>10. Versand</h2>
+      <p>Bei physischen Aufträgen gelten die beim Auftrag gespeicherten Versandbedingungen. Die konkrete Empfängeradresse wird erst in der dafür vorgesehenen Versandphase angezeigt. Je nach Angebot können Versandkosten von der Verkäuferin getragen, pauschal bezuschusst oder gegen Nachweis erstattet werden.</p>
+
+      <h2>11. Digitale Leistungen</h2>
+      <p>Digitale Abgaben können als Text, Audio, Video oder in einer vereinbarten Kombination erfolgen. Eingereichte Versionen bleiben historisch erhalten. Revisionen können mit einzelnen Änderungspunkten und eigenen Fristen dokumentiert werden.</p>
+
+      <h2>12. Abschlussprüfung</h2>
+      <p>Nach Erfüllung des Auftrags erfolgt die vorgesehene Prüfung. Der Auftrag kann vollständig akzeptiert, teilweise akzeptiert oder abgelehnt werden. Die jeweilige Entscheidung und der freigegebene Betrag werden im Auftrag dokumentiert.</p>
+
+      <h2>13. Auszahlungen</h2>
+      <p>Auszahlungen können nur aus verfügbarem Guthaben und über die jeweils aktivierten Auszahlungsmethoden beantragt werden. Zahlungsdaten und Gebühren werden vor Antragstellung angezeigt und bei Einreichung des Auszahlungsantrags als Snapshot gespeichert.</p>
+
+      <h2>14. Kontolöschung und Aufbewahrung</h2>
+      <p>Eine Kontolöschung wird administrativ durchgeführt. Personenbezogene Profildaten werden dabei soweit vorgesehen entfernt oder anonymisiert. Historische Auftrags-, Nachweis-, Zahlungs- und Dokumentationsdaten können erhalten bleiben, soweit hierfür ein zulässiger Aufbewahrungs- oder Nachweisgrund besteht.</p>
+
+      <h2>15. Technische Verfügbarkeit</h2>
+      <p>Bei bestätigten Plattformstörungen können betroffene Fristen angepasst werden. Ein ausschließlich durch einen dokumentierten technischen Plattformausfall verursachtes Versäumnis soll innerhalb der Plattform nicht als Pflichtverletzung behandelt werden.</p>
+
+      <h2>16. Unzulässige Inhalte und Nutzung</h2>
+      <p>Unzulässig sind insbesondere rechtswidrige Inhalte, Inhalte mit Minderjährigen, nicht einvernehmliche Aufnahmen, Identitätstäuschung, Manipulation von Nachweisen, Schadsoftware sowie Versuche, Sicherheits- oder Zugriffsschutzmechanismen zu umgehen.</p>
+
+      <h2>17. Zwingende Rechte</h2>
+      <p>Zwingende gesetzliche Rechte und Ansprüche bleiben von diesen Plattformregeln unberührt. Für rechtlich zwingende Fragen ist die endgültige Vertragsfassung vor Produktivbetrieb fachkundig zu prüfen.</p>
+
+      <h2>18. Kontakt</h2>
+      <p>Allgemeine Vertragsfragen können<?php if($email):?> per E-Mail an <?=e($email)?><?php endif;?> oder bei bestehenden Aufträgen über den zugehörigen Auftragschat gestellt werden.</p>
+    </section>
+    <?php return ob_get_clean();
+}
+
+function public_withdrawal_html(): string {
+    ob_start(); ?>
+    <section class="legal">
+      <div class="eyebrow">Vertragliche und gesetzliche Rechte</div><h1>Widerruf, Rücktritt und Storno</h1>
+      <div class="panel"><strong>Wichtiger Hinweis:</strong> Diese Plattform ist eine Ankaufsplattform, bei der der Betreiber Waren oder Leistungen von Verkäuferinnen ankauft. Ob im Einzelfall ein gesetzliches Widerrufsrecht oder andere Lösungsrechte bestehen, hängt von der rechtlichen Einordnung des konkreten Vertrags und der beteiligten Personen ab. Vor Produktivbetrieb ist hierzu eine juristische Prüfung erforderlich.</div>
+
+      <h2>Kein pauschales Shop-Widerrufsversprechen</h2>
+      <p>Die Plattform behandelt Aufträge nicht wie einen üblichen Online-Shop, in dem eine Verbraucherin Waren vom Betreiber kauft. Deshalb wird hier kein pauschales, möglicherweise unzutreffendes Standard-Widerrufsrecht zugesagt oder ausgeschlossen.</p>
+
+      <h2>Storno innerhalb der Plattform</h2>
+      <p>Nach verbindlicher Annahme ist kein gewöhnlicher einseitiger Selbst-Storno über einen Button vorgesehen. Tritt ein tatsächliches Problem auf, wird der Vorgang über die vorgesehenen Auftrags-, Beschädigungs-, Änderungs- oder Kommunikationsfunktionen dokumentiert.</p>
+
+      <h2>Zwingende gesetzliche Rechte</h2>
+      <p>Bestehende zwingende gesetzliche Rechte werden durch die technische Plattformlogik nicht ausgeschlossen. Soweit im Einzelfall ein gesetzlicher Widerruf, Rücktritt, eine Anfechtung oder ein sonstiges Lösungsrecht besteht, ist dieses unabhängig davon zu beurteilen, ob die Plattform einen eigenen Storno-Button anbietet.</p>
+
+      <h2>Wie ein rechtlicher Einwand gemeldet werden kann</h2>
+      <p>Bei einem bestehenden Auftrag kann die Verkäuferin den Auftragschat verwenden und den konkreten Sachverhalt mitteilen. Allgemeine rechtliche oder vertragliche Fragen können über die Kontaktadresse des Betreibers gestellt werden.</p>
+
+      <h2>Produktivfreigabe</h2>
+      <p>Vor öffentlicher Inbetriebnahme muss geprüft werden, welche konkrete Belehrung und welche gesetzlichen Informationspflichten für das tatsächliche Geschäftsmodell und die konkrete Betreiberrolle erforderlich sind.</p>
+    </section>
+    <?php return ob_get_clean();
+}
