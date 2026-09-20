@@ -110,6 +110,7 @@ return new class extends Migration {
             Schema::create('order_precheck_evidences', function (Blueprint $table) {
                 $table->id();
                 $table->foreignId('order_id')->constrained()->cascadeOnDelete();
+                $table->foreignId('order_run_id')->nullable()->constrained('order_runs')->nullOnDelete();
                 $table->foreignId('order_precheck_id')->nullable()->constrained('order_prechecks')->cascadeOnDelete();
                 $table->string('slot_key', 100);
                 $table->string('label');
@@ -124,7 +125,7 @@ return new class extends Migration {
                 $table->foreignId('reviewed_by')->nullable()->constrained('users')->nullOnDelete();
                 $table->timestamp('reviewed_at')->nullable();
                 $table->timestamps();
-                $table->index(['order_id', 'slot_key']);
+                $table->index(['order_id', 'order_run_id', 'slot_key'],'precheck_run_slot_idx');
             });
         }
 
