@@ -318,7 +318,11 @@ if (preg_match('#^/admin/auszahlung/(\d+)/bezahlt$#',$path,$m)&&$method==='POST'
     require_admin();
     $st=db()->prepare("SELECT * FROM payout_requests WHERE id=?");$st->execute([(int)$m[1]]);$r=$st->fetch();if(!$r)not_found();
 
-    if($r['status']!=='paid'){
+    if($r['status']!=='released'){
+        flash('error','Eine Auszahlung kann erst nach dem Status „freigegeben“ als bezahlt markiert werden.');
+        redirect('/admin/auszahlungen');
+    }
+    {
         db()->beginTransaction();
         try{
             db()->prepare("UPDATE payout_requests SET status='paid',updated_at=NOW() WHERE id=?")->execute([$r['id']]);
