@@ -1012,3 +1012,46 @@ if (preg_match('#^/individuelle-angebote/(\d+)/(annehmen|ablehnen)$#',$path,$m) 
     flash('success','Individuelles Angebot angenommen. Auftrag '.$no.' wurde erstellt.');redirect('/auftrag/'.$no);
 }
 
+
+
+if (preg_match('#^/auftrag/(\d{8})/optionen$#',$path,$m) && $method==='POST') {
+    $s=require_seller();
+    $q=db()->prepare("SELECT o.*,f.id offer_id FROM orders o JOIN offers f ON f.id=o.offer_id WHERE o.order_no=? AND o.seller_id=?");
+    $q->execute([$m[1],$s['id']]);$o=$q->fetch();if(!$o)not_found();
+    if($o['status']!=='precheck' || $o['started_at']){flash('error','Zusatzoptionen können von dir nur vor dem tatsächlichen Auftragsstart geändert werden.');redirect('/auftrag/'.$o['order_no']);}
+
+    $requested=array_values(array_unique(array_map('intval',(array)($_POST['option_ids']??[]))));
+    $selected=[];
+    if($requested){
+        $ph=implode(',',array_fill(0,count($requested),'?'));
+        $args=array_merge([$o['offer_id']],$requested);
+        $q=db()->prepare("SELECT * FROM offer_options WHERE offer_id=? AND active=1 AND id IN ($ph) ORDER BY id");
+        $q->execute($args);$selected=$q->fetchAll();
+        if(count($selected)!==count($requested)){flash('error','Mindestens eine ausgewählte Option ist nicht mehr verfügbar.');redirect('/auftrag/'.$o['order_no']);}
+    }
+
+    $oldQ=db()->prepare("SELECT COALESCE(SUM(price_snapshot),0) FROM order_options WHERE order_id=?");$oldQ->execute([$o['id']]);$oldTotal=(float)$oldQ->fetchColumn();
+    $newTotal=0.0;foreach($selected as $opt)$newTotal+=(float)$opt['price'];
+    $delta=round($newTotal-$oldTotal,2);
+
+    db()->beginTransaction();
+    try{
+        db()->prepare("DELETE FROM order_options WHERE order_id=?")->execute([$o['id']]);
+        foreach($selected as $opt){
+            db()->prepare("INSERT INTO order_options(order_id,offer_option_id,label_snapshot,price_snapshot) VALUES(?,?,?,?)")
+              ->execute([$o['id'],$opt['id'],$opt['label'],$opt['price']]);
+        }
+        if(abs($delta)>0.0001){
+            db()->prepare("UPDATE orders SET total_compensation=total_compensation+?,updated_at=NOW() WHERE id=?")->execute([$delta,$o['id']]);
+            db()->prepare("INSERT INTO wallet_entries(seller_id,order_id,entry_type,amount,description) VALUES(?,?,'reserved',?,'Optionsänderung vor Auftragsstart')")
+              ->execute([$s['id'],$o['id'],$delta]);
+        }
+        db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")
+          ->execute([$o['id'],'Zusatzoptionen vor Auftragsstart aktualisiert. Änderung des Auftragswerts: '.money($delta).'.']);
+        log_event('order.options_changed',(int)$s['id'],(int)$o['id'],['option_ids'=>$requested,'old_options_total'=>$oldTotal,'new_options_total'=>$newTotal,'delta'=>$delta]);
+        db()->commit();
+    }catch(Throwable $e){db()->rollBack();throw $e;}
+
+    flash('success','Zusatzoptionen gespeichert. Neuer Auftragswert: '.money((float)$o['total_compensation']+$delta).'.');
+    redirect('/auftrag/'.$o['order_no']);
+}
