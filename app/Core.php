@@ -1553,3 +1553,89 @@ function order_value_breakdown(array|int $order): array {
         'released_amount'=>$order['released_amount']!==null?round((float)$order['released_amount'],2):null,
     ];
 }
+
+
+function stream_private_media(string $absolutePath, string $mime, bool $allowRanges=false, ?string $inlineName=null): never {
+    if(!is_file($absolutePath) || !is_readable($absolutePath)){
+        http_response_code(404);
+        exit('Datei nicht gefunden.');
+    }
+
+    $size=filesize($absolutePath);
+    if($size===false){
+        http_response_code(500);
+        exit('Dateigröße konnte nicht ermittelt werden.');
+    }
+
+    while(ob_get_level()>0) ob_end_clean();
+
+    header('Content-Type: '.$mime);
+    header('X-Content-Type-Options: nosniff');
+    header('Cache-Control: private, no-store, no-cache, must-revalidate, max-age=0');
+    header('Pragma: no-cache');
+    header('Expires: 0');
+    header('Cross-Origin-Resource-Policy: same-origin');
+    header('Referrer-Policy: no-referrer');
+    header('Content-Disposition: inline'.($inlineName!==null?'; filename="'.str_replace(['"',"\r","\n"],'',$inlineName).'"':''));
+
+    $start=0;
+    $end=max(0,$size-1);
+    $status=200;
+
+    if($allowRanges){
+        header('Accept-Ranges: bytes');
+        $range=(string)($_SERVER['HTTP_RANGE']??'');
+        if($range!=='' && preg_match('/^bytes=(\d*)-(\d*)$/',$range,$m)){
+            $rawStart=$m[1];
+            $rawEnd=$m[2];
+
+            if($rawStart==='' && $rawEnd!==''){
+                $suffix=(int)$rawEnd;
+                if($suffix<=0){
+                    http_response_code(416);
+                    header('Content-Range: bytes */'.$size);
+                    exit;
+                }
+                $start=max(0,$size-$suffix);
+            }elseif($rawStart!==''){
+                $start=(int)$rawStart;
+            }
+
+            if($rawEnd!=='' && $rawStart!=='') $end=min($end,(int)$rawEnd);
+
+            if($start<0 || $start>=$size || $end<$start){
+                http_response_code(416);
+                header('Content-Range: bytes */'.$size);
+                exit;
+            }
+
+            $status=206;
+            http_response_code(206);
+            header('Content-Range: bytes '.$start.'-'.$end.'/'.$size);
+        }
+    }
+
+    $length=$end-$start+1;
+    header('Content-Length: '.$length);
+
+    if(($_SERVER['REQUEST_METHOD']??'GET')==='HEAD') exit;
+
+    $handle=fopen($absolutePath,'rb');
+    if($handle===false){
+        http_response_code(500);
+        exit('Datei konnte nicht geöffnet werden.');
+    }
+    if($start>0) fseek($handle,$start);
+
+    $remaining=$length;
+    $chunk=1024*1024;
+    while($remaining>0 && !feof($handle)){
+        $read=fread($handle,min($chunk,$remaining));
+        if($read===false) break;
+        echo $read;
+        $remaining-=strlen($read);
+        if(connection_aborted()) break;
+    }
+    fclose($handle);
+    exit;
+}
