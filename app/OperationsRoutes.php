@@ -600,7 +600,8 @@ if ($path==='/admin/systemausfaelle' && $method==='POST') {
             $tq->execute([$orderId,$startSql,$endSql]);$taskIds=array_map('intval',array_column($tq->fetchAll(),'id'));
 
             $int=(int)$seconds;
-            db()->exec("UPDATE evidence_windows SET starts_at=DATE_ADD(starts_at,INTERVAL {$int} SECOND),ends_at=DATE_ADD(ends_at,INTERVAL {$int} SECOND),grace_ends_at=CASE WHEN grace_ends_at IS NULL THEN NULL ELSE DATE_ADD(grace_ends_at,INTERVAL {$int} SECOND) END,status=CASE WHEN status='missed' THEN 'planned' ELSE status END WHERE order_id={$orderId} AND COALESCE(grace_ends_at,ends_at)>=".$pdoQuote=db()->quote($startSql));
+            $pdoQuote=db()->quote($startSql);
+            db()->exec("UPDATE evidence_windows SET starts_at=DATE_ADD(starts_at,INTERVAL {$int} SECOND),ends_at=DATE_ADD(ends_at,INTERVAL {$int} SECOND),grace_ends_at=CASE WHEN grace_ends_at IS NULL THEN NULL ELSE DATE_ADD(grace_ends_at,INTERVAL {$int} SECOND) END,status=CASE WHEN status='missed' THEN 'planned' ELSE status END WHERE order_id={$orderId} AND COALESCE(grace_ends_at,ends_at)>=".$pdoQuote);
             db()->exec("UPDATE spontaneous_requests SET due_at=DATE_ADD(due_at,INTERVAL {$int} SECOND),grace_ends_at=CASE WHEN grace_ends_at IS NULL THEN NULL ELSE DATE_ADD(grace_ends_at,INTERVAL {$int} SECOND) END,status=CASE WHEN status='missed' THEN 'requested' ELSE status END WHERE order_id={$orderId} AND COALESCE(grace_ends_at,due_at)>=".$pdoQuote);
             db()->exec("UPDATE order_tasks SET due_at=DATE_ADD(due_at,INTERVAL {$int} SECOND) WHERE order_id={$orderId} AND due_at IS NOT NULL AND due_at>=".$pdoQuote);
             db()->exec("UPDATE revision_rounds SET due_at=DATE_ADD(due_at,INTERVAL {$int} SECOND) WHERE order_id={$orderId} AND due_at IS NOT NULL AND due_at>=".$pdoQuote);
