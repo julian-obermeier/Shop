@@ -851,6 +851,7 @@ if(preg_match('#^/admin/nachweis/(\d+)/ablehnen$#',$path,$m)&&$method==='POST'){
  flash('success','Beanstandung gespeichert.'.($retakeId?' Neuaufnahme wurde angefordert.':'').($violationId?' Möglicher Verstoß wurde zur Prüfung angelegt.':''));
  redirect('/admin/auftrag/'.$ev['order_no']);
 }
+require __DIR__.'/app/SellerAdminRoutes.php';
 require __DIR__.'/app/FeatureRoutes.php';
 require __DIR__.'/app/OperationsRoutes.php';
 require __DIR__.'/app/OrderChangeRoutes.php';
