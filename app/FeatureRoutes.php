@@ -51,34 +51,135 @@ if ($path==='/profil/auszahlung' && $method==='POST') {
 }
 if ($path==='/wallet' && $method==='GET') {
     $s=require_seller();
-    $st=db()->prepare("SELECT * FROM wallet_entries WHERE seller_id=? ORDER BY created_at DESC");$st->execute([$s['id']]);$entries=$st->fetchAll();
-    $sum=db()->prepare("SELECT entry_type,SUM(amount) total FROM wallet_entries WHERE seller_id=? GROUP BY entry_type");$sum->execute([$s['id']]);$tot=[];foreach($sum->fetchAll() as $r)$tot[$r['entry_type']]=$r['total'];
-    $req=db()->prepare("SELECT * FROM payout_requests WHERE seller_id=? ORDER BY created_at DESC");$req->execute([$s['id']]);$requests=$req->fetchAll();
+
+    // Interne administrative Korrekturen wirken auf den Saldo, werden aber bewusst nicht als Einzelbuchung angezeigt.
+    $sum=db()->prepare("SELECT entry_type,SUM(amount) total FROM wallet_entries WHERE seller_id=? GROUP BY entry_type");
+    $sum->execute([$s['id']]);$tot=[];foreach($sum->fetchAll() as $r)$tot[$r['entry_type']]=$r['total'];
+
+    $reviewQ=db()->prepare("SELECT COALESCE(SUM(w.amount),0)
+        FROM wallet_entries w JOIN orders o ON o.id=w.order_id
+        WHERE w.seller_id=? AND w.entry_type='reserved' AND o.status='review'");
+    $reviewQ->execute([$s['id']]);$inReview=(float)$reviewQ->fetchColumn();
+    $reserved=max(0,(float)($tot['reserved']??0)-$inReview);
     $available=(float)($tot['available']??0)+(float)($tot['adjustment']??0)-(float)($tot['paid']??0);
-    $p=db()->prepare("SELECT * FROM payout_profiles WHERE seller_id=?");$p->execute([$s['id']]);$profile=$p->fetch()?:[];
+    $paid=(float)($tot['paid']??0);
+    $cancelled=(float)($tot['cancelled']??0);
+
+    $entriesQ=db()->prepare("SELECT w.id,w.order_id,w.entry_type,w.amount,w.created_at,o.order_no
+        FROM wallet_entries w
+        LEFT JOIN orders o ON o.id=w.order_id
+        WHERE w.seller_id=? AND w.entry_type<>'adjustment'
+        ORDER BY w.created_at DESC,w.id DESC LIMIT 150");
+    $entriesQ->execute([$s['id']]);$entries=$entriesQ->fetchAll();
+
+    $ordersQ=db()->prepare("SELECT o.id,o.order_no,o.status,o.total_compensation,o.released_amount,o.archived_at,f.title,
+        COALESCE(SUM(CASE WHEN w.entry_type='reserved' THEN w.amount ELSE 0 END),0) reserved_amount,
+        COALESCE(SUM(CASE WHEN w.entry_type='available' THEN w.amount ELSE 0 END),0) available_amount,
+        COALESCE(SUM(CASE WHEN w.entry_type='paid' THEN w.amount ELSE 0 END),0) paid_amount,
+        COALESCE(SUM(CASE WHEN w.entry_type='cancelled' THEN w.amount ELSE 0 END),0) cancelled_amount
+        FROM orders o
+        JOIN offers f ON f.id=o.offer_id
+        LEFT JOIN wallet_entries w ON w.order_id=o.id AND w.entry_type<>'adjustment'
+        WHERE o.seller_id=?
+        GROUP BY o.id,o.order_no,o.status,o.total_compensation,o.released_amount,o.archived_at,f.title
+        ORDER BY o.created_at DESC");
+    $ordersQ->execute([$s['id']]);$orderFinance=$ordersQ->fetchAll();
+
+    $req=db()->prepare("SELECT * FROM payout_requests WHERE seller_id=? ORDER BY created_at DESC");
+    $req->execute([$s['id']]);$requests=$req->fetchAll();
+
+    $p=db()->prepare("SELECT * FROM payout_profiles WHERE seller_id=?");
+    $p->execute([$s['id']]);$profile=$p->fetch()?:[];
     $minimum=max(0,(float)setting_value('payout_min','10.00'));
     $bankEnabled=setting_value('payout_bank_enabled','1')==='1';
     $paypalEnabled=setting_value('payout_paypal_enabled','1')==='1';
     $processingLabel=payout_processing_label();
     $nextProcessing=next_payout_processing_date();
-    $feeLabel=function(string $method): string {
-        $type=(string)setting_value('payout_'.$method.'_fee_type','none');
-        $value=max(0,(float)setting_value('payout_'.$method.'_fee_value','0'));
+
+    $feeConfig=[
+      'bank'=>[
+        'type'=>(string)setting_value('payout_bank_fee_type','none'),
+        'value'=>max(0,(float)setting_value('payout_bank_fee_value','0')),
+      ],
+      'paypal'=>[
+        'type'=>(string)setting_value('payout_paypal_fee_type','none'),
+        'value'=>max(0,(float)setting_value('payout_paypal_fee_value','0')),
+      ],
+    ];
+    $feeLabel=function(string $method) use($feeConfig): string {
+        $type=$feeConfig[$method]['type'];$value=$feeConfig[$method]['value'];
         if($type==='fixed') return money($value);
         if($type==='percent') return rtrim(rtrim(number_format($value,2,',','.'),'0'),',').' %';
         return 'keine';
     };
+    $walletLabels=[
+      'reserved'=>'Vorgemerkt',
+      'review'=>'In Prüfung',
+      'available'=>'Verfügbar',
+      'paid'=>'Ausgezahlt',
+      'cancelled'=>'Storniert / abgelehnt',
+    ];
+    $payoutLabels=[
+      'requested'=>'Beantragt',
+      'review'=>'In Prüfung',
+      'released'=>'Freigegeben',
+      'paid'=>'Ausgezahlt',
+      'withdrawn'=>'Zurückgezogen',
+      'rejected'=>'Abgelehnt',
+    ];
+
     ob_start();?>
-    <div class="dashboard-head"><div><div class="eyebrow">Finanzen</div><h1>Wallet</h1></div><a class="btn secondary" href="<?=e(url('/profil'))?>">Auszahlungsdaten</a></div>
-    <div class="grid"><div class="card"><div class="meta">Vorgemerkt</div><div class="stat"><?=money($tot['reserved']??0)?></div></div><div class="card"><div class="meta">Verfügbar</div><div class="stat"><?=money($available)?></div></div><div class="card"><div class="meta">Ausgezahlt</div><div class="stat"><?=money($tot['paid']??0)?></div></div></div>
+    <div class="dashboard-head"><div><div class="eyebrow">Finanzen</div><h1>Wallet</h1><p class="meta">Administrative Saldo-Korrekturen werden nicht als Einzelbuchung angezeigt; der aktuelle verfügbare Saldo berücksichtigt sie automatisch.</p></div><a class="btn secondary" href="<?=e(url('/profil'))?>">Auszahlungsdaten</a></div>
+
+    <div class="grid">
+      <div class="card"><div class="meta">Vorgemerkt</div><div class="stat"><?=money($reserved)?></div></div>
+      <div class="card"><div class="meta">In Prüfung</div><div class="stat"><?=money($inReview)?></div></div>
+      <div class="card"><div class="meta">Verfügbar</div><div class="stat"><?=money($available)?></div></div>
+      <div class="card"><div class="meta">Ausgezahlt</div><div class="stat"><?=money($paid)?></div></div>
+      <div class="card"><div class="meta">Storniert / abgelehnt</div><div class="stat"><?=money($cancelled)?></div></div>
+    </div>
+
     <h2>Auszahlung beantragen</h2>
-    <form class="panel" method="post" action="<?=e(url('/wallet/auszahlung'))?>"><?=csrf_field()?>
-      <div class="form-grid"><label>Betrag (€)<input type="number" name="amount" step=".01" min="<?=e((string)$minimum)?>" max="<?=e((string)max(0,$available))?>" required></label><label>Methode<select name="method"><?php if($bankEnabled):?><option value="bank">Banküberweisung · Gebühr <?=e($feeLabel('bank'))?></option><?php endif;?><?php if($paypalEnabled):?><option value="paypal">PayPal · Gebühr <?=e($feeLabel('paypal'))?></option><?php endif;?></select></label></div>
-      <p class="meta">Mindestauszahlung: <?=money($minimum)?> · Bearbeitungstage: <?=e($processingLabel)?><?php if($nextProcessing):?> · nächster vorgesehener Termin: <?=e($nextProcessing->format('d.m.Y'))?><?php endif;?>. Es ist nur ein offener Auszahlungsantrag gleichzeitig möglich. Zahlungsdaten und Bearbeitungstermin werden bei Antragstellung als Snapshot gespeichert.</p><button class="btn">Auszahlung beantragen</button>
+    <?php if($bankEnabled||$paypalEnabled):?>
+    <form class="panel" method="post" action="<?=e(url('/wallet/auszahlung'))?>" id="payout-request-form"><?=csrf_field()?>
+      <div class="form-grid">
+        <label>Betrag (€)<input id="payout-amount" type="number" name="amount" step=".01" min="<?=e((string)$minimum)?>" max="<?=e((string)max(0,$available))?>" required></label>
+        <label>Methode<select id="payout-method" name="method"><?php if($bankEnabled):?><option value="bank">Banküberweisung · Gebühr <?=e($feeLabel('bank'))?></option><?php endif;?><?php if($paypalEnabled):?><option value="paypal">PayPal · Gebühr <?=e($feeLabel('paypal'))?></option><?php endif;?></select></label>
+      </div>
+      <div class="card" id="payout-preview"><strong>Auszahlungsvorschau</strong><p class="meta">Betrag eingeben, um Gebühr, Nettobetrag und verbleibenden Wallet-Saldo zu sehen.</p></div>
+      <p class="meta">Mindestauszahlung: <?=money($minimum)?> · Bearbeitungstage: <?=e($processingLabel)?><?php if($nextProcessing):?> · nächster vorgesehener Termin: <?=e($nextProcessing->format('d.m.Y'))?><?php endif;?>. Es ist nur ein offener Auszahlungsantrag gleichzeitig möglich. Zahlungsdaten und Bearbeitungstermin werden bei Antragstellung als Snapshot gespeichert.</p>
+      <button class="btn" <?=$available<$minimum?'disabled':''?>>Auszahlung beantragen</button>
     </form>
-    <h2>Auszahlungsverlauf</h2><div class="table-wrap"><table><thead><tr><th>Datum</th><th>Betrag</th><th>Netto</th><th>Methode</th><th>Bearbeitung</th><th>Status</th><th></th></tr></thead><tbody>
-    <?php foreach($requests as $r):?><tr><td><?=e(date('d.m.Y H:i',strtotime($r['created_at'])))?></td><td><?=money($r['amount'])?></td><td><?=money($r['net_amount'])?></td><td><?=e($r['method'])?></td><td><?=e($r['scheduled_processing_date']?date('d.m.Y',strtotime($r['scheduled_processing_date'])):'–')?></td><td><?=e($r['status'])?></td><td><?php if($r['status']==='requested'):?><form method="post" action="<?=e(url('/wallet/auszahlung/'.$r['id'].'/zurueckziehen'))?>"><?=csrf_field()?><button class="btn secondary">Zurückziehen</button></form><?php endif;?></td></tr><?php endforeach;?>
+    <script>
+    (()=>{const amount=document.getElementById('payout-amount'),method=document.getElementById('payout-method'),box=document.getElementById('payout-preview');if(!amount||!method||!box)return;
+      const cfg=<?=json_encode($feeConfig,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES)?>,available=<?=json_encode($available)?>;
+      const eur=n=>new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR'}).format(Math.max(0,n||0));
+      const update=()=>{const gross=Math.max(0,Number(amount.value||0)),f=cfg[method.value]||{type:'none',value:0};let fee=0;if(f.type==='fixed')fee=Number(f.value||0);if(f.type==='percent')fee=Math.round(gross*Number(f.value||0))/100;fee=Math.min(gross,fee);const net=Math.max(0,gross-fee),remain=Math.max(0,available-gross);box.innerHTML='<strong>Auszahlungsvorschau</strong><p>Betrag: <strong>'+eur(gross)+'</strong><br>Gebühr: <strong>'+eur(fee)+'</strong><br>Nettoauszahlung: <strong>'+eur(net)+'</strong><br>Verbleibender Wallet-Saldo: <strong>'+eur(remain)+'</strong></p>';};
+      amount.addEventListener('input',update);method.addEventListener('change',update);
+    })();
+    </script>
+    <?php else:?><div class="panel"><strong>Aktuell ist keine Auszahlungsmethode aktiviert.</strong></div><?php endif;?>
+
+    <h2>Auftragsbezogene Finanzübersicht</h2>
+    <div class="table-wrap"><table><thead><tr><th>Auftrag</th><th>Status</th><th>Auftragswert</th><th>Vorgemerkt</th><th>Freigegeben</th><th>Ausgezahlt</th><th>Storniert</th></tr></thead><tbody>
+    <?php foreach($orderFinance as $row):
+      $financialStatus=$row['status']==='review'?'In Prüfung':($row['status']==='rejected'?'Abgelehnt':($row['archived_at']?'Archiviert':$row['status']));
+    ?><tr><td><a href="<?=e(url('/auftrag/'.$row['order_no']))?>"><?=e($row['order_no'])?> · <?=e($row['title'])?></a></td><td><?=e($financialStatus)?></td><td><?=money($row['total_compensation'])?></td><td><?=money($row['reserved_amount'])?></td><td><?=money($row['available_amount'])?></td><td><?=money($row['paid_amount'])?></td><td><?=money($row['cancelled_amount'])?></td></tr><?php endforeach;?>
+    <?php if(!$orderFinance):?><tr><td colspan="7">Noch keine auftragsbezogenen Finanzdaten vorhanden.</td></tr><?php endif;?>
     </tbody></table></div>
+
+    <h2>Buchungsverlauf</h2>
+    <div class="table-wrap"><table><thead><tr><th>Zeit</th><th>Status</th><th>Auftrag</th><th>Betrag</th></tr></thead><tbody>
+    <?php foreach($entries as $entry):?><tr><td><?=e(date('d.m.Y H:i',strtotime($entry['created_at'])))?></td><td><?=e($walletLabels[$entry['entry_type']]??$entry['entry_type'])?></td><td><?=e($entry['order_no']?:'–')?></td><td><?=money($entry['amount'])?></td></tr><?php endforeach;?>
+    <?php if(!$entries):?><tr><td colspan="4">Noch keine sichtbaren Wallet-Buchungen vorhanden.</td></tr><?php endif;?>
+    </tbody></table></div>
+
+    <h2>Auszahlungsverlauf</h2>
+    <div class="table-wrap"><table><thead><tr><th>Datum</th><th>Betrag</th><th>Gebühr</th><th>Netto</th><th>Methode</th><th>Bearbeitung</th><th>Status</th><th></th></tr></thead><tbody>
+    <?php foreach($requests as $r):?><tr><td><?=e(date('d.m.Y H:i',strtotime($r['created_at'])))?></td><td><?=money($r['amount'])?></td><td><?=money($r['fee'])?></td><td><?=money($r['net_amount'])?></td><td><?=e($r['method']==='bank'?'Banküberweisung':($r['method']==='paypal'?'PayPal':$r['method']))?></td><td><?=e($r['scheduled_processing_date']?date('d.m.Y',strtotime($r['scheduled_processing_date'])):'–')?></td><td><?=e($payoutLabels[$r['status']]??$r['status'])?></td><td><?php if($r['status']==='requested'):?><form method="post" action="<?=e(url('/wallet/auszahlung/'.$r['id'].'/zurueckziehen'))?>"><?=csrf_field()?><button class="btn secondary">Zurückziehen</button></form><?php endif;?></td></tr><?php endforeach;?>
+    <?php if(!$requests):?><tr><td colspan="8">Noch keine Auszahlungen beantragt.</td></tr><?php endif;?>
+    </tbody></table></div>
+
     <?php render('Wallet',ob_get_clean());exit;
 }
 if ($path==='/wallet/auszahlung' && $method==='POST') {
