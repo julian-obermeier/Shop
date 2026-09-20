@@ -884,8 +884,12 @@ if (preg_match('#^/auftrag/(\d{8})/digital$#',$path,$m)&&$method==='POST') {
             $firstAsset['mime']??null,$firstAsset['sha256']??null
           ]);
         db()->prepare("UPDATE revision_rounds SET status='submitted' WHERE order_id=? AND status='open'")->execute([$o['id']]);
-        db()->prepare("UPDATE orders SET status='review',updated_at=NOW() WHERE id=?")->execute([$o['id']]);
         db()->prepare("UPDATE order_components SET status='review',updated_at=NOW() WHERE order_id=? AND component_type='digital' AND status IN('precheck','execution')")->execute([$o['id']]);
+        $physicalQ=db()->prepare("SELECT COUNT(*) FROM order_components WHERE order_id=? AND component_type='physical'");
+        $physicalQ->execute([$o['id']]);$hasPhysicalComponent=(int)$physicalQ->fetchColumn()>0;
+        if(!$hasPhysicalComponent){
+            db()->prepare("UPDATE orders SET status='review',updated_at=NOW() WHERE id=?")->execute([$o['id']]);
+        }
         db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")->execute([$o['id'],'Digitale Version V'.$vn.' wurde eingereicht und wartet auf Prüfung.']);
         log_event('digital.version_submitted',(int)$s['id'],(int)$o['id'],[
           'version'=>$vn,
@@ -913,7 +917,11 @@ if (preg_match('#^/admin/auftrag/(\\d{8})/revision$#',$path,$m)&&$method==='POST
     $due=$dueObj->format('Y-m-d H:i:s');$graceEnd=$dueObj->modify('+'.(int)$digitalRules['revision']['grace_minutes'].' minutes')->format('Y-m-d H:i:s');
     db()->prepare("INSERT INTO revision_rounds(order_id,round_no,due_at,grace_ends_at) VALUES(?,?,?,?)")->execute([$o['id'],$rn,$due,$graceEnd]);$rid=(int)db()->lastInsertId();
     foreach(array_filter(array_map('trim',preg_split('/\\r?\\n/',post('items')))) as $item){db()->prepare("INSERT INTO revision_items(revision_round_id,description) VALUES(?,?)")->execute([$rid,$item]);}
-    db()->prepare("UPDATE orders SET status='review',updated_at=NOW() WHERE id=?")->execute([$o['id']]);db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")->execute([$o['id'],'Revision '.$rn.' wurde angefordert. Frist: '.$dueObj->format('d.m.Y H:i').' · Nachfrist bis '.$dueObj->modify('+'.(int)$digitalRules['revision']['grace_minutes'].' minutes')->format('d.m.Y H:i').'.']);notify_seller((int)$o['seller_id'],'digital.revision_requested','Revision angefordert','Für Auftrag '.$o['order_no'].' wurde Revision '.$rn.' angefordert. Frist: '.$dueObj->format('d.m.Y H:i').'.','/auftrag/'.$o['order_no'].'/digital','revision-'.$rid.'-requested',true);flash('success','Revision angefordert.');redirect('/admin/auftrag/'.$o['order_no']);
+    db()->prepare("UPDATE order_components SET status='execution',updated_at=NOW() WHERE order_id=? AND component_type='digital' AND status NOT IN('completed','rejected')")->execute([$o['id']]);
+    $physicalQ=db()->prepare("SELECT COUNT(*) FROM order_components WHERE order_id=? AND component_type='physical'");
+    $physicalQ->execute([$o['id']]);$hasPhysicalComponent=(int)$physicalQ->fetchColumn()>0;
+    if(!$hasPhysicalComponent)db()->prepare("UPDATE orders SET status='review',updated_at=NOW() WHERE id=?")->execute([$o['id']]);
+    db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")->execute([$o['id'],'Revision '.$rn.' wurde angefordert. Frist: '.$dueObj->format('d.m.Y H:i').' · Nachfrist bis '.$dueObj->modify('+'.(int)$digitalRules['revision']['grace_minutes'].' minutes')->format('d.m.Y H:i').'.']);notify_seller((int)$o['seller_id'],'digital.revision_requested','Revision angefordert','Für Auftrag '.$o['order_no'].' wurde Revision '.$rn.' angefordert. Frist: '.$dueObj->format('d.m.Y H:i').'.','/auftrag/'.$o['order_no'].'/digital','revision-'.$rid.'-requested',true);flash('success','Revision angefordert.');redirect('/admin/auftrag/'.$o['order_no']);
 }
 
 
