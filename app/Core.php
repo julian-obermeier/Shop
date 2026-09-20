@@ -582,6 +582,58 @@ function instantiate_planned_order_tasks(int $orderId): void {
     }
 }
 
+function sync_option_requirement_tasks(int $orderId, ?int $effectiveDayOverride = null): void {
+    $q=db()->prepare("SELECT o.duration_days,o.started_at,o.planned_start_date FROM orders o WHERE o.id=?");
+    $q->execute([$orderId]);$order=$q->fetch();if(!$order)return;
+
+    $dayRows=db()->prepare("SELECT day_no,calendar_date FROM order_days WHERE order_id=? ORDER BY day_no");
+    $dayRows->execute([$orderId]);$calendar=[];
+    foreach($dayRows->fetchAll() as $row)$calendar[(int)$row['day_no']]=$row['calendar_date'];
+
+    $fallback=$order['started_at']?date('Y-m-d',strtotime($order['started_at'])):($order['planned_start_date']?:date('Y-m-d'));
+    $q=db()->prepare("SELECT * FROM order_options WHERE order_id=? ORDER BY id");
+    $q->execute([$orderId]);$options=$q->fetchAll();
+    $selectedIds=array_map(fn($x)=>(int)$x['offer_option_id'],$options);
+
+    if($selectedIds){
+        $ph=implode(',',array_fill(0,count($selectedIds),'?'));
+        $args=array_merge([$orderId],$selectedIds);
+        db()->prepare("DELETE FROM order_tasks WHERE order_id=? AND source_offer_option_id IS NOT NULL AND status IN('open','rejected') AND source_offer_option_id NOT IN ($ph)")
+            ->execute($args);
+    }else{
+        db()->prepare("DELETE FROM order_tasks WHERE order_id=? AND source_offer_option_id IS NOT NULL AND status IN('open','rejected')")
+            ->execute([$orderId]);
+    }
+
+    foreach($options as $opt){
+        $req=json_decode((string)($opt['requirements_snapshot_json']??''),true);
+        if(!is_array($req))$req=[];
+        $instructions=trim((string)($req['instructions']??''));
+        $requiredPhotos=max(0,(int)($req['required_photos']??0));
+        if($instructions==='' && $requiredPhotos<1) continue;
+
+        $dayNo=$effectiveDayOverride!==null?max(1,$effectiveDayOverride):max(1,(int)($req['day_no']??1));
+        $date=$calendar[$dayNo]??date('Y-m-d',strtotime($fallback.' +'.($dayNo-1).' day'));
+        $time=(string)($req['due_time']??'23:59:00');
+        if(preg_match('/^\d{2}:\d{2}$/',$time))$time.=':00';
+        if(!preg_match('/^\d{2}:\d{2}:\d{2}$/',$time))$time='23:59:00';
+        $violation=array_key_exists('violation_enabled',$req)?((bool)$req['violation_enabled']?1:0):1;
+        $fields=json_encode(['response_type'=>'none'],JSON_UNESCAPED_UNICODE);
+
+        $existing=db()->prepare("SELECT id,status FROM order_tasks WHERE order_id=? AND source_offer_option_id=? ORDER BY id DESC LIMIT 1");
+        $existing->execute([$orderId,$opt['offer_option_id']]);$task=$existing->fetch();
+        if($task && in_array($task['status'],['submitted','accepted'],true)) continue;
+
+        if($task){
+            db()->prepare("UPDATE order_tasks SET title=?,description=?,due_at=?,planned_day_no=?,fields_json=?,required_photos=?,violation_enabled=?,status='open' WHERE id=?")
+              ->execute(['Zusatzoption: '.$opt['label_snapshot'],$instructions,$date.' '.$time,$dayNo,$fields,$requiredPhotos,$violation,$task['id']]);
+        }else{
+            db()->prepare("INSERT INTO order_tasks(order_id,source_offer_option_id,title,description,due_at,planned_day_no,fields_json,required_photos,compensation,violation_enabled,status) VALUES(?,?,?,?,?,?,?,?,0,?,'open')")
+              ->execute([$orderId,$opt['offer_option_id'],'Zusatzoption: '.$opt['label_snapshot'],$instructions,$date.' '.$time,$dayNo,$fields,$requiredPhotos,$violation]);
+        }
+    }
+}
+
 function schedule_order_days(int $orderId, ?DateTimeImmutable $startedAt = null): void {
     $q = db()->prepare('SELECT o.duration_days FROM orders o WHERE o.id=?');
     $q->execute([$orderId]);
@@ -706,6 +758,7 @@ function start_order_on_planned_date(int $orderId, ?DateTimeImmutable $now = nul
 
         schedule_order_days($orderId, $planned);
         instantiate_planned_order_tasks($orderId);
+        sync_option_requirement_tasks($orderId);
         schedule_existing_extra_days($orderId);
         $pdo->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")
             ->execute([$orderId,'Der vereinbarte Starttag ist erreicht. Der Auftrag wurde automatisch gestartet.']);
