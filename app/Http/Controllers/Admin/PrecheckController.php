@@ -18,7 +18,24 @@ class PrecheckController extends Controller
             ->whereIn('status',['submitted','resubmit'])
             ->latest('submitted_at')
             ->paginate(30);
-        return view('admin.prechecks.index',compact('prechecks'));
+
+        $evidenceByPrecheck=[];
+        foreach($prechecks as $precheck){
+            $runId=DB::table('order_runs')
+                ->where('order_id',$precheck->order_id)
+                ->where('run_number',$precheck->order->series_number)
+                ->value('id');
+
+            $evidenceByPrecheck[$precheck->id]=DB::table('order_precheck_evidences')
+                ->where('order_precheck_id',$precheck->id)
+                ->where('order_run_id',$runId)
+                ->orderByDesc('id')
+                ->get()
+                ->unique('slot_key')
+                ->values();
+        }
+
+        return view('admin.prechecks.index',compact('prechecks','evidenceByPrecheck'));
     }
 
     public function evidence(int $evidence): StreamedResponse
