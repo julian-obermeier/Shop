@@ -1729,3 +1729,140 @@ function stream_private_media(string $absolutePath, string $mime, bool $allowRan
     fclose($handle);
     exit;
 }
+
+
+function deadline_escalation_level(string|DateTimeInterface $due, ?DateTimeImmutable $now=null): string {
+    $tz=new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'));
+    $now=($now??new DateTimeImmutable('now',$tz))->setTimezone($tz);
+    $dueAt=$due instanceof DateTimeInterface
+        ? new DateTimeImmutable($due->format('Y-m-d H:i:s'),$tz)
+        : new DateTimeImmutable($due,$tz);
+
+    $diff=$dueAt->getTimestamp()-$now->getTimestamp();
+    if($diff<0) return 'overdue';
+
+    $critical=max(1,(int)setting_value('escalation_critical_minutes','120'))*60;
+    $soon=max((int)setting_value('escalation_soon_minutes','1440'),(int)ceil($critical/60))*60;
+
+    if($diff<=$critical) return 'critical';
+    if($diff<=$soon) return 'soon';
+    return 'normal';
+}
+
+function deadline_calendar_group(string|DateTimeInterface $due, ?DateTimeImmutable $now=null): string {
+    $tz=new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'));
+    $now=($now??new DateTimeImmutable('now',$tz))->setTimezone($tz);
+    $dueAt=$due instanceof DateTimeInterface
+        ? new DateTimeImmutable($due->format('Y-m-d H:i:s'),$tz)
+        : new DateTimeImmutable($due,$tz);
+
+    if($dueAt<$now) return 'overdue';
+    $today=$now->format('Y-m-d');
+    $date=$dueAt->format('Y-m-d');
+    if($date===$today) return 'today';
+    if($date===$now->modify('+1 day')->format('Y-m-d')) return 'tomorrow';
+    return 'later';
+}
+
+function notify_admin(string $type, string $title, string $body, ?string $link=null, ?string $dedupeKey=null, bool $email=false): void {
+    $inserted=true;
+    try{
+        $q=db()->prepare('INSERT INTO notifications(seller_id,notification_type,title,body,link,dedupe_key) VALUES(NULL,?,?,?,?,?)');
+        $q->execute([$type,$title,$body,$link,$dedupeKey]);
+    }catch(PDOException $e){
+        if($dedupeKey!==null && ($e->errorInfo[1]??null)===1062) $inserted=false;
+        else throw $e;
+    }
+
+    if(!$inserted || !$email) return;
+    $q=db()->query('SELECT email FROM admins ORDER BY id LIMIT 1');
+    $to=$q->fetchColumn();
+    if($to){
+        send_app_mail((string)$to,$title,'<p>'.e($body).'</p>'.($link?'<p><a href="'.e(url($link)).'">In der Plattform öffnen</a></p>':''));
+    }
+}
+
+function collect_admin_deadlines(): array {
+    $deadlines=[];
+
+    $add=static function(array $rows, string $type, string $label, string $idKey='id') use (&$deadlines): void {
+        foreach($rows as $row){
+            if(empty($row['due_at'])) continue;
+            $row['deadline_type']=$type;
+            $row['deadline_label']=$label;
+            $row['entity_id']=(int)($row[$idKey]??0);
+            $row['escalation_level']=deadline_escalation_level($row['due_at']);
+            $row['calendar_group']=deadline_calendar_group($row['due_at']);
+            $deadlines[]=$row;
+        }
+    };
+
+    $sqlBase="SELECT o.id order_id,o.order_no,o.seller_id,CONCAT(s.first_name,' ',s.last_name) seller_name,
+                    f.title offer_title,f.category_id,c.name category_name";
+
+    $rows=db()->query($sqlBase.",w.id,w.ends_at due_at,w.status,CONCAT('Tag ',w.day_no,' / ',w.window_key) details
+        FROM evidence_windows w
+        JOIN orders o ON o.id=w.order_id
+        JOIN sellers s ON s.id=o.seller_id
+        JOIN offers f ON f.id=o.offer_id
+        JOIN categories c ON c.id=f.category_id
+        WHERE w.status IN('planned','open') AND o.status='running' AND o.archived_at IS NULL")->fetchAll();
+    $add($rows,'evidence','Nachweisfenster');
+
+    $rows=db()->query($sqlBase.",r.id,r.due_at,r.status,r.instructions details
+        FROM spontaneous_requests r
+        JOIN orders o ON o.id=r.order_id
+        JOIN sellers s ON s.id=o.seller_id
+        JOIN offers f ON f.id=o.offer_id
+        JOIN categories c ON c.id=f.category_id
+        WHERE r.status IN('requested','seen','confirmed') AND o.archived_at IS NULL")->fetchAll();
+    $add($rows,'spontaneous','Spontaner Nachweis');
+
+    $rows=db()->query($sqlBase.",t.id,t.due_at,t.status,t.title details
+        FROM order_tasks t
+        JOIN orders o ON o.id=t.order_id
+        JOIN sellers s ON s.id=o.seller_id
+        JOIN offers f ON f.id=o.offer_id
+        JOIN categories c ON c.id=f.category_id
+        WHERE t.due_at IS NOT NULL AND t.status IN('open','rejected') AND o.archived_at IS NULL")->fetchAll();
+    $add($rows,'task','Zusatzaufgabe');
+
+    $rows=db()->query($sqlBase.",st.id,st.due_at,st.status,st.title details
+        FROM order_shipping_steps st
+        JOIN orders o ON o.id=st.order_id
+        JOIN sellers s ON s.id=o.seller_id
+        JOIN offers f ON f.id=o.offer_id
+        JOIN categories c ON c.id=f.category_id
+        WHERE st.due_at IS NOT NULL AND st.status='open' AND o.status='shipping' AND o.archived_at IS NULL")->fetchAll();
+    $add($rows,'shipping_step','Versand-/Endschritt');
+
+    $rows=db()->query($sqlBase.",rr.id,rr.due_at,rr.status,CONCAT('Revision ',rr.round_no) details
+        FROM revision_rounds rr
+        JOIN orders o ON o.id=rr.order_id
+        JOIN sellers s ON s.id=o.seller_id
+        JOIN offers f ON f.id=o.offer_id
+        JOIN categories c ON c.id=f.category_id
+        WHERE rr.due_at IS NOT NULL AND rr.status='open' AND o.archived_at IS NULL")->fetchAll();
+    $add($rows,'revision','Digitale Revision');
+
+    $rows=db()->query($sqlBase.",o.id,o.shipping_due_at due_at,o.status,'Gesamt-Versandfrist' details
+        FROM orders o
+        JOIN sellers s ON s.id=o.seller_id
+        JOIN offers f ON f.id=o.offer_id
+        JOIN categories c ON c.id=f.category_id
+        WHERE o.shipping_due_at IS NOT NULL AND o.status='shipping' AND o.archived_at IS NULL")->fetchAll();
+    $add($rows,'shipping_overall','Gesamt-Versandfrist','order_id');
+
+    $rows=db()->query("SELECT 0 order_id,'' order_no,a.seller_id,CONCAT(s.first_name,' ',s.last_name) seller_name,
+                              o.title offer_title,o.category_id,c.name category_name,a.id,a.acceptance_deadline due_at,a.status,
+                              'Annahmefrist individuelles Angebot' details
+        FROM offer_assignments a
+        JOIN offers o ON o.id=a.offer_id
+        JOIN sellers s ON s.id=a.seller_id
+        JOIN categories c ON c.id=o.category_id
+        WHERE a.status='assigned'")->fetchAll();
+    $add($rows,'private_offer','Individuelles Angebot');
+
+    usort($deadlines,fn($a,$b)=>strcmp((string)$a['due_at'],(string)$b['due_at']));
+    return $deadlines;
+}
