@@ -625,6 +625,9 @@ if ($path==='/admin/einstellungen'&&$method==='GET') {
       <h2>Fristen & Kommunikation</h2><div class="form-grid">
         <label>Support-E-Mail<input type="email" name="support_email" value="<?=e($set['support_email']??app_config('mail.from',''))?>"></label>
         <label>Grace Period Minuten<input type="number" min="0" name="grace_minutes" value="<?=e($set['grace_minutes']??'60')?>"></label>
+        <label>Eskalation „bald fällig“ ab Restzeit (Min.)<input type="number" min="1" name="escalation_soon_minutes" value="<?=e($set['escalation_soon_minutes']??'1440')?>"></label>
+        <label>Eskalation „kritisch“ ab Restzeit (Min.)<input type="number" min="1" name="escalation_critical_minutes" value="<?=e($set['escalation_critical_minutes']??'120')?>"></label>
+        <label><input type="checkbox" style="width:auto" name="admin_escalation_email_enabled" value="1" <?=($set['admin_escalation_email_enabled']??'0')==='1'?'checked':''?>> Kritische/überfällige Fristen zusätzlich per E-Mail an das Admin-Konto senden</label>
         <label>Morgenfenster<input name="window_morning" value="<?=e($set['window_morning']??'06:00-10:00')?>"></label>
         <label>Mittagsfenster<input name="window_midday" value="<?=e($set['window_midday']??'12:00-16:00')?>"></label>
         <label>Abendfenster<input name="window_evening" value="<?=e($set['window_evening']??'18:00-23:59')?>"></label>
@@ -647,6 +650,8 @@ if ($path==='/admin/einstellungen'&&$method==='POST') {
         flash('error','Bitte mindestens einen festen Bearbeitungstag für Auszahlungen auswählen.');
         redirect('/admin/einstellungen');
     }
+    $soon=max(1,(int)post('escalation_soon_minutes','1440'));
+    $critical=max(1,min($soon,(int)post('escalation_critical_minutes','120')));
     $values=[
       'payout_min'=>post('payout_min','10.00'),
       'payout_processing_weekdays'=>implode(',',$selectedDays),
@@ -666,6 +671,9 @@ if ($path==='/admin/einstellungen'&&$method==='POST') {
       'window_midday'=>post('window_midday','12:00-16:00'),
       'window_evening'=>post('window_evening','18:00-23:59'),
       'grace_minutes'=>post('grace_minutes','60'),
+      'escalation_soon_minutes'=>(string)$soon,
+      'escalation_critical_minutes'=>(string)$critical,
+      'admin_escalation_email_enabled'=>isset($_POST['admin_escalation_email_enabled'])?'1':'0',
       'interim_summary_interval'=>post('interim_summary_interval','7'),
       'image_min_width'=>post('image_min_width','720'),
       'image_min_height'=>post('image_min_height','720'),
