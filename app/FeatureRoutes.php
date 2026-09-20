@@ -1361,20 +1361,49 @@ if (preg_match('#^/auftrag/(\d{8})/spontan/(\d+)$#',$path,$m) && $method==='GET'
     $s=require_seller();
     $q=db()->prepare("SELECT r.*,o.order_no,o.id order_id FROM spontaneous_requests r JOIN orders o ON o.id=r.order_id WHERE o.order_no=? AND r.id=? AND o.seller_id=?");
     $q->execute([$m[1],(int)$m[2],$s['id']]);$r=$q->fetch();if(!$r)not_found();
-    if($r['status']==='requested')db()->prepare("UPDATE spontaneous_requests SET status='seen' WHERE id=?")->execute([$r['id']]);
+    if($r['status']==='requested'){
+        db()->prepare("UPDATE spontaneous_requests SET status='seen' WHERE id=?")->execute([$r['id']]);
+        log_event('spontaneous.seen',(int)$s['id'],(int)$r['order_id'],['request_id'=>(int)$r['id']]);
+        $r['status']='seen';
+    }
     $cnt=db()->prepare("SELECT COUNT(*) FROM evidences WHERE order_id=? AND evidence_type='spontaneous' AND source_type='spontaneous' AND source_id=? AND status IN('submitted','accepted')");
     $cnt->execute([$r['order_id'],$r['id']]);$submitted=(int)$cnt->fetchColumn();
     $grace=new DateTimeImmutable($r['grace_ends_at'],new DateTimeZone((string)app_config('app.timezone','Europe/Berlin')));$expired=new DateTimeImmutable('now',$grace->getTimezone())>$grace;
     ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Spontaner Nachweis · <?=e($r['order_no'])?></div><h1>Zusätzliche Fotoanforderung</h1></div><a class="btn secondary" href="<?=e(url('/auftrag/'.$r['order_no']))?>">Zum Auftrag</a></div>
     <div class="grid two"><section class="panel"><h2>Anforderung</h2><p><?=nl2br(e($r['instructions']))?></p><p><strong><?=e($submitted)?> / <?=e($r['required_count'])?></strong> Fotos eingereicht</p><p class="meta">Reguläre Frist: <?=e(date('d.m.Y H:i',strtotime($r['due_at'])))?><br>Nachfrist bis: <?=e(date('d.m.Y H:i',strtotime($r['grace_ends_at'])))?></p></section>
-    <section class="panel"><h2>Live-Foto einreichen</h2><?php if(!$expired && $submitted<(int)$r['required_count']):?><form method="post" enctype="multipart/form-data"><?=csrf_field()?><label>Foto<input data-camera-input type="file" name="evidence" required></label><button class="btn">Foto einreichen</button></form><?php elseif($submitted>=(int)$r['required_count']):?><p class="badge ok">Anforderung vollständig eingereicht.</p><?php else:?><p class="badge bad">Nachfrist abgelaufen.</p><?php endif;?></section></div>
+    <section class="panel"><h2>Live-Foto einreichen</h2>
+      <?php if($expired && $submitted<(int)$r['required_count']):?><p class="badge bad">Nachfrist abgelaufen.</p>
+      <?php elseif($submitted>=(int)$r['required_count'] || in_array($r['status'],['uploaded','reviewed'],true)):?><p class="badge ok">Anforderung vollständig eingereicht.</p>
+      <?php elseif($r['status']==='seen'):?><p class="meta">Bestätige zuerst, dass du die spontane Anforderung gelesen hast. Erst danach wird die Fotoeinreichung freigeschaltet.</p><form method="post" action="<?=e(url('/auftrag/'.$r['order_no'].'/spontan/'.$r['id'].'/bestaetigen'))?>"><?=csrf_field()?><button class="btn">Anforderung bestätigen</button></form>
+      <?php elseif($r['status']==='confirmed'):?><form method="post" enctype="multipart/form-data"><?=csrf_field()?><label>Foto<input data-camera-input type="file" name="evidence" required></label><button class="btn">Foto einreichen</button></form>
+      <?php else:?><p class="meta">Status: <?=e($r['status'])?></p><?php endif;?>
+    </section></div>
     <?php render('Spontaner Nachweis',ob_get_clean());exit;
+}
+
+if (preg_match('#^/auftrag/(\\d{8})/spontan/(\\d+)/bestaetigen$#',$path,$m) && $method==='POST') {
+    $s=require_seller();
+    $q=db()->prepare("SELECT r.*,o.id order_id,o.order_no FROM spontaneous_requests r JOIN orders o ON o.id=r.order_id WHERE o.order_no=? AND r.id=? AND o.seller_id=? AND o.status='running'");
+    $q->execute([$m[1],(int)$m[2],$s['id']]);$r=$q->fetch();if(!$r)not_found();
+    $tz=new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'));
+    if(new DateTimeImmutable('now',$tz)>new DateTimeImmutable($r['grace_ends_at'],$tz)){
+        flash('error','Die Nachfrist ist bereits abgelaufen.');redirect('/auftrag/'.$r['order_no'].'/spontan/'.$r['id']);
+    }
+    if($r['status']==='seen'){
+        db()->prepare("UPDATE spontaneous_requests SET status='confirmed' WHERE id=? AND status='seen'")->execute([$r['id']]);
+        db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")
+          ->execute([$r['order_id'],'Spontane Fotoanforderung wurde von der Verkäuferin bestätigt.']);
+        log_event('spontaneous.confirmed',(int)$s['id'],(int)$r['order_id'],['request_id'=>(int)$r['id']]);
+        flash('success','Anforderung bestätigt. Du kannst die geforderten Fotos jetzt einreichen.');
+    }
+    redirect('/auftrag/'.$r['order_no'].'/spontan/'.$r['id']);
 }
 
 if (preg_match('#^/auftrag/(\d{8})/spontan/(\d+)$#',$path,$m) && $method==='POST') {
     $s=require_seller();
     $q=db()->prepare("SELECT r.*,o.id order_id,o.order_no FROM spontaneous_requests r JOIN orders o ON o.id=r.order_id WHERE o.order_no=? AND r.id=? AND o.seller_id=? AND o.status='running'");
     $q->execute([$m[1],(int)$m[2],$s['id']]);$r=$q->fetch();if(!$r)not_found();
+    if($r['status']!=='confirmed'){flash('error','Bitte bestätige die spontane Anforderung zuerst.');redirect('/auftrag/'.$r['order_no'].'/spontan/'.$r['id']);}
     $tz=new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'));
     if(new DateTimeImmutable('now',$tz)>new DateTimeImmutable($r['grace_ends_at'],$tz)){flash('error','Die Nachfrist ist abgelaufen.');redirect('/auftrag/'.$r['order_no'].'/spontan/'.$r['id']);}
     try{
