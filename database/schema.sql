@@ -188,6 +188,7 @@ CREATE TABLE IF NOT EXISTS evidences (
  mime_type VARCHAR(120) NOT NULL,
  file_size BIGINT UNSIGNED NOT NULL,
  sha256 CHAR(64) NOT NULL,
+ is_late TINYINT(1) NOT NULL DEFAULT 0,
  status ENUM('submitted','accepted','rejected') NOT NULL DEFAULT 'submitted',
  rejection_reason TEXT NULL,
  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
