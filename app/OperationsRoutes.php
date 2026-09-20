@@ -805,6 +805,7 @@ if (preg_match('#^/admin/angebot/(\d+)/als-vorlage$#',$path,$m) && $method==='PO
     $q=db()->prepare("SELECT label,price,requirements_json,active FROM offer_options WHERE offer_id=? ORDER BY id");$q->execute([$offer['id']]);$options=$q->fetchAll();
     $q=db()->prepare("SELECT sort_order,title,instructions,required_photos,requires_text,requires_checkbox,is_dispatch_step,deadline_hours,active FROM offer_shipping_steps WHERE offer_id=? ORDER BY sort_order,id");$q->execute([$offer['id']]);$steps=$q->fetchAll();
     $q=db()->prepare("SELECT task_library_id,sort_order,title,description,fields_json,required_photos,compensation,violation_enabled,schedule_type,day_no,start_day,interval_days,due_time,active FROM offer_task_plans WHERE offer_id=? ORDER BY sort_order,id");$q->execute([$offer['id']]);$taskPlans=$q->fetchAll();
+    $q=db()->prepare("SELECT category_id,title,component_type,compensation,duration_days,required,sort_order,active FROM offer_components WHERE offer_id=? ORDER BY sort_order,id");$q->execute([$offer['id']]);$components=$q->fetchAll();
 
     $snapshot=[
       'offer'=>[
@@ -815,13 +816,16 @@ if (preg_match('#^/admin/angebot/(\d+)/als-vorlage$#',$path,$m) && $method==='PO
         'duration_days'=>$offer['duration_days']!==null?(int)$offer['duration_days']:null,
         'fulfillment_type'=>$offer['fulfillment_type'],
         'evidence_rules_json'=>$offer['evidence_rules_json'],
+        'digital_rules_json'=>$offer['digital_rules_json']??null,
         'shipping_rules_json'=>$offer['shipping_rules_json'],
         'shipping_address_id'=>$offer['shipping_address_id']!==null?(int)$offer['shipping_address_id']:null,
         'shipping_cost_mode'=>$offer['shipping_cost_mode'],
         'shipping_allowance'=>(float)$offer['shipping_allowance'],
         'preferred_carrier'=>$offer['preferred_carrier'],
+        'shipping_window_hours'=>$offer['shipping_window_hours']!==null?(int)$offer['shipping_window_hours']:null,
       ],
       'options'=>$options,
+      'components'=>$components,
       'shipping_steps'=>$steps,
       'task_plans'=>$taskPlans,
       'source_offer_id'=>(int)$offer['id'],
@@ -852,8 +856,8 @@ if (preg_match('#^/admin/angebotsvorlage/(\d+)/verwenden$#',$path,$m) && $method
 
     db()->beginTransaction();
     try{
-      db()->prepare("INSERT INTO offers(category_id,title,slug,description,compensation,duration_days,fulfillment_type,evidence_rules_json,shipping_rules_json,shipping_address_id,shipping_cost_mode,shipping_allowance,preferred_carrier,status,visibility,current_version) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,'draft','public',1)")
-        ->execute([(int)$o['category_id'],$title,$slug,(string)$o['description'],(float)$o['compensation'],$o['duration_days']??null,(string)$o['fulfillment_type'],$o['evidence_rules_json']??null,$o['shipping_rules_json']??null,$o['shipping_address_id']??null,$o['shipping_cost_mode']??'seller',(float)($o['shipping_allowance']??0),$o['preferred_carrier']??null]);
+      db()->prepare("INSERT INTO offers(category_id,title,slug,description,compensation,duration_days,fulfillment_type,evidence_rules_json,digital_rules_json,shipping_rules_json,shipping_address_id,shipping_cost_mode,shipping_allowance,preferred_carrier,shipping_window_hours,status,visibility,current_version) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'draft','public',1)")
+        ->execute([(int)$o['category_id'],$title,$slug,(string)$o['description'],(float)$o['compensation'],$o['duration_days']??null,(string)$o['fulfillment_type'],$o['evidence_rules_json']??null,$o['digital_rules_json']??null,$o['shipping_rules_json']??null,$o['shipping_address_id']??null,$o['shipping_cost_mode']??'seller',(float)($o['shipping_allowance']??0),$o['preferred_carrier']??null,$o['shipping_window_hours']??null]);
       $offerId=(int)db()->lastInsertId();
 
       $versionSnapshot=$o;$versionSnapshot['title']=$title;$versionSnapshot['status']='draft';$versionSnapshot['template_id']=(int)$tpl['id'];
@@ -871,6 +875,10 @@ if (preg_match('#^/admin/angebotsvorlage/(\d+)/verwenden$#',$path,$m) && $method
       foreach((array)($snap['task_plans']??[]) as $plan){
         db()->prepare("INSERT INTO offer_task_plans(offer_id,task_library_id,sort_order,title,description,fields_json,required_photos,compensation,violation_enabled,schedule_type,day_no,start_day,interval_days,due_time,active) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
           ->execute([$offerId,$plan['task_library_id']??null,(int)($plan['sort_order']??0),$plan['title'],$plan['description']??null,$plan['fields_json']??null,(int)($plan['required_photos']??0),(float)($plan['compensation']??0),(int)($plan['violation_enabled']??1),$plan['schedule_type']??'day',$plan['day_no']??null,(int)($plan['start_day']??1),$plan['interval_days']??null,$plan['due_time']??null,(int)($plan['active']??1)]);
+      }
+      foreach((array)($snap['components']??[]) as $component){
+        db()->prepare("INSERT INTO offer_components(offer_id,category_id,title,component_type,compensation,duration_days,required,sort_order,active) VALUES(?,?,?,?,?,?,?,?,?)")
+          ->execute([$offerId,(int)$component['category_id'],$component['title'],$component['component_type']??'physical',(float)($component['compensation']??0),$component['duration_days']??null,(int)($component['required']??1),(int)($component['sort_order']??0),(int)($component['active']??1)]);
       }
       db()->commit();
       bump_offer_version($offerId,'created_from_template');
