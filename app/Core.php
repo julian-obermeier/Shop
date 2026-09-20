@@ -196,6 +196,32 @@ function setting_value(string $key, mixed $default = null): mixed {
     return setting($key, $default);
 }
 
+function payout_processing_weekdays(): array {
+    $raw=(string)setting_value('payout_processing_weekdays','1,4');
+    $days=array_values(array_unique(array_filter(array_map('intval',preg_split('/[^0-9]+/',$raw)?:[]),fn($d)=>$d>=1&&$d<=7)));
+    sort($days);
+    return $days;
+}
+
+function payout_processing_label(): string {
+    $labels=[1=>'Montag',2=>'Dienstag',3=>'Mittwoch',4=>'Donnerstag',5=>'Freitag',6=>'Samstag',7=>'Sonntag'];
+    $days=payout_processing_weekdays();
+    if(!$days) return 'individuell';
+    return implode(', ',array_map(fn($d)=>$labels[$d],$days));
+}
+
+function next_payout_processing_date(?DateTimeImmutable $from=null): ?DateTimeImmutable {
+    $days=payout_processing_weekdays();
+    if(!$days) return null;
+    $tz=new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'));
+    $cursor=($from??new DateTimeImmutable('now',$tz))->setTimezone($tz);
+    for($i=0;$i<14;$i++){
+        $candidate=$cursor->modify('+'.$i.' day');
+        if(in_array((int)$candidate->format('N'),$days,true)) return $candidate->setTime(0,0);
+    }
+    return null;
+}
+
 function analyze_uploaded_image(string $tmpName, string $mime): array {
     $metadata=[];
     $flags=[];
