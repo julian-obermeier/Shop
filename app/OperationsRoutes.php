@@ -616,3 +616,34 @@ if (preg_match('#^/admin/verkaeuferin/(\d+)$#',$path,$m) && $method==='GET') {
     <?php if(!$s['deleted_at']):?><section class="panel" style="margin-top:22px"><h2>Konto anonymisieren / löschen</h2><p class="meta">Das Login wird deaktiviert und personenbezogene Profildaten sowie Auszahlungsprofile werden anonymisiert bzw. entfernt. Historische Aufträge, Zahlungen und Nachweise bleiben aus Nachweis-/Abwicklungsgründen erhalten.</p><form method="post" action="<?=e(url('/admin/verkaeuferin/'.$s['id'].'/loeschen'))?>"><?=csrf_field()?><label>Zur Bestätigung <strong>LOESCHEN</strong> eingeben<input name="confirm" required></label><button class="btn danger" data-confirm="Verkäuferinnenkonto wirklich anonymisieren und deaktivieren?">Konto anonymisieren und deaktivieren</button></form></section><?php endif;?>
     <?php render('Verkäuferinnenakte',ob_get_clean());exit;
 }
+
+
+if (preg_match('#^/admin/verkaeuferin/(\d+)$#',$path,$m) && $method==='GET') {
+    require_admin();
+    $q=db()->prepare("SELECT * FROM sellers WHERE id=?");$q->execute([(int)$m[1]]);$s=$q->fetch();if(!$s)not_found();
+    $q=db()->prepare("SELECT o.*,f.title FROM orders o JOIN offers f ON f.id=o.offer_id WHERE o.seller_id=? ORDER BY o.created_at DESC");$q->execute([$s['id']]);$orders=$q->fetchAll();
+
+    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Verkäuferinnenakte</div><h1><?=e($s['first_name'].' '.$s['last_name'])?></h1><p class="meta">Registriert <?=e(date('d.m.Y H:i',strtotime($s['created_at'])))?> · E-Mail <?=$s['email_verified_at']?'bestätigt':'offen'?><?=$s['deleted_at']?' · Konto anonymisiert':''?></p></div><a class="btn secondary" href="<?=e(url('/admin/verkaeuferinnen'))?>">Zur Übersicht</a></div>
+    <div class="grid two">
+      <form class="panel" method="post" action="<?=e(url('/admin/verkaeuferin/'.$s['id'].'/speichern'))?>"><?=csrf_field()?><h2>Stammdaten bearbeiten</h2>
+        <div class="form-grid"><label>Vorname<input name="first_name" value="<?=e($s['first_name'])?>" required></label><label>Nachname<input name="last_name" value="<?=e($s['last_name'])?>" required></label><label>Geburtsdatum<input type="date" name="birth_date" value="<?=e($s['birth_date'])?>" required></label><label>E-Mail<input type="email" name="email" value="<?=e($s['email'])?>" required></label><label>Telefon<input name="phone" value="<?=e($s['phone'])?>" required></label><label>Straße<input name="street" value="<?=e($s['street'])?>" required></label><label>PLZ<input name="postal_code" value="<?=e($s['postal_code'])?>" required></label><label>Ort<input name="city" value="<?=e($s['city'])?>" required></label></div>
+        <label><input type="checkbox" name="confirm_sensitive" value="1" style="width:auto"> Änderung von E-Mail oder Geburtsdatum zusätzlich bestätigen</label>
+        <button class="btn" <?=$s['deleted_at']?'disabled':''?>>Änderungen speichern</button>
+      </form>
+      <section class="panel"><h2>Kontoverwaltung</h2><p>Bei einer Kontolöschung werden personenbezogene Profildaten und Auszahlungsdaten anonymisiert. Historische Auftrags-, Zahlungs- und Nachweisdaten bleiben erhalten.</p>
+        <?php if(!$s['deleted_at']):?><form method="post" action="<?=e(url('/admin/verkaeuferin/'.$s['id'].'/loeschen'))?>" data-confirm="Verkäuferinnenkonto wirklich anonymisieren?"><?=csrf_field()?><button class="btn danger">Konto anonymisieren / löschen</button></form><?php else:?><span class="badge">ANONYMISIERT</span><?php endif;?>
+      </section>
+    </div>
+    <h2>Aufträge</h2><div class="table-wrap"><table><thead><tr><th>Nr.</th><th>Auftrag</th><th>Status</th><th>Archiv</th><th></th></tr></thead><tbody><?php foreach($orders as $x):?><tr><td><?=e($x['order_no'])?></td><td><?=e($x['title'])?></td><td><?=e($x['status'])?></td><td><?=$x['archived_at']?'Ja':'Nein'?></td><td><a href="<?=e(url('/admin/auftrag/'.$x['order_no']))?>">Öffnen</a></td></tr><?php endforeach;?></tbody></table></div>
+    <?php render('Verkäuferinnenakte',ob_get_clean());exit;
+}
+
+if ($path==='/admin/auszahlungen' && $method==='GET') {
+    require_admin();
+    $rows=db()->query("SELECT p.*,CONCAT(s.first_name,' ',s.last_name) seller_name,s.email FROM payout_requests p JOIN sellers s ON s.id=p.seller_id ORDER BY FIELD(p.status,'requested','review','released','paid','withdrawn','rejected'),p.created_at DESC")->fetchAll();
+    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Administration</div><h1>Auszahlungen</h1></div><a class="btn secondary" href="<?=e(url('/admin/einstellungen'))?>">Auszahlungseinstellungen</a></div>
+    <div class="table-wrap"><table><thead><tr><th>#</th><th>Verkäuferin</th><th>Betrag</th><th>Gebühr</th><th>Netto</th><th>Methode</th><th>Status</th><th>Aktion</th></tr></thead><tbody>
+    <?php foreach($rows as $r):?><tr><td><?=e($r['id'])?></td><td><?=e($r['seller_name'])?><br><span class="meta"><?=e($r['email'])?></span></td><td><?=money($r['amount'])?></td><td><?=money($r['fee'])?></td><td><?=money($r['net_amount'])?></td><td><?=e($r['method'])?></td><td><?=e($r['status'])?></td><td><?php if(!in_array($r['status'],['paid','withdrawn','rejected'],true)):?><form method="post" action="<?=e(url('/admin/auszahlung/'.$r['id'].'/bezahlt'))?>"><?=csrf_field()?><button class="btn">Als bezahlt markieren</button></form><?php endif;?></td></tr><?php endforeach;?>
+    </tbody></table></div><?php if(!$rows):?><div class="empty">Keine Auszahlungsanträge vorhanden.</div><?php endif;?>
+    <?php render('Auszahlungen',ob_get_clean());exit;
+}
