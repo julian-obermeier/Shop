@@ -643,6 +643,10 @@ if ($path==='/admin/einstellungen'&&$method==='POST') {
     require_admin();
     $selectedDays=array_values(array_unique(array_filter(array_map('intval',(array)($_POST['payout_weekdays']??[])),fn($d)=>$d>=1&&$d<=7)));
     sort($selectedDays);
+    if(!$selectedDays){
+        flash('error','Bitte mindestens einen festen Bearbeitungstag für Auszahlungen auswählen.');
+        redirect('/admin/einstellungen');
+    }
     $values=[
       'payout_min'=>post('payout_min','10.00'),
       'payout_processing_weekdays'=>implode(',',$selectedDays),
