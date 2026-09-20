@@ -167,8 +167,11 @@ if($path==='/login'&&$method==='GET'){
  ob_start();?><div class="grid two"><section><div class="eyebrow">Verkäuferinnenbereich</div><h1>Willkommen zurück</h1><p>Melde dich an, um Aufträge, Nachweise, Wallet und Auszahlungen zu verwalten.</p></section><form class="panel" method="post"><?=csrf_field()?><label>E-Mail<input type="email" name="email" required></label><label>Passwort<input type="password" name="password" required></label><button class="btn">Anmelden</button><a href="<?=e(url('/passwort-vergessen'))?>">Passwort vergessen?</a></form></div><?php render('Login',ob_get_clean());exit;
 }
 if($path==='/login'&&$method==='POST'){
- $st=db()->prepare("SELECT * FROM sellers WHERE email=? AND deleted_at IS NULL");$st->execute([strtolower(post('email'))]);$s=$st->fetch();
+ $email=strtolower(post('email'));
+ if(!rate_limit_consume('seller-login',$email,5,900,900)){flash('error','Zu viele Anmeldeversuche. Bitte später erneut versuchen.');redirect('/login');}
+ $st=db()->prepare("SELECT * FROM sellers WHERE email=? AND deleted_at IS NULL");$st->execute([$email]);$s=$st->fetch();
  if(!$s||!password_verify((string)($_POST['password']??''),$s['password_hash'])){flash('error','E-Mail oder Passwort ist falsch.');redirect('/login');}
+ rate_limit_clear('seller-login',$email);
  session_regenerate_id(true);$_SESSION['seller_id']=$s['id'];redirect('/dashboard');
 }
 if($path==='/logout'){unset($_SESSION['seller_id']);session_regenerate_id(true);redirect('/');}
@@ -176,7 +179,9 @@ if($path==='/passwort-vergessen'&&$method==='GET'){
  ob_start();?><section class="legal"><h1>Passwort zurücksetzen</h1><form class="panel" method="post"><?=csrf_field()?><label>E-Mail<input type="email" name="email" required></label><button class="btn">Reset-Link anfordern</button></form></section><?php render('Passwort vergessen',ob_get_clean());exit;
 }
 if($path==='/passwort-vergessen'&&$method==='POST'){
- $st=db()->prepare("SELECT * FROM sellers WHERE email=? AND deleted_at IS NULL");$st->execute([strtolower(post('email'))]);$s=$st->fetch();
+ $email=strtolower(post('email'));
+ if(!rate_limit_consume('password-reset',$email,5,3600,3600)){flash('success','Wenn ein Konto vorhanden ist, wurde ein Reset-Link versendet.');redirect('/login');}
+ $st=db()->prepare("SELECT * FROM sellers WHERE email=? AND deleted_at IS NULL");$st->execute([$email]);$s=$st->fetch();
  if($s){[$raw,$hash]=make_token();db()->prepare("DELETE FROM password_resets WHERE seller_id=?")->execute([$s['id']]);db()->prepare("INSERT INTO password_resets(seller_id,token_hash,expires_at) VALUES(?,?,DATE_ADD(NOW(),INTERVAL 30 MINUTE))")->execute([$s['id'],$hash]);send_app_mail($s['email'],'Passwort zurücksetzen','<p><a href="'.e(url('/passwort-reset?token='.$raw)).'">Neues Passwort setzen</a></p>');}
  flash('success','Wenn ein Konto vorhanden ist, wurde ein Reset-Link versendet.');redirect('/login');
 }
@@ -292,7 +297,10 @@ if($path==='/admin/login'&&$method==='GET'){
  ob_start();?><section class="legal"><div class="eyebrow">Administration</div><h1>Admin-Login</h1><form method="post" class="panel"><?=csrf_field()?><label>E-Mail<input type="email" name="email" required></label><label>Passwort<input type="password" name="password" required></label><button class="btn">Anmelden</button></form></section><?php render('Admin Login',ob_get_clean());exit;
 }
 if($path==='/admin/login'&&$method==='POST'){
- $st=db()->prepare("SELECT * FROM admins WHERE email=?");$st->execute([strtolower(post('email'))]);$a=$st->fetch();if(!$a||!password_verify((string)($_POST['password']??''),$a['password_hash'])){flash('error','Login fehlgeschlagen.');redirect('/admin/login');}
+ $email=strtolower(post('email'));
+ if(!rate_limit_consume('admin-login',$email,5,900,1800)){flash('error','Zu viele Anmeldeversuche. Bitte später erneut versuchen.');redirect('/admin/login');}
+ $st=db()->prepare("SELECT * FROM admins WHERE email=?");$st->execute([$email]);$a=$st->fetch();if(!$a||!password_verify((string)($_POST['password']??''),$a['password_hash'])){flash('error','Login fehlgeschlagen.');redirect('/admin/login');}
+ rate_limit_clear('admin-login',$email);
  session_regenerate_id(true);$_SESSION['admin_id']=$a['id'];redirect('/admin');
 }
 if($path==='/admin/logout'){unset($_SESSION['admin_id']);session_regenerate_id(true);redirect('/admin/login');}
