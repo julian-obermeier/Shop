@@ -402,6 +402,7 @@ function order_offer_snapshot(array|int $order): array {
                 'duration_days'=>$offer['duration_days']??null,
                 'fulfillment_type'=>$offer['fulfillment_type']??null,
                 'evidence_rules'=>is_array($rules)?$rules:[],
+                'digital_rules'=>normalize_digital_rules(json_decode((string)($offer['digital_rules_json']??''),true)?:[]),
                 'status'=>$offer['status']??null,
             ];
         }
@@ -438,6 +439,84 @@ function offer_evidence_rules(array|int $offerOrOrderId): array {
             'evening' => max(0, (int)($daily['evening'] ?? 1)),
         ],
     ];
+}
+
+
+function normalize_digital_rules(?array $rules): array {
+    $rules=is_array($rules)?$rules:[];
+    $allowed=is_array($rules['allowed']??null)?$rules['allowed']:[];
+    $required=is_array($rules['required']??null)?$rules['required']:[];
+    $text=is_array($rules['text']??null)?$rules['text']:[];
+    $media=is_array($rules['media']??null)?$rules['media']:[];
+    $deadline=is_array($rules['deadline']??null)?$rules['deadline']:[];
+    $revision=is_array($rules['revision']??null)?$rules['revision']:[];
+
+    $allowText=(bool)($allowed['text']??true);
+    $allowAudio=(bool)($allowed['audio']??true);
+    $allowVideo=(bool)($allowed['video']??true);
+    if(!$allowText && !$allowAudio && !$allowVideo) $allowText=true;
+
+    $requireText=$allowText && (bool)($required['text']??false);
+    $requireAudio=$allowAudio && (bool)($required['audio']??false);
+    $requireVideo=$allowVideo && (bool)($required['video']??false);
+
+    return [
+        'allowed'=>['text'=>$allowText,'audio'=>$allowAudio,'video'=>$allowVideo],
+        'required'=>['text'=>$requireText,'audio'=>$requireAudio,'video'=>$requireVideo],
+        'text'=>[
+            'min_chars'=>max(0,(int)($text['min_chars']??0)),
+            'max_chars'=>max(0,(int)($text['max_chars']??0)),
+        ],
+        'media'=>[
+            'max_file_mb'=>max(1,(int)($media['max_file_mb']??50)),
+        ],
+        'deadline'=>[
+            'hours_after_acceptance'=>max(1,(int)($deadline['hours_after_acceptance']??72)),
+            'grace_minutes'=>max(0,(int)($deadline['grace_minutes']??60)),
+            'violation_effect'=>in_array(($deadline['violation_effect']??'log_only'),['log_only','extension_day'],true)?$deadline['violation_effect']:'log_only',
+        ],
+        'revision'=>[
+            'deadline_hours'=>max(1,(int)($revision['deadline_hours']??48)),
+            'grace_minutes'=>max(0,(int)($revision['grace_minutes']??60)),
+            'violation_effect'=>in_array(($revision['violation_effect']??'log_only'),['log_only','extension_day'],true)?$revision['violation_effect']:'log_only',
+        ],
+    ];
+}
+
+function offer_digital_rules(array|int $offerOrOrder): array {
+    if(is_int($offerOrOrder)){
+        $q=db()->prepare('SELECT digital_rules_snapshot_json,offer_id,offer_version FROM orders WHERE id=?');
+        $q->execute([$offerOrOrder]);$order=$q->fetch();
+        if($order){
+            if(!empty($order['digital_rules_snapshot_json'])){
+                $decoded=json_decode((string)$order['digital_rules_snapshot_json'],true);
+                if(is_array($decoded)) return normalize_digital_rules($decoded);
+            }
+            $snapshot=order_offer_snapshot($order);
+            if(is_array($snapshot['digital_rules']??null)) return normalize_digital_rules($snapshot['digital_rules']);
+            $offerOrOrder=(int)$order['offer_id'];
+        }
+    }
+
+    if(is_array($offerOrOrder)){
+        if(is_array($offerOrOrder['digital_rules']??null)) return normalize_digital_rules($offerOrOrder['digital_rules']);
+        $raw=$offerOrOrder['digital_rules_json']??null;
+    }else{
+        $q=db()->prepare('SELECT digital_rules_json FROM offers WHERE id=?');
+        $q->execute([(int)$offerOrOrder]);$raw=$q->fetchColumn();
+    }
+
+    $decoded=$raw?json_decode((string)$raw,true):[];
+    return normalize_digital_rules(is_array($decoded)?$decoded:[]);
+}
+
+function digital_rules_summary(array $rules): string {
+    $rules=normalize_digital_rules($rules);
+    $formats=[];
+    foreach(['text'=>'Text','audio'=>'Audio','video'=>'Video'] as $key=>$label){
+        if($rules['allowed'][$key]) $formats[]=$label.($rules['required'][$key]?' (Pflicht)':'');
+    }
+    return implode(', ',$formats);
 }
 
 function parse_window_setting(string $key, string $fallback): array {
@@ -482,6 +561,7 @@ function bump_offer_version(int $offerId, string $reason = 'configuration_change
         'status'=>$offer['status'],
         'visibility'=>$offer['visibility'],
         'evidence_rules'=>json_decode($offer['evidence_rules_json']?:'{}',true)?:[],
+        'digital_rules'=>normalize_digital_rules(json_decode($offer['digital_rules_json']?:'{}',true)?:[]),
         'shipping'=>[
             'address_id'=>$offer['shipping_address_id']!==null?(int)$offer['shipping_address_id']:null,
             'cost_mode'=>$offer['shipping_cost_mode'],
