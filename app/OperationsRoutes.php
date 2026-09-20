@@ -662,3 +662,12 @@ if ($path==='/admin/auszahlungen' && $method==='GET') {
     </tbody></table></div><?php if(!$rows):?><div class="empty">Keine Auszahlungsanträge vorhanden.</div><?php endif;?>
     <?php render('Auszahlungen',ob_get_clean());exit;
 }
+
+
+/* Vollständige öffentliche Texte – vor den kurzen Fallback-Routen in index.php */
+if ($path==='/so-funktioniert-es' && $method==='GET') { render('So funktioniert es',public_how_html()); exit; }
+if ($path==='/faq' && $method==='GET') { render('FAQ',public_faq_html()); exit; }
+if ($path==='/regeln' && $method==='GET') { render('Regeln',public_rules_html()); exit; }
+if ($path==='/kontakt' && $method==='GET') { render('Kontakt',public_contact_html()); exit; }
+if ($path==='/datenschutz' && $method==='GET') { render('Datenschutz',public_privacy_html()); exit; }
+if ($path==='/impressum' && $method==='GET') { render('Impressum',public_imprint_html()); exit; }
