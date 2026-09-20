@@ -277,6 +277,11 @@ if(preg_match('#^/admin/auftrag/(\\d{8})$#',$path,$m)&&$method==='GET'){
  $srq=db()->prepare("SELECT * FROM spontaneous_requests WHERE order_id=? ORDER BY created_at DESC");$srq->execute([$o['id']]);$spontaneousRequests=$srq->fetchAll();
  $otq=db()->prepare("SELECT * FROM order_tasks WHERE order_id=? ORDER BY created_at DESC");$otq->execute([$o['id']]);$orderTasks=$otq->fetchAll();
  $taskTemplates=db()->query("SELECT id,title,default_compensation FROM task_library WHERE active=1 ORDER BY title")->fetchAll();
+ $oiq=db()->prepare("SELECT * FROM order_items WHERE order_id=? AND order_run_id<=>? ORDER BY id DESC LIMIT 1");$oiq->execute([$o['id'],current_run_id((int)$o['id'])]);$adminOrderItem=$oiq->fetch()?:null;
+ $adminItemAttrs=$adminOrderItem?(json_decode($adminOrderItem['attributes_json']??'{}',true)?:[]):[];
+ $cfq=db()->prepare("SELECT * FROM category_fields WHERE category_id=(SELECT category_id FROM offers WHERE id=?) AND is_active=1 ORDER BY sort_order,id");$cfq->execute([$o['offer_id']]);$adminCategoryFields=$cfq->fetchAll();
+ $opq=db()->prepare("SELECT * FROM offer_options WHERE offer_id=? ORDER BY id");$opq->execute([$o['offer_id']]);$adminAvailableOptions=$opq->fetchAll();
+ $ooq=db()->prepare("SELECT * FROM order_options WHERE order_id=? ORDER BY id");$ooq->execute([$o['id']]);$adminSelectedOptions=$ooq->fetchAll();$adminSelectedOptionIds=array_map(fn($x)=>(int)$x['offer_option_id'],$adminSelectedOptions);
  $dv=db()->prepare("SELECT * FROM digital_versions WHERE order_id=? ORDER BY version_no DESC");$dv->execute([$o['id']]);$digitalVersions=$dv->fetchAll();
  $rv=db()->prepare("SELECT i.*,r.round_no,r.status round_status,r.due_at FROM revision_items i JOIN revision_rounds r ON r.id=i.revision_round_id WHERE r.order_id=? ORDER BY r.round_no DESC,i.id");$rv->execute([$o['id']]);$revisionItems=$rv->fetchAll();
  $currentRunId=current_run_id((int)$o['id']);$rules=offer_evidence_rules((int)$o['id']);$preRequired=max(1,(int)$rules['precheck_required_count']);
@@ -290,6 +295,19 @@ if(preg_match('#^/admin/auftrag/(\\d{8})$#',$path,$m)&&$method==='GET'){
    <section class="panel"><h2>Vorabkontrolle & Status</h2><p>Akzeptierte Pflichtnachweise im aktuellen Durchlauf: <strong><?=$preAccepted?> / <?=$preRequired?></strong></p>
    <?php if($o['status']==='precheck'):?><?php if($preAccepted >= $preRequired && $preTotal===$preAccepted):?><form method="post" action="<?=e(url('/admin/auftrag/'.$o['order_no'].'/vorabkontrolle-freigeben'))?>"><?=csrf_field()?><button class="btn">Vorabkontrolle vollständig freigeben & Auftrag starten</button></form><?php else:?><p class="meta">Der Auftrag kann erst starten, wenn alle Vorabnachweise einzeln akzeptiert sind.</p><?php endif;?><?php else:?><p class="meta">Gestartet: <?=e($o['started_at']?date('d.m.Y H:i',strtotime($o['started_at'])):'–')?></p><?php endif;?>
    <hr><div class="actions"><a class="btn secondary" href="<?=e(url('/admin/auftrag/'.$o['order_no'].'/chat'))?>">Auftragschat</a></div></section>
+ </div>
+ <div class="grid two" style="margin-top:18px">
+   <section class="panel"><h2>Konkreter Artikel</h2>
+   <?php if($adminOrderItem):?><p><strong><?=e($adminOrderItem['label'])?></strong></p><div class="form-grid"><div><span class="meta">Größe</span><br><?=e($adminOrderItem['size_value']?:'–')?></div><div><span class="meta">Farbe</span><br><?=e($adminOrderItem['color_value']?:'–')?></div><div><span class="meta">Marke</span><br><?=e($adminOrderItem['brand_value']?:'–')?></div><div><span class="meta">Material</span><br><?=e($adminOrderItem['material_value']?:'–')?></div></div>
+   <?php foreach($adminCategoryFields as $fld): $v=$adminItemAttrs[$fld['field_key']]??null; if($v!==null && $v!==''):?><p><span class="meta"><?=e($fld['label'])?></span><br><?=e(is_array($v)?implode(', ',$v):($v==='1'?'Ja':($v==='0'?'Nein':$v)))?></p><?php endif; endforeach;?>
+   <p class="meta">Status: <?=$adminOrderItem['locked_at']?'seit Auftragsstart gesperrt':'bis Auftragsstart bearbeitbar'?></p>
+   <?php else:?><p class="meta">Noch kein konkreter Artikel hinterlegt.</p><?php endif;?></section>
+   <section class="panel"><h2>Zusatzoptionen</h2>
+   <?php if(!$o['archived_at'] && in_array($o['status'],['precheck','running','shipping','review','payout'],true)):?><form method="post" action="<?=e(url('/admin/auftrag/'.$o['order_no'].'/optionen'))?>"><?=csrf_field()?>
+   <?php foreach($adminAvailableOptions as $opt):?><label style="display:flex;gap:10px;align-items:flex-start"><input type="checkbox" style="width:auto;margin-top:5px" name="option_ids[]" value="<?=e($opt['id'])?>" <?=in_array((int)$opt['id'],$adminSelectedOptionIds,true)?'checked':''?>><span><?=e($opt['label'])?> · <?=$opt['price']>0?('+'.money($opt['price'])):'kostenlos'?><?=$opt['active']?'':' · deaktivierte Angebotsoption'?></span></label><?php endforeach;?>
+   <?php if($adminAvailableOptions):?><button class="btn secondary">Optionen als Admin aktualisieren</button><?php else:?><p class="meta">Keine Optionen vorhanden.</p><?php endif;?></form>
+   <?php else:?><div class="timeline"><?php foreach($adminSelectedOptions as $opt):?><div><?=e($opt['label_snapshot'])?> · <?=money($opt['price_snapshot'])?></div><?php endforeach;?></div><?php endif;?>
+   <p><strong>Gesamtwert: <?=money($o['total_compensation'])?></strong></p></section>
  </div>
  <div class="grid two" style="margin-top:18px">
    <section class="panel"><h2>Zusatztage & Verstöße</h2><form method="post" action="<?=e(url('/admin/auftrag/'.$o['order_no'].'/zusatztag'))?>"><?=csrf_field()?><label><input type="checkbox" name="paid" value="1" style="width:auto"> bezahlt</label><label>Betrag (€)<input type="number" step=".01" min="0" name="amount" value="0"></label><label>Grund (optional)<input name="reason"></label><button class="btn">Manuellen Zusatztag hinzufügen</button></form><hr><form method="post" action="<?=e(url('/admin/auftrag/'.$o['order_no'].'/verstoss'))?>"><?=csrf_field()?><label>Typ<input name="violation_type" value="manual"></label><label>Grund<textarea name="reason" required></textarea></label><button class="btn danger">Verstoß bestätigen (+1 Tag)</button></form>
