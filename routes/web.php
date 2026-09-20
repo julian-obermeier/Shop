@@ -87,6 +87,7 @@ Route::middleware(['auth','active'])->group(function () {
     Route::post('/auftraege/{order}/vorabkontrolle/einreichen', [PrecheckController::class,'submit'])->name('orders.precheck.submit');
     Route::post('/auftraege/{order}/abschliessen', [OrderController::class,'complete'])->name('orders.complete');
     Route::post('/auftraege/{order}/beschaedigung', [DamageController::class,'store'])->middleware('throttle:10,10')->name('orders.damage');
+    Route::post('/auftraege/{order}/beschaedigung/{damageCase}/nachforderung/{evidenceRequest}', [DamageController::class,'fulfillEvidence'])->middleware('throttle:20,10')->name('orders.damage-evidence-submit');
     Route::post('/auftraege/{order}/digital/{component}/version', [DigitalSubmissionController::class,'store'])->middleware('throttle:20,10')->name('orders.digital.store');
     Route::get('/auftraege/{order}/digital/version/{version}', [DigitalSubmissionController::class,'stream'])->name('orders.digital.stream');
     Route::post('/auftraege/{order}/versand', [ShipmentController::class,'store'])->name('orders.shipment');
