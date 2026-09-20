@@ -167,6 +167,22 @@ CREATE TABLE IF NOT EXISTS orders (
  INDEX(seller_id,status), INDEX(status), INDEX(archived_at), INDEX(status,precheck_approved_at,planned_start_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS order_changes (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ order_id BIGINT UNSIGNED NOT NULL,
+ admin_id BIGINT UNSIGNED NOT NULL,
+ field_name VARCHAR(100) NOT NULL,
+ old_value TEXT NULL,
+ new_value TEXT NULL,
+ reason TEXT NOT NULL,
+ effective_day_no INT NULL,
+ created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE,
+ FOREIGN KEY(admin_id) REFERENCES admins(id),
+ INDEX(order_id,created_at),
+ INDEX(field_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS order_start_date_requests (
  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
  order_id BIGINT UNSIGNED NOT NULL,
