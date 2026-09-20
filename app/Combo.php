@@ -10,9 +10,11 @@ function offer_component_definitions(array|int $offer): array {
     if(empty($offer['id'])) return [];
 
     $primaryType=($offer['fulfillment_type']??'days')==='digital' ? 'digital' : 'physical';
+    $cq=db()->prepare('SELECT name FROM categories WHERE id=?');$cq->execute([(int)$offer['category_id']]);$primaryCategoryName=(string)($cq->fetchColumn()?:'');
     $components=[[
         'source_component_id'=>null,
         'category_id'=>(int)$offer['category_id'],
+        'category_name'=>$primaryCategoryName,
         'title'=>(string)$offer['title'],
         'component_type'=>$primaryType,
         'compensation'=>(float)$offer['compensation'],
@@ -22,12 +24,13 @@ function offer_component_definitions(array|int $offer): array {
         'is_primary'=>true,
     ]];
 
-    $q=db()->prepare("SELECT * FROM offer_components WHERE offer_id=? AND active=1 ORDER BY sort_order,id");
+    $q=db()->prepare("SELECT oc.*,c.name category_name FROM offer_components oc JOIN categories c ON c.id=oc.category_id WHERE oc.offer_id=? AND oc.active=1 ORDER BY oc.sort_order,oc.id");
     $q->execute([(int)$offer['id']]);
     foreach($q->fetchAll() as $row){
         $components[]=[
             'source_component_id'=>(int)$row['id'],
             'category_id'=>(int)$row['category_id'],
+            'category_name'=>(string)$row['category_name'],
             'title'=>(string)$row['title'],
             'component_type'=>(string)$row['component_type'],
             'compensation'=>(float)$row['compensation'],
