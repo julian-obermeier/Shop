@@ -619,6 +619,9 @@ function bump_offer_version(int $offerId, string $reason = 'configuration_change
     $q = $pdo->prepare("SELECT id,sort_order,title,description,fields_json,required_photos,compensation,violation_enabled,schedule_type,day_no,start_day,interval_days,due_time,active FROM offer_task_plans WHERE offer_id=? ORDER BY sort_order,id");
     $q->execute([$offerId]);$taskPlans=$q->fetchAll();
 
+    $q = $pdo->prepare("SELECT id,category_id,title,component_type,compensation,duration_days,required,sort_order,active FROM offer_components WHERE offer_id=? ORDER BY sort_order,id");
+    $q->execute([$offerId]);$components=$q->fetchAll();
+
     $snapshot=[
         'reason'=>$reason,
         'title'=>$offer['title'],
@@ -641,6 +644,7 @@ function bump_offer_version(int $offerId, string $reason = 'configuration_change
             'steps'=>$shippingSteps,
         ],
         'options'=>$options,
+        'components'=>$components,
         'task_plans'=>$taskPlans,
     ];
 
