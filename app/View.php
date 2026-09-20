@@ -24,7 +24,7 @@
 <main><?= $content ?></main>
 <footer>
   <div><strong>Nur für Volljährige ab 18 Jahren.</strong></div>
-  <div class="footer-links"><a href="<?=e(url('/regeln'))?>">Regeln</a><a href="<?=e(url('/datenschutz'))?>">Datenschutz</a><a href="<?=e(url('/impressum'))?>">Impressum</a><a href="<?=e(url('/kontakt'))?>">Kontakt</a></div>
+  <div class="footer-links"><a href="<?=e(url('/regeln'))?>">Regeln</a><a href="<?=e(url('/agb'))?>">AGB</a><a href="<?=e(url('/widerruf'))?>">Widerruf / Storno</a><a href="<?=e(url('/datenschutz'))?>">Datenschutz</a><a href="<?=e(url('/impressum'))?>">Impressum</a><a href="<?=e(url('/kontakt'))?>">Kontakt</a></div>
 </footer>
 <script src="<?= e(url('/assets/app.js')) ?>"></script>
 </body>
