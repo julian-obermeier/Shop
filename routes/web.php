@@ -3,6 +3,7 @@
 use App\Http\Controllers\Admin\CategoryController as AdminCategoryController;
 use App\Http\Controllers\Admin\ConversationController as AdminConversationController;
 use App\Http\Controllers\Admin\DashboardController as AdminDashboardController;
+use App\Http\Controllers\Admin\DigitalController as AdminDigitalController;
 use App\Http\Controllers\Admin\GoodsReceiptController as AdminGoodsReceiptController;
 use App\Http\Controllers\Admin\GoodsInspectionController as AdminGoodsInspectionController;
 use App\Http\Controllers\Admin\HealthController as AdminHealthController;
@@ -24,6 +25,7 @@ use App\Http\Controllers\CameraCaptureController;
 use App\Http\Controllers\ConversationController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DamageController;
+use App\Http\Controllers\DigitalSubmissionController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\OfferController;
 use App\Http\Controllers\OrderController;
@@ -85,6 +87,8 @@ Route::middleware(['auth','active'])->group(function () {
     Route::post('/auftraege/{order}/vorabkontrolle/einreichen', [PrecheckController::class,'submit'])->name('orders.precheck.submit');
     Route::post('/auftraege/{order}/abschliessen', [OrderController::class,'complete'])->name('orders.complete');
     Route::post('/auftraege/{order}/beschaedigung', [DamageController::class,'store'])->middleware('throttle:10,10')->name('orders.damage');
+    Route::post('/auftraege/{order}/digital/{component}/version', [DigitalSubmissionController::class,'store'])->middleware('throttle:20,10')->name('orders.digital.store');
+    Route::get('/auftraege/{order}/digital/version/{version}', [DigitalSubmissionController::class,'stream'])->name('orders.digital.stream');
     Route::post('/auftraege/{order}/versand', [ShipmentController::class,'store'])->name('orders.shipment');
 
     Route::post('/auftragstage/{day}/nachweiscode', [ProofController::class,'challenge'])->middleware('throttle:20,10')->name('proofs.challenge');
@@ -130,6 +134,9 @@ Route::prefix('admin')->name('admin.')->middleware(['auth','active','admin'])->g
     Route::post('/auftraege/{order}/verstoesse/{violation}', [AdminOrderOperationsController::class,'violation'])->name('orders.violation');
     Route::post('/auftraege/{order}/beschaedigungen/{damageCase}/entscheidung', [AdminOrderOperationsController::class,'damageDecision'])->name('orders.damage-decision');
     Route::post('/auftraege/{order}/beschaedigungen/{damageCase}/nachweis', [AdminOrderOperationsController::class,'damageEvidenceRequest'])->name('orders.damage-evidence');
+    Route::post('/auftraege/{order}/digital/{component}/pruefen', [AdminDigitalController::class,'review'])->name('orders.digital.review');
+    Route::get('/auftraege/{order}/digital/version/{version}/download', [AdminDigitalController::class,'download'])->name('orders.digital.download');
+    Route::post('/digital/revision/{item}', [AdminDigitalController::class,'revisionItem'])->name('digital.revision-item');
     Route::post('/auftraege/{order}/wareneingang', [AdminGoodsReceiptController::class,'store'])->name('orders.goods-receipt');
     Route::post('/auftraege/{order}/warenpruefung', [AdminGoodsInspectionController::class,'store'])->name('orders.goods-inspection');
 
