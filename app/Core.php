@@ -238,6 +238,22 @@ function parse_window_setting(string $key, string $fallback): array {
     return $parts;
 }
 
+function offer_evidence_rules(int $orderId): array {
+    $q=db()->prepare('SELECT f.evidence_rules_json FROM orders o JOIN offers f ON f.id=o.offer_id WHERE o.id=?');
+    $q->execute([$orderId]);
+    $raw=$q->fetchColumn();
+    $rules=$raw?json_decode((string)$raw,true):[];
+    if(!is_array($rules)) $rules=[];
+    $rules['precheck_required']=max(1,(int)($rules['precheck_required']??1));
+    $daily=$rules['daily']??[];
+    $rules['daily']=[
+        'morning'=>max(0,(int)($daily['morning']??1)),
+        'midday'=>max(0,(int)($daily['midday']??1)),
+        'evening'=>max(0,(int)($daily['evening']??1)),
+    ];
+    return $rules;
+}
+
 function schedule_order_days(int $orderId, DateTimeImmutable $startedAt): void {
     $q=db()->prepare('SELECT duration_days FROM orders WHERE id=?');
     $q->execute([$orderId]);
@@ -251,22 +267,36 @@ function schedule_order_days(int $orderId, DateTimeImmutable $startedAt): void {
     $exists->execute([$orderId,$runId]);
     if((int)$exists->fetchColumn()>0) return;
 
-    $windows=[
+    $rules=offer_evidence_rules($orderId);
+    $windowDefs=[
         'morning'=>parse_window_setting('window_morning','06:00-10:00'),
         'midday'=>parse_window_setting('window_midday','12:00-16:00'),
         'evening'=>parse_window_setting('window_evening','18:00-23:59'),
     ];
+    $windows=[];
+    foreach($windowDefs as $key=>$range){
+        $count=(int)$rules['daily'][$key];
+        if($count>0) $windows[$key]=['range'=>$range,'count'=>$count];
+    }
+
     $grace=max(0,(int)setting_value('grace_minutes','60'));
     $tz=new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'));
     $startedAt=$startedAt->setTimezone($tz);
     $sameDate=$startedAt->format('Y-m-d');
 
     $futureSameDay=[];
-    foreach($windows as $key=>$range){
-        $ws=new DateTimeImmutable($sameDate.' '.$range[0].':00',$tz);
-        if($ws>$startedAt) $futureSameDay[$key]=$range;
+    foreach($windows as $key=>$def){
+        $ws=new DateTimeImmutable($sameDate.' '.$def['range'][0].':00',$tz);
+        if($ws>$startedAt) $futureSameDay[$key]=$def;
     }
-    $firstDate=$futureSameDay ? new DateTimeImmutable($sameDate.' 00:00:00',$tz) : (new DateTimeImmutable($sameDate.' 00:00:00',$tz))->modify('+1 day');
+
+    if(!$windows) {
+        $firstDate=new DateTimeImmutable($sameDate.' 00:00:00',$tz);
+    } else {
+        $firstDate=$futureSameDay
+            ? new DateTimeImmutable($sameDate.' 00:00:00',$tz)
+            : (new DateTimeImmutable($sameDate.' 00:00:00',$tz))->modify('+1 day');
+    }
 
     $dayIns=db()->prepare("INSERT INTO order_days(order_id,order_run_id,day_no,day_type,calendar_date,status) VALUES(?,?,?,'regular',?,'planned')");
     $winIns=db()->prepare("INSERT INTO evidence_windows(order_id,order_run_id,day_no,window_key,starts_at,ends_at,grace_ends_at,required_count,status) VALUES(?,?,?,?,?,?,?,?,?)");
@@ -275,14 +305,46 @@ function schedule_order_days(int $orderId, DateTimeImmutable $startedAt): void {
         $date=$firstDate->modify('+'.($day-1).' day');
         $dayIns->execute([$orderId,$runId,$day,$date->format('Y-m-d')]);
         $use=($day===1 && $firstDate->format('Y-m-d')===$sameDate)?$futureSameDay:$windows;
-        foreach($use as $key=>$range){
+        foreach($use as $key=>$def){
+            $range=$def['range'];
             $start=new DateTimeImmutable($date->format('Y-m-d').' '.$range[0].':00',$tz);
             $end=new DateTimeImmutable($date->format('Y-m-d').' '.$range[1].':00',$tz);
             $graceEnd=$end->modify('+'.$grace.' minutes');
             $status=$start<=new DateTimeImmutable('now',$tz)?'open':'planned';
-            $winIns->execute([$orderId,$runId,$day,$key,$start->format('Y-m-d H:i:s'),$end->format('Y-m-d H:i:s'),$graceEnd->format('Y-m-d H:i:s'),1,$status]);
+            $winIns->execute([$orderId,$runId,$day,$key,$start->format('Y-m-d H:i:s'),$end->format('Y-m-d H:i:s'),$graceEnd->format('Y-m-d H:i:s'),$def['count'],$status]);
         }
     }
+}
+
+function append_order_day(int $orderId, string $dayType, ?string $sourceRef=null): ?int {
+    $runId=current_run_id($orderId);
+    if(!$runId) return null;
+    $q=db()->prepare('SELECT MAX(day_no) max_day,MAX(calendar_date) max_date FROM order_days WHERE order_id=? AND order_run_id=?');
+    $q->execute([$orderId,$runId]);$last=$q->fetch();
+    $dayNo=max(1,(int)($last['max_day']??0)+1);
+    $tz=new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'));
+    $date=!empty($last['max_date'])
+        ? (new DateTimeImmutable($last['max_date'].' 00:00:00',$tz))->modify('+1 day')
+        : (new DateTimeImmutable('tomorrow 00:00:00',$tz));
+
+    db()->prepare("INSERT INTO order_days(order_id,order_run_id,day_no,day_type,calendar_date,status,source_ref) VALUES(?,?,?,?,?,'planned',?)")
+        ->execute([$orderId,$runId,$dayNo,$dayType,$date->format('Y-m-d'),$sourceRef]);
+
+    $rules=offer_evidence_rules($orderId);
+    $defs=[
+        'morning'=>parse_window_setting('window_morning','06:00-10:00'),
+        'midday'=>parse_window_setting('window_midday','12:00-16:00'),
+        'evening'=>parse_window_setting('window_evening','18:00-23:59'),
+    ];
+    $grace=max(0,(int)setting_value('grace_minutes','60'));
+    $ins=db()->prepare("INSERT INTO evidence_windows(order_id,order_run_id,day_no,window_key,starts_at,ends_at,grace_ends_at,required_count,status) VALUES(?,?,?,?,?,?,?,?, 'planned')");
+    foreach($defs as $key=>$range){
+        $count=(int)($rules['daily'][$key]??0);if($count<1)continue;
+        $ws=new DateTimeImmutable($date->format('Y-m-d').' '.$range[0].':00',$tz);
+        $we=new DateTimeImmutable($date->format('Y-m-d').' '.$range[1].':00',$tz);
+        $ins->execute([$orderId,$runId,$dayNo,$key,$ws->format('Y-m-d H:i:s'),$we->format('Y-m-d H:i:s'),$we->modify('+'.$grace.' minutes')->format('Y-m-d H:i:s'),$count]);
+    }
+    return $dayNo;
 }
 
 function notify_seller(int $sellerId, string $type, string $title, string $body, ?string $link=null, ?string $dedupeKey=null, bool $email=false): void {
