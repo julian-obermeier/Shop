@@ -161,3 +161,48 @@ if ($path==='/admin/einstellungen'&&$method==='GET') {
 if ($path==='/admin/einstellungen'&&$method==='POST') {
     require_admin();foreach(['payout_min','support_email','window_morning','window_midday','window_evening','grace_minutes'] as $k){db()->prepare("INSERT INTO settings(setting_key,setting_value) VALUES(?,?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)")->execute([$k,post($k)]);}flash('success','Einstellungen gespeichert.');redirect('/admin/einstellungen');
 }
+
+
+if (preg_match('#^/auftrag/(\\d{8})/versand$#',$path,$m)&&$method==='GET') {
+    $s=require_seller();$st=db()->prepare("SELECT o.*,f.title FROM orders o JOIN offers f ON f.id=o.offer_id WHERE o.order_no=? AND o.seller_id=?");$st->execute([$m[1],$s['id']]);$o=$st->fetch();if(!$o)not_found();
+    $q=db()->prepare("SELECT * FROM shipments WHERE order_id=?");$q->execute([$o['id']]);$ship=$q->fetch();
+    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Auftrag <?=e($o['order_no'])?></div><h1>Versand</h1></div><a class="btn secondary" href="<?=e(url('/auftrag/'.$o['order_no']))?>">Zum Auftrag</a></div>
+    <?php if($ship):?><div class="panel"><h2>Status: <?=e($ship['status'])?></h2><p>Tracking: <?=e($ship['tracking_number']?:'–')?></p><?php if($ship['proof_evidence_id']):?><a href="<?=e(url('/datei/'.$ship['proof_evidence_id']))?>" target="_blank">Versandnachweis ansehen</a><?php endif;?></div><?php endif;?>
+    <?php if(!$ship || $ship['status']==='preparing'):?><form class="panel" method="post" enctype="multipart/form-data"><?=csrf_field()?><h2>Versand nachweisen</h2><div class="form-grid"><label>Versanddienstleister<input name="carrier" placeholder="z. B. DHL"></label><label>Trackingnummer<input name="tracking_number"></label></div><label>Einlieferungsbeleg / Versandnachweis<input data-camera-input type="file" name="evidence"></label><p class="meta">Mindestens Trackingnummer oder ein Versandnachweis ist erforderlich.</p><button class="btn">Als versendet melden</button></form><?php endif;?>
+    <?php render('Versand',ob_get_clean());exit;
+}
+if (preg_match('#^/auftrag/(\\d{8})/versand$#',$path,$m)&&$method==='POST') {
+    $s=require_seller();$st=db()->prepare("SELECT * FROM orders WHERE order_no=? AND seller_id=?");$st->execute([$m[1],$s['id']]);$o=$st->fetch();if(!$o)not_found();
+    $tracking=post('tracking_number');$proofId=null;
+    if(isset($_FILES['evidence'])&&($_FILES['evidence']['error']??UPLOAD_ERR_NO_FILE)===UPLOAD_ERR_OK){$up=private_upload($_FILES['evidence'],'order-'.$o['id']);db()->prepare("INSERT INTO evidences(order_id,seller_id,evidence_type,file_path,mime_type,file_size,sha256) VALUES(?,?,'shipping',?,?,?,?)")->execute([$o['id'],$s['id'],$up['path'],$up['mime'],$up['size'],$up['sha256']]);$proofId=(int)db()->lastInsertId();}
+    if($tracking===''&&!$proofId){flash('error','Bitte Trackingnummer oder Versandnachweis angeben.');redirect('/auftrag/'.$o['order_no'].'/versand');}
+    db()->prepare("INSERT INTO shipments(order_id,tracking_number,carrier,proof_evidence_id,status,shipped_at) VALUES(?,?,?,?,'shipped',NOW()) ON DUPLICATE KEY UPDATE tracking_number=VALUES(tracking_number),carrier=VALUES(carrier),proof_evidence_id=VALUES(proof_evidence_id),status='shipped',shipped_at=NOW()")->execute([$o['id'],$tracking,post('carrier'),$proofId]);
+    db()->prepare("UPDATE orders SET status='shipping',updated_at=NOW() WHERE id=?")->execute([$o['id']]);db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system','Versand nachgewiesen – wartet auf Eingang.')")->execute([$o['id']]);flash('success','Versand wurde dokumentiert.');redirect('/auftrag/'.$o['order_no'].'/versand');
+}
+if (preg_match('#^/admin/auftrag/(\\d{8})/wareneingang$#',$path,$m)&&$method==='POST') {
+    require_admin();$st=db()->prepare("SELECT * FROM orders WHERE order_no=?");$st->execute([$m[1]]);$o=$st->fetch();if(!$o)not_found();
+    db()->prepare("UPDATE shipments SET status='received',received_at=NOW() WHERE order_id=?")->execute([$o['id']]);db()->prepare("UPDATE orders SET status='review',updated_at=NOW() WHERE id=?")->execute([$o['id']]);db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system','Sendung ist eingegangen und befindet sich in der Abschlussprüfung.')")->execute([$o['id']]);flash('success','Wareneingang bestätigt.');redirect('/admin/auftrag/'.$o['order_no']);
+}
+if (preg_match('#^/auftrag/(\\d{8})/digital$#',$path,$m)&&$method==='GET') {
+    $s=require_seller();$st=db()->prepare("SELECT o.*,f.title FROM orders o JOIN offers f ON f.id=o.offer_id WHERE o.order_no=? AND o.seller_id=?");$st->execute([$m[1],$s['id']]);$o=$st->fetch();if(!$o)not_found();
+    $v=db()->prepare("SELECT * FROM digital_versions WHERE order_id=? ORDER BY version_no DESC");$v->execute([$o['id']]);$versions=$v->fetchAll();$rr=db()->prepare("SELECT r.*,COUNT(i.id) item_count FROM revision_rounds r LEFT JOIN revision_items i ON i.revision_round_id=r.id WHERE r.order_id=? GROUP BY r.id ORDER BY r.round_no DESC");$rr->execute([$o['id']]);$rounds=$rr->fetchAll();
+    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Digitale Abgabe · <?=e($o['order_no'])?></div><h1><?=e($o['title'])?></h1></div><a class="btn secondary" href="<?=e(url('/auftrag/'.$o['order_no']))?>">Zum Auftrag</a></div>
+    <form class="panel" method="post" enctype="multipart/form-data"><?=csrf_field()?><h2>Neue Version einreichen</h2><label>Textinhalt (optional)<textarea name="text_content"></textarea></label><label>Datei (optional: Audio/Video/Bild)<input type="file" name="digital_file"></label><p class="meta">Mindestens Text oder Datei erforderlich. Jede Einreichung erzeugt eine neue unveränderliche Version.</p><button class="btn">Version final einreichen</button></form>
+    <h2>Versionen</h2><div class="table-wrap"><table><thead><tr><th>Version</th><th>Zeitpunkt</th><th>Status</th><th>Inhalt</th></tr></thead><tbody><?php foreach($versions as $x):?><tr><td>V<?=e($x['version_no'])?></td><td><?=e(date('d.m.Y H:i',strtotime($x['created_at'])))?></td><td><?=e($x['status'])?></td><td><?= $x['file_path']?'Datei':'Text' ?></td></tr><?php endforeach;?></tbody></table></div>
+    <h2>Revisionen</h2><div class="table-wrap"><table><tbody><?php foreach($rounds as $r):?><tr><td>Runde <?=e($r['round_no'])?></td><td><?=e($r['status'])?></td><td><?=e($r['item_count'])?> Änderungspunkte</td><td><?=e($r['due_at']?:'keine Frist')?></td></tr><?php endforeach;?></tbody></table></div>
+    <?php render('Digitale Abgabe',ob_get_clean());exit;
+}
+if (preg_match('#^/auftrag/(\\d{8})/digital$#',$path,$m)&&$method==='POST') {
+    $s=require_seller();$st=db()->prepare("SELECT * FROM orders WHERE order_no=? AND seller_id=?");$st->execute([$m[1],$s['id']]);$o=$st->fetch();if(!$o)not_found();$text=post('text_content');$pathFile=null;$mime=null;$sha=null;
+    if(isset($_FILES['digital_file'])&&($_FILES['digital_file']['error']??UPLOAD_ERR_NO_FILE)===UPLOAD_ERR_OK){$up=private_upload($_FILES['digital_file'],'order-'.$o['id'].'/digital');$pathFile=$up['path'];$mime=$up['mime'];$sha=$up['sha256'];}
+    if($text===''&&!$pathFile){flash('error','Bitte Text oder Datei einreichen.');redirect('/auftrag/'.$o['order_no'].'/digital');}
+    $q=db()->prepare("SELECT COALESCE(MAX(version_no),0)+1 FROM digital_versions WHERE order_id=?");$q->execute([$o['id']]);$vn=(int)$q->fetchColumn();db()->prepare("INSERT INTO digital_versions(order_id,version_no,file_path,text_content,mime_type,sha256,status) VALUES(?,?,?,?,?,?,'submitted')")->execute([$o['id'],$vn,$pathFile,$text?:null,$mime,$sha]);
+    db()->prepare("UPDATE revision_rounds SET status='submitted' WHERE order_id=? AND status='open'")->execute([$o['id']]);db()->prepare("UPDATE orders SET status='review',updated_at=NOW() WHERE id=?")->execute([$o['id']]);db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")->execute([$o['id'],'Digitale Version V'.$vn.' wurde eingereicht und wartet auf Prüfung.']);flash('success','Digitale Version V'.$vn.' eingereicht.');redirect('/auftrag/'.$o['order_no'].'/digital');
+}
+if (preg_match('#^/admin/auftrag/(\\d{8})/revision$#',$path,$m)&&$method==='POST') {
+    require_admin();$st=db()->prepare("SELECT * FROM orders WHERE order_no=?");$st->execute([$m[1]]);$o=$st->fetch();if(!$o)not_found();
+    $open=db()->prepare("SELECT COUNT(*) FROM revision_rounds WHERE order_id=? AND status='open'");$open->execute([$o['id']]);if((int)$open->fetchColumn()>0){flash('error','Es ist bereits eine Revision offen.');redirect('/admin/auftrag/'.$o['order_no']);}
+    $q=db()->prepare("SELECT COALESCE(MAX(round_no),0)+1 FROM revision_rounds WHERE order_id=?");$q->execute([$o['id']]);$rn=(int)$q->fetchColumn();$due=post('due_at')?:null;db()->prepare("INSERT INTO revision_rounds(order_id,round_no,due_at) VALUES(?,?,?)")->execute([$o['id'],$rn,$due]);$rid=(int)db()->lastInsertId();
+    foreach(array_filter(array_map('trim',preg_split('/\\r?\\n/',post('items')))) as $item){db()->prepare("INSERT INTO revision_items(revision_round_id,description) VALUES(?,?)")->execute([$rid,$item]);}
+    db()->prepare("UPDATE orders SET status='review',updated_at=NOW() WHERE id=?")->execute([$o['id']]);db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")->execute([$o['id'],'Revision '.$rn.' wurde angefordert.']);flash('success','Revision angefordert.');redirect('/admin/auftrag/'.$o['order_no']);
+}
