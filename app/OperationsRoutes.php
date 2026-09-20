@@ -338,10 +338,10 @@ if (preg_match('#^/auftrag/(\d{8})/startdatum-aendern$#',$path,$m) && $method===
 
 if (preg_match('#^/admin/startdatum/(\d+)/(genehmigen|ablehnen)$#',$path,$m) && $method==='POST') {
     $a=require_admin();
-    $q=db()->prepare("SELECT r.*,o.order_no,o.seller_id,o.status,o.planned_start_date FROM order_start_date_requests r JOIN orders o ON o.id=r.order_id WHERE r.id=?");
+    $q=db()->prepare("SELECT r.*,r.status request_status,o.order_no,o.seller_id,o.status order_status,o.planned_start_date FROM order_start_date_requests r JOIN orders o ON o.id=r.order_id WHERE r.id=?");
     $q->execute([(int)$m[1]]);$r=$q->fetch();if(!$r)not_found();
-    if($r['status']!=='pending'){flash('error','Diese Anfrage wurde bereits bearbeitet.');redirect('/admin/auftrag/'.$r['order_no']);}
-    if($r['status']==='running'){flash('error','Ein laufender Auftrag kann nicht mehr verschoben werden.');redirect('/admin/auftrag/'.$r['order_no']);}
+    if($r['request_status']!=='pending'){flash('error','Diese Anfrage wurde bereits bearbeitet.');redirect('/admin/auftrag/'.$r['order_no']);}
+    if($r['order_status']!=='precheck'){flash('error','Nur Aufträge in der Vorbereitungsphase können noch verschoben werden.');redirect('/admin/auftrag/'.$r['order_no']);}
 
     $note=post('admin_note');
     if($m[2]==='genehmigen'){
