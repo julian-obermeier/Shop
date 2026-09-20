@@ -692,7 +692,7 @@ if (preg_match('#^/admin/angebot/(\\d+)$#',$path,$m)&&$method==='POST') {
 }
 if (preg_match('#^/admin/angebot/(\\d+)/option$#',$path,$m)&&$method==='POST') {
     require_admin();$st=db()->prepare("SELECT id FROM offers WHERE id=?");$st->execute([(int)$m[1]]);if(!$st->fetchColumn())not_found();
-    db()->prepare("INSERT INTO offer_options(offer_id,label,price,active) VALUES(?,?,?,1)")->execute([(int)$m[1],post('label'),max(0,(float)post('price'))]);flash('success','Zusatzoption hinzugefügt.');redirect('/admin/angebot/'.$m[1]);
+    db()->prepare("INSERT INTO offer_options(offer_id,label,price,active) VALUES(?,?,?,1)")->execute([(int)$m[1],post('label'),max(0,(float)post('price'))]);$version=bump_offer_version((int)$m[1],'option_added');flash('success','Zusatzoption hinzugefügt. Angebot ist jetzt Version V'.$version.'.');redirect('/admin/angebot/'.$m[1]);
 }
 
 
@@ -726,15 +726,16 @@ if (preg_match('#^/admin/angebot/(\d+)/aufgabenplan$#',$path,$m) && $method==='P
 
     db()->prepare("INSERT INTO offer_task_plans(offer_id,task_library_id,sort_order,title,description,fields_json,required_photos,compensation,violation_enabled,schedule_type,day_no,start_day,interval_days,due_time,active) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)")
       ->execute([$offer['id'],$templateId,(int)post('sort_order','0'),$title,$description,$fields,$required,$comp,$violation,$schedule,$dayNo,$startDay,$interval,$due]);
-
-    flash('success','Aufgabe wurde für zukünftige Annahmen vorgeplant.');redirect('/admin/angebot/'.$offer['id']);
+    $version=bump_offer_version((int)$offer['id'],'task_plan_added');
+    flash('success','Aufgabe wurde für zukünftige Annahmen vorgeplant. Angebot ist jetzt Version V'.$version.'.');redirect('/admin/angebot/'.$offer['id']);
 }
 
 if (preg_match('#^/admin/aufgabenplan/(\d+)/loeschen$#',$path,$m) && $method==='POST') {
     require_admin();
     $q=db()->prepare("SELECT * FROM offer_task_plans WHERE id=?");$q->execute([(int)$m[1]]);$plan=$q->fetch();if(!$plan)not_found();
     db()->prepare("DELETE FROM offer_task_plans WHERE id=?")->execute([$plan['id']]);
-    flash('success','Vorgeplante Aufgabe entfernt. Bereits angenommene Aufträge behalten ihren Snapshot.');redirect('/admin/angebot/'.$plan['offer_id']);
+    $version=bump_offer_version((int)$plan['offer_id'],'task_plan_removed');
+    flash('success','Vorgeplante Aufgabe entfernt. Bereits angenommene Aufträge behalten ihren Snapshot. Angebot ist jetzt Version V'.$version.'.');redirect('/admin/angebot/'.$plan['offer_id']);
 }
 
 /* ---------- V1 completion: precheck, evidence review, offer versioning, notifications ---------- */
@@ -835,7 +836,9 @@ if (preg_match('#^/admin/angebot/(\\d+)/duplizieren$#',$path,$m) && $method==='P
         db()->prepare("INSERT INTO offer_versions(offer_id,version_no,snapshot_json) VALUES(?,1,?)")->execute([$id,$snap]);
         $opt=db()->prepare("INSERT INTO offer_options(offer_id,label,price,requirements_json,active) SELECT ?,label,price,requirements_json,active FROM offer_options WHERE offer_id=?");$opt->execute([$id,$o['id']]);
         $shipSteps=db()->prepare("INSERT INTO offer_shipping_steps(offer_id,sort_order,title,instructions,required_photos,requires_text,requires_checkbox,is_dispatch_step,deadline_hours,active) SELECT ?,sort_order,title,instructions,required_photos,requires_text,requires_checkbox,is_dispatch_step,deadline_hours,active FROM offer_shipping_steps WHERE offer_id=?");$shipSteps->execute([$id,$o['id']]);
+        $taskPlans=db()->prepare("INSERT INTO offer_task_plans(offer_id,task_library_id,sort_order,title,description,fields_json,required_photos,compensation,violation_enabled,schedule_type,day_no,start_day,interval_days,due_time,active) SELECT ?,task_library_id,sort_order,title,description,fields_json,required_photos,compensation,violation_enabled,schedule_type,day_no,start_day,interval_days,due_time,active FROM offer_task_plans WHERE offer_id=?");$taskPlans->execute([$id,$o['id']]);
         db()->commit();
+        bump_offer_version($id,'duplicated_configuration');
     }catch(Throwable $e){db()->rollBack();throw $e;}
     flash('success','Angebot wurde als Entwurf dupliziert.');redirect('/admin/angebot/'.$id);
 }
