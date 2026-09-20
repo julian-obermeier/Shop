@@ -935,7 +935,7 @@ if (preg_match('#^/auftrag/(\d{8})/retake/(\d+)$#',$path,$m) && $method==='POST'
     $existing->execute([$r['id']]);if((int)$existing->fetchColumn()>0){flash('error','Für diese Neuaufnahme wurde bereits eine Datei eingereicht.');redirect('/auftrag/'.$r['order_no'].'/retake/'.$r['id']);}
 
     try{
-      $up=private_upload($_FILES['evidence']??[],'order-'.$r['order_id'].'/retakes');
+      $up=private_image_upload($_FILES['evidence']??[],'order-'.$r['order_id'].'/retakes');
       $late=strtotime($r['due_at'])<time()?1:0;
       db()->beginTransaction();
       db()->prepare("INSERT INTO evidences(order_id,order_run_id,seller_id,evidence_type,day_no,window_key,source_type,source_id,file_path,mime_type,file_size,sha256,metadata_json,quality_flags_json,is_late) VALUES(?,?,?,?,?,?,'retake',?,?,?,?,?,?,?,?)")
