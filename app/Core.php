@@ -1124,6 +1124,17 @@ function order_ready_for_shipping(int $orderId): bool {
     $q->execute([$orderId,$runId]);
     if((int)$q->fetchColumn()>0) return false;
 
+    // Physische Aufträge wechseln erst am Kalendertag nach dem letzten
+    // regulären oder zusätzlichen Durchführungstag in den Versand.
+    $q=db()->prepare("SELECT MAX(calendar_date) FROM order_days WHERE order_id=? AND order_run_id=?");
+    $q->execute([$orderId,$runId]);
+    $lastExecutionDate=$q->fetchColumn();
+    if($lastExecutionDate){
+        $tz=new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'));
+        $shippingRelease=(new DateTimeImmutable((string)$lastExecutionDate.' 00:00:00',$tz))->modify('+1 day');
+        if(new DateTimeImmutable('now',$tz)<$shippingRelease) return false;
+    }
+
     $q=db()->prepare("SELECT COUNT(*) FROM violations WHERE order_id=? AND status IN('open','reviewed')");
     $q->execute([$orderId]);
     if((int)$q->fetchColumn()>0) return false;
