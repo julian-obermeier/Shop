@@ -124,6 +124,8 @@ CREATE TABLE IF NOT EXISTS orders (
  total_compensation DECIMAL(10,2) NOT NULL,
  released_amount DECIMAL(10,2) NULL,
  duration_days INT NULL,
+ planned_start_date DATE NULL,
+ precheck_approved_at DATETIME NULL,
  started_at DATETIME NULL,
  completed_at DATETIME NULL,
  archived_at DATETIME NULL,
@@ -132,7 +134,20 @@ CREATE TABLE IF NOT EXISTS orders (
  updated_at DATETIME NULL,
  FOREIGN KEY(seller_id) REFERENCES sellers(id),
  FOREIGN KEY(offer_id) REFERENCES offers(id),
- INDEX(seller_id,status), INDEX(status), INDEX(archived_at)
+ INDEX(seller_id,status), INDEX(status), INDEX(archived_at), INDEX(status,precheck_approved_at,planned_start_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS order_start_date_requests (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ order_id BIGINT UNSIGNED NOT NULL,
+ requested_date DATE NOT NULL,
+ reason TEXT NOT NULL,
+ status ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending',
+ created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ decided_at DATETIME NULL,
+ admin_note TEXT NULL,
+ FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE,
+ INDEX(order_id,status,created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS order_options (
