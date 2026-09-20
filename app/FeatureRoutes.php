@@ -438,7 +438,7 @@ if (preg_match('#^/auftrag/(\d{8})/versand-schritt/(\d+)$#',$path,$m)&&$method==
                   ->execute([$o['id'],current_run_id((int)$o['id']),$s['id'],$step['id'],$up['path'],$up['mime'],$up['size'],$up['sha256']]);
                 $dispatchProofId=(int)db()->lastInsertId();
             }
-            if($tracking==='' && !$dispatchProofId && !$uploadedIds) throw new RuntimeException('Bitte Trackingnummer oder Einlieferungsnachweis angeben.');
+            if($tracking==='' && !$dispatchProofId) throw new RuntimeException('Bitte Trackingnummer oder Einlieferungsnachweis angeben.');
             $shippingCost=max(0,(float)post('shipping_cost','0'));
             if(($shippingSnapshot['cost_mode']??'seller')==='reimburse' && (!$dispatchProofId || $shippingCost<=0)) throw new RuntimeException('Für die Versandkostenerstattung sind Kostenbetrag und Einlieferungs-/Kostenbeleg erforderlich.');
         }else{
