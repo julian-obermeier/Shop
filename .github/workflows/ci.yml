@@ -121,7 +121,10 @@ jobs:
           SQL
 
           ORDER_NO="$(php -r 'require "app/Core.php"; echo order_number();')"
-          echo "$ORDER_NO" | grep -Eq '^[0-9]{8}
+          case "$ORDER_NO" in
+            [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) ;;
+            *) echo "Invalid order number: $ORDER_NO"; exit 1 ;;
+          esac
 
           php -S 127.0.0.1:8080 tests/http_router.php >/tmp/shop-php-server.log 2>&1 &
           SERVER_PID=$!
