@@ -24,9 +24,14 @@ class OrderController extends Controller
     {
         $order->load(
             'user','offer','options','fieldValues','days.proofs','statusHistory',
-            'precheck','shipment.evidences','goodsReceipt','goodsInspection','returnRequest','conversation'
+            'precheck','shipment.evidences','goodsReceipt','goodsInspection','conversation'
         );
-        return view('admin.orders.show',compact('order'));
+        $violations=DB::table('violations')->where('order_id',$order->id)->latest('id')->get();
+        $extensionDays=DB::table('extension_days')->where('order_id',$order->id)->orderBy('sequence_no')->get();
+        $damageCases=DB::table('damage_cases')->where('order_id',$order->id)->latest('id')->get();
+        $runs=DB::table('order_runs')->where('order_id',$order->id)->orderBy('run_number')->get();
+        $digitalComponents=DB::table('digital_components')->where('order_id',$order->id)->get();
+        return view('admin.orders.show',compact('order','violations','extensionDays','damageCases','runs','digitalComponents'));
     }
 
     public function rejectRequest(Request $request, Order $order, AuditService $audit, NotificationService $notifications)
