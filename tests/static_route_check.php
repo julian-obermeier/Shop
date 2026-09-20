@@ -43,6 +43,7 @@ $required=[
     'GET /admin/ausfaelle',
     'GET /admin/versandadressen',
     'GET /admin/kalender',
+    'GET /admin/fristen',
     'GET /admin/entscheidungen',
 ];
 foreach($required as $sig){
