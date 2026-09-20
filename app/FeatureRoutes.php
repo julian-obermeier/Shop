@@ -59,7 +59,8 @@ if ($path==='/wallet' && $method==='GET') {
     $minimum=max(0,(float)setting_value('payout_min','10.00'));
     $bankEnabled=setting_value('payout_bank_enabled','1')==='1';
     $paypalEnabled=setting_value('payout_paypal_enabled','1')==='1';
-    $processing=(string)setting_value('payout_processing_days','Nach individueller Prüfung');
+    $processingLabel=payout_processing_label();
+    $nextProcessing=next_payout_processing_date();
     $feeLabel=function(string $method): string {
         $type=(string)setting_value('payout_'.$method.'_fee_type','none');
         $value=max(0,(float)setting_value('payout_'.$method.'_fee_value','0'));
@@ -73,10 +74,10 @@ if ($path==='/wallet' && $method==='GET') {
     <h2>Auszahlung beantragen</h2>
     <form class="panel" method="post" action="<?=e(url('/wallet/auszahlung'))?>"><?=csrf_field()?>
       <div class="form-grid"><label>Betrag (€)<input type="number" name="amount" step=".01" min="<?=e((string)$minimum)?>" max="<?=e((string)max(0,$available))?>" required></label><label>Methode<select name="method"><?php if($bankEnabled):?><option value="bank">Banküberweisung · Gebühr <?=e($feeLabel('bank'))?></option><?php endif;?><?php if($paypalEnabled):?><option value="paypal">PayPal · Gebühr <?=e($feeLabel('paypal'))?></option><?php endif;?></select></label></div>
-      <p class="meta">Mindestauszahlung: <?=money($minimum)?> · Bearbeitung: <?=e($processing)?>. Es ist nur ein offener Auszahlungsantrag gleichzeitig möglich. Zahlungsdaten werden bei Antragstellung als Snapshot gespeichert.</p><button class="btn">Auszahlung beantragen</button>
+      <p class="meta">Mindestauszahlung: <?=money($minimum)?> · Bearbeitungstage: <?=e($processingLabel)?><?php if($nextProcessing):?> · nächster vorgesehener Termin: <?=e($nextProcessing->format('d.m.Y'))?><?php endif;?>. Es ist nur ein offener Auszahlungsantrag gleichzeitig möglich. Zahlungsdaten und Bearbeitungstermin werden bei Antragstellung als Snapshot gespeichert.</p><button class="btn">Auszahlung beantragen</button>
     </form>
-    <h2>Auszahlungsverlauf</h2><div class="table-wrap"><table><thead><tr><th>Datum</th><th>Betrag</th><th>Netto</th><th>Methode</th><th>Status</th><th></th></tr></thead><tbody>
-    <?php foreach($requests as $r):?><tr><td><?=e(date('d.m.Y H:i',strtotime($r['created_at'])))?></td><td><?=money($r['amount'])?></td><td><?=money($r['net_amount'])?></td><td><?=e($r['method'])?></td><td><?=e($r['status'])?></td><td><?php if($r['status']==='requested'):?><form method="post" action="<?=e(url('/wallet/auszahlung/'.$r['id'].'/zurueckziehen'))?>"><?=csrf_field()?><button class="btn secondary">Zurückziehen</button></form><?php endif;?></td></tr><?php endforeach;?>
+    <h2>Auszahlungsverlauf</h2><div class="table-wrap"><table><thead><tr><th>Datum</th><th>Betrag</th><th>Netto</th><th>Methode</th><th>Bearbeitung</th><th>Status</th><th></th></tr></thead><tbody>
+    <?php foreach($requests as $r):?><tr><td><?=e(date('d.m.Y H:i',strtotime($r['created_at'])))?></td><td><?=money($r['amount'])?></td><td><?=money($r['net_amount'])?></td><td><?=e($r['method'])?></td><td><?=e($r['scheduled_processing_date']?date('d.m.Y',strtotime($r['scheduled_processing_date'])):'–')?></td><td><?=e($r['status'])?></td><td><?php if($r['status']==='requested'):?><form method="post" action="<?=e(url('/wallet/auszahlung/'.$r['id'].'/zurueckziehen'))?>"><?=csrf_field()?><button class="btn secondary">Zurückziehen</button></form><?php endif;?></td></tr><?php endforeach;?>
     </tbody></table></div>
     <?php render('Wallet',ob_get_clean());exit;
 }
@@ -106,9 +107,10 @@ if ($path==='/wallet/auszahlung' && $method==='POST') {
     $snap=json_encode($method==='bank'
         ? ['iban'=>$profile['iban'],'bic'=>$profile['bic'],'account_holder'=>$profile['account_holder']]
         : ['paypal'=>$profile['paypal']],JSON_UNESCAPED_UNICODE);
-    db()->prepare("INSERT INTO payout_requests(seller_id,amount,fee,net_amount,method,payment_snapshot_json) VALUES(?,?,?,?,?,?)")
-      ->execute([$s['id'],$amount,$fee,$net,$method,$snap]);
-    flash('success','Auszahlungsantrag wurde gestellt. Gebühr: '.money($fee).' · Netto: '.money($net));redirect('/wallet');
+    $processingDate=next_payout_processing_date();
+    db()->prepare("INSERT INTO payout_requests(seller_id,amount,fee,net_amount,method,payment_snapshot_json,scheduled_processing_date) VALUES(?,?,?,?,?,?,?)")
+      ->execute([$s['id'],$amount,$fee,$net,$method,$snap,$processingDate?->format('Y-m-d')]);
+    flash('success','Auszahlungsantrag wurde gestellt. Gebühr: '.money($fee).' · Netto: '.money($net).($processingDate?' · vorgesehene Bearbeitung: '.$processingDate->format('d.m.Y'):''));redirect('/wallet');
 }
 if (preg_match('#^/wallet/auszahlung/(\d+)/zurueckziehen$#',$path,$m)&&$method==='POST') {
     $s=require_seller();db()->prepare("UPDATE payout_requests SET status='withdrawn',updated_at=NOW() WHERE id=? AND seller_id=? AND status='requested'")->execute([(int)$m[1],$s['id']]);flash('success','Auszahlungsantrag zurückgezogen.');redirect('/wallet');
@@ -421,11 +423,12 @@ if (preg_match('#^/admin/auftrag/(\d{8})/abschliessen$#',$path,$m)&&$method==='P
 }
 if ($path==='/admin/einstellungen'&&$method==='GET') {
     require_admin();$rows=db()->query("SELECT * FROM settings ORDER BY setting_key")->fetchAll();$set=[];foreach($rows as $r)$set[$r['setting_key']]=$r['setting_value'];
+    $payoutWeekdays=array_values(array_unique(array_filter(array_map('intval',preg_split('/[^0-9]+/',(string)($set['payout_processing_weekdays']??'1,4'))?:[]),fn($d)=>$d>=1&&$d<=7)));
     ob_start();?><div class="eyebrow">Administration</div><h1>Systemeinstellungen</h1>
     <form class="panel" method="post"><?=csrf_field()?>
       <h2>Auszahlungen</h2><div class="form-grid">
         <label>Mindestauszahlung (€)<input type="number" step=".01" min="0" name="payout_min" value="<?=e($set['payout_min']??'10.00')?>"></label>
-        <label>Bearbeitungstage / Hinweis<input name="payout_processing_days" value="<?=e($set['payout_processing_days']??'Nach individueller Prüfung')?>"></label>
+        <div><span class="meta">Feste Bearbeitungstage</span><div class="actions" style="margin-top:8px"><?php foreach([1=>'Mo',2=>'Di',3=>'Mi',4=>'Do',5=>'Fr',6=>'Sa',7=>'So'] as $day=>$label):?><label style="display:flex;align-items:center;gap:6px;margin:0"><input type="checkbox" style="width:auto" name="payout_weekdays[]" value="<?=$day?>" <?=in_array($day,$payoutWeekdays,true)?'checked':''?>> <?=e($label)?></label><?php endforeach;?></div><small class="meta">Der nächste passende Kalendertag wird beim Antrag fest gespeichert.</small></div>
         <label><input type="checkbox" style="width:auto" name="payout_bank_enabled" value="1" <?=($set['payout_bank_enabled']??'1')==='1'?'checked':''?>> Banküberweisung aktiv</label>
         <label><input type="checkbox" style="width:auto" name="payout_paypal_enabled" value="1" <?=($set['payout_paypal_enabled']??'1')==='1'?'checked':''?>> PayPal aktiv</label>
         <label>Bank-Gebühr Typ<select name="payout_bank_fee_type"><?php foreach(['none'=>'Keine','fixed'=>'Festbetrag','percent'=>'Prozent'] as $k=>$v):?><option value="<?=$k?>" <?=($set['payout_bank_fee_type']??'none')===$k?'selected':''?>><?=e($v)?></option><?php endforeach;?></select></label>
@@ -459,9 +462,11 @@ if ($path==='/admin/einstellungen'&&$method==='GET') {
 }
 if ($path==='/admin/einstellungen'&&$method==='POST') {
     require_admin();
+    $selectedDays=array_values(array_unique(array_filter(array_map('intval',(array)($_POST['payout_weekdays']??[])),fn($d)=>$d>=1&&$d<=7)));
+    sort($selectedDays);
     $values=[
       'payout_min'=>post('payout_min','10.00'),
-      'payout_processing_days'=>post('payout_processing_days'),
+      'payout_processing_weekdays'=>implode(',',$selectedDays),
       'payout_bank_enabled'=>isset($_POST['payout_bank_enabled'])?'1':'0',
       'payout_paypal_enabled'=>isset($_POST['payout_paypal_enabled'])?'1':'0',
       'payout_bank_fee_type'=>post('payout_bank_fee_type','none'),
