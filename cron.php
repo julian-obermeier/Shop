@@ -116,6 +116,24 @@ foreach($runningOrders as $row){
     advance_order_to_shipping_if_ready($orderId);
 }
 
+/* Versandschritt-Fristen: ein unvollständiger Schritt zählt als ein möglicher Verstoß. */
+$shippingSteps=$pdo->query("SELECT st.*,o.seller_id,o.order_no FROM order_shipping_steps st JOIN orders o ON o.id=st.order_id WHERE st.status='open' AND st.due_at IS NOT NULL AND o.status='shipping'")->fetchAll();
+foreach($shippingSteps as $step){
+    $due=new DateTimeImmutable($step['due_at'],new DateTimeZone((string)app_config('app.timezone','Europe/Berlin')));
+    $graceEnd=$due->modify('+'.$grace.' minutes');
+    $diff=$due->getTimestamp()-$now->getTimestamp();
+
+    if($diff<=3600 && $diff>3300){
+        notify_seller((int)$step['seller_id'],'shipping.reminder','Versandschritt in 60 Minuten fällig','Der Versandschritt „'.$step['title'].'“ in Auftrag '.$step['order_no'].' ist in etwa 60 Minuten fällig.','/auftrag/'.$step['order_no'].'/versand','shipping-step-'.$step['id'].'-60m');
+    }
+    if($diff<=900 && $diff>600){
+        notify_seller((int)$step['seller_id'],'shipping.reminder','Versandschritt bald fällig','Der Versandschritt „'.$step['title'].'“ in Auftrag '.$step['order_no'].' ist in etwa 15 Minuten fällig.','/auftrag/'.$step['order_no'].'/versand','shipping-step-'.$step['id'].'-15m');
+    }
+    if($graceEnd<$now){
+        cron_provisional_violation((int)$step['order_id'],(int)$step['seller_id'],'shipping-step-'.$step['id'].'-missed','shipping_requirement','Versandschritt „'.$step['title'].'“ wurde nicht fristgerecht abgeschlossen.');
+    }
+}
+
 /* Individuelle Angebote: 24h / 1h Erinnerung und automatisches Ablaufen. */
 $assignments=$pdo->query("SELECT a.*,o.title,s.email FROM offer_assignments a JOIN offers o ON o.id=a.offer_id JOIN sellers s ON s.id=a.seller_id WHERE a.status='assigned'")->fetchAll();
 foreach($assignments as $a){
