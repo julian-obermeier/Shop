@@ -610,6 +610,7 @@ function bump_offer_version(int $offerId, string $reason = 'configuration_change
             'cost_mode'=>$offer['shipping_cost_mode'],
             'allowance'=>(float)$offer['shipping_allowance'],
             'preferred_carrier'=>$offer['preferred_carrier'],
+            'window_hours'=>!empty($offer['shipping_window_hours'])?(int)$offer['shipping_window_hours']:null,
             'rules'=>json_decode($offer['shipping_rules_json']?:'{}',true)?:[],
             'steps'=>$shippingSteps,
         ],
@@ -1152,6 +1153,7 @@ function build_shipping_snapshot(array|int $offer): array {
         'cost_mode'=>$offer['shipping_cost_mode'] ?? 'seller',
         'allowance'=>(float)($offer['shipping_allowance'] ?? 0),
         'preferred_carrier'=>$offer['preferred_carrier'] ?? null,
+        'window_hours'=>!empty($offer['shipping_window_hours'])?(int)$offer['shipping_window_hours']:null,
         'instructions'=>$rules['instructions'] ?? null,
         'steps'=>$steps,
         'snapshotted_at'=>date(DATE_ATOM),
@@ -1177,6 +1179,7 @@ function order_shipping_snapshot(array|int $order): array {
         'cost_mode'=>'seller',
         'allowance'=>0.0,
         'preferred_carrier'=>null,
+        'window_hours'=>null,
         'instructions'=>null,
         'steps'=>[],
     ];
@@ -1291,10 +1294,18 @@ function advance_order_to_shipping_if_ready(int $orderId): bool {
     if($o['fulfillment_type']==='digital') return false;
     if(!order_ready_for_shipping($orderId)) return false;
 
-    db()->prepare("UPDATE orders SET status='shipping',updated_at=NOW() WHERE id=? AND status='running'")->execute([$orderId]);
+    $shippingSnapshot=order_shipping_snapshot($o);
+    $windowHours=max(0,(int)($shippingSnapshot['window_hours']??0));
+    $shippingDue=null;
+    if($windowHours>0){
+        $tz=new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'));
+        $shippingDue=(new DateTimeImmutable('now',$tz))->modify('+'.$windowHours.' hours')->format('Y-m-d H:i:s');
+    }
+    db()->prepare("UPDATE orders SET status='shipping',shipping_due_at=?,updated_at=NOW() WHERE id=? AND status='running'")->execute([$shippingDue,$orderId]);
     ensure_order_shipping_steps($orderId);
-    db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system','Die Durchführung ist abgeschlossen. Der Versandworkflow wurde freigeschaltet.')")->execute([$orderId]);
-    notify_seller((int)$o['seller_id'],'shipping.open','Versand freigeschaltet','Die Durchführung von Auftrag '.$o['order_no'].' ist abgeschlossen. Der Versandworkflow ist jetzt verfügbar.','/auftrag/'.$o['order_no'].'/versand',null,true);
+    $deadlineText=$shippingDue?' Gesamt-Versandfrist: '.date('d.m.Y H:i',strtotime($shippingDue)).' Uhr.':'';
+    db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")->execute([$orderId,'Die Durchführung ist abgeschlossen. Der Versandworkflow wurde freigeschaltet.'.$deadlineText]);
+    notify_seller((int)$o['seller_id'],'shipping.open','Versand freigeschaltet','Die Durchführung von Auftrag '.$o['order_no'].' ist abgeschlossen. Der Versandworkflow ist jetzt verfügbar.'.$deadlineText,'/auftrag/'.$o['order_no'].'/versand',null,true);
     return true;
 }
 
