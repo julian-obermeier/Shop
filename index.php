@@ -360,13 +360,36 @@ if(preg_match('#^/auftrag/(\d{8})$#',$path,$m)&&$method==='GET'){
 if(preg_match('#^/auftrag/(\d{8})/nachweis$#',$path,$m)&&$method==='POST'){
  $s=require_seller();
  $st=db()->prepare("SELECT o.*,f.category_id FROM orders o JOIN offers f ON f.id=o.offer_id WHERE o.order_no=? AND o.seller_id=?");$st->execute([$m[1],$s['id']]);$o=$st->fetch();if(!$o)not_found();
- if(post('type')==='precheck' && $o['status']!=='precheck'){flash('error','Die Vorabkontrolle ist bereits beendet.');redirect('/auftrag/'.$o['order_no']);}
+ $type=post('type','precheck');
+ if($type==='precheck' && $o['status']!=='precheck'){flash('error','Die Vorabkontrolle ist bereits beendet.');redirect('/auftrag/'.$o['order_no']);}
 
  try{
    $runId=current_run_id((int)$o['id']);
+   $componentId=null;$component=null;$categoryId=(int)$o['category_id'];
+
+   if($type==='precheck'){
+      $requestedComponentId=(int)post('component_id','0');
+      if($requestedComponentId>0){
+          $cq=db()->prepare("SELECT * FROM order_components WHERE id=? AND order_id=? AND component_type='physical'");
+          $cq->execute([$requestedComponentId,$o['id']]);$component=$cq->fetch();
+      }else{
+          $cq=db()->prepare("SELECT * FROM order_components WHERE order_id=? AND source_component_id IS NULL AND component_type='physical' ORDER BY id LIMIT 1");
+          $cq->execute([$o['id']]);$component=$cq->fetch();
+      }
+      if(!$component) throw new RuntimeException('Der ausgewählte physische Auftragsbestandteil ist ungültig.');
+      $componentId=(int)$component['id'];$categoryId=(int)$component['category_id'];
+
+      $progress=order_precheck_component_progress((int)$o['id'],$runId);
+      $cp=$progress['components'][$componentId]??null;
+      if(!$cp || (int)$cp['required']<1) throw new RuntimeException('Für diesen Bestandteil ist kein Pflicht-Vorabnachweis erforderlich.');
+      if((int)$cp['accepted']+(int)$cp['pending'] >= (int)$cp['required']){
+          throw new RuntimeException('Für diesen Bestandteil liegt bereits die erforderliche Anzahl akzeptierter bzw. noch zu prüfender Vorabnachweise vor.');
+      }
+   }
+
    $attrs=[];
-   if(post('type')==='precheck'){
-      $fields=db()->prepare("SELECT * FROM category_fields WHERE category_id=? AND is_active=1 ORDER BY sort_order,id");$fields->execute([$o['category_id']]);
+   if($type==='precheck'){
+      $fields=db()->prepare("SELECT * FROM category_fields WHERE category_id=? AND is_active=1 ORDER BY sort_order,id");$fields->execute([$categoryId]);
       foreach($fields->fetchAll() as $fld){
         $key=$fld['field_key'];$raw=$_POST['attr'][$key]??null;
         if($fld['field_type']==='multiselect'){
@@ -380,20 +403,27 @@ if(preg_match('#^/auftrag/(\d{8})/nachweis$#',$path,$m)&&$method==='POST'){
    }
 
    $up=private_upload($_FILES['evidence']??[],'order-'.$o['id']);
-   if(post('type')==='precheck'){
-      $q=db()->prepare("SELECT * FROM order_items WHERE order_id=? AND order_run_id<=>? ORDER BY id DESC LIMIT 1");$q->execute([$o['id'],$runId]);$item=$q->fetch();
+   if($type==='precheck'){
+      $isPrimary=empty($component['source_component_id']);
+      $sql=$isPrimary
+        ? "SELECT * FROM order_items WHERE order_id=? AND order_run_id<=>? AND (order_component_id=? OR order_component_id IS NULL) ORDER BY order_component_id IS NULL,id DESC LIMIT 1"
+        : "SELECT * FROM order_items WHERE order_id=? AND order_run_id<=>? AND order_component_id=? ORDER BY id DESC LIMIT 1";
+      $q=db()->prepare($sql);$q->execute([$o['id'],$runId,$componentId]);$item=$q->fetch();
       $values=[post('item_label'),post('size_value'),post('color_value'),post('brand_value'),post('material_value'),$attrs?json_encode($attrs,JSON_UNESCAPED_UNICODE):null];
       if($item){
-        db()->prepare("UPDATE order_items SET label=?,size_value=?,color_value=?,brand_value=?,material_value=?,attributes_json=? WHERE id=? AND locked_at IS NULL")
-          ->execute([...$values,$item['id']]);
+        db()->prepare("UPDATE order_items SET order_component_id=?,label=?,size_value=?,color_value=?,brand_value=?,material_value=?,attributes_json=? WHERE id=? AND locked_at IS NULL")
+          ->execute([$componentId,...$values,$item['id']]);
       }else{
-        db()->prepare("INSERT INTO order_items(order_id,order_run_id,label,size_value,color_value,brand_value,material_value,attributes_json,locked_at) VALUES(?,?,?,?,?,?,?,?,NULL)")
-          ->execute([$o['id'],$runId,...$values]);
+        db()->prepare("INSERT INTO order_items(order_id,order_run_id,order_component_id,label,size_value,color_value,brand_value,material_value,attributes_json,locked_at) VALUES(?,?,?,?,?,?,?,?,?,NULL)")
+          ->execute([$o['id'],$runId,$componentId,...$values]);
       }
    }
-   db()->prepare("INSERT INTO evidences(order_id,order_run_id,seller_id,evidence_type,file_path,mime_type,file_size,sha256,metadata_json,quality_flags_json) VALUES(?,?,?,?,?,?,?,?,?,?)")
-     ->execute([$o['id'],$runId,$s['id'],post('type','precheck'),$up['path'],$up['mime'],$up['size'],$up['sha256'],upload_metadata_json($up),upload_quality_flags_json($up)]);
-   flash('success','Nachweis und Artikeldaten wurden sicher gespeichert.');
+
+   db()->prepare("INSERT INTO evidences(order_id,order_run_id,order_component_id,seller_id,evidence_type,file_path,mime_type,file_size,sha256,metadata_json,quality_flags_json) VALUES(?,?,?,?,?,?,?,?,?,?,?)")
+     ->execute([$o['id'],$runId,$componentId,$s['id'],$type,$up['path'],$up['mime'],$up['size'],$up['sha256'],upload_metadata_json($up),upload_quality_flags_json($up)]);
+   flash('success',$type==='precheck'
+     ? 'Vorabnachweis und Artikeldaten wurden dem Bestandteil „'.($component['title_snapshot']??'Artikel').'“ zugeordnet.'
+     : 'Nachweis wurde sicher gespeichert.');
  }catch(Throwable $e){flash('error',$e->getMessage());}
  redirect('/auftrag/'.$o['order_no']);
 }
