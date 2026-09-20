@@ -907,9 +907,13 @@ if (preg_match('#^/auftrag/(\d{8})/digital$#',$path,$m)&&$method==='POST') {
 if (preg_match('#^/admin/auftrag/(\\d{8})/revision$#',$path,$m)&&$method==='POST') {
     require_admin();$st=db()->prepare("SELECT * FROM orders WHERE order_no=?");$st->execute([$m[1]]);$o=$st->fetch();if(!$o)not_found();
     $open=db()->prepare("SELECT COUNT(*) FROM revision_rounds WHERE order_id=? AND status IN('open','submitted')");$open->execute([$o['id']]);if((int)$open->fetchColumn()>0){flash('error','Es ist bereits eine aktive Revision offen oder zur Prüfung eingereicht.');redirect('/admin/auftrag/'.$o['order_no']);}
-    $q=db()->prepare("SELECT COALESCE(MAX(round_no),0)+1 FROM revision_rounds WHERE order_id=?");$q->execute([$o['id']]);$rn=(int)$q->fetchColumn();$due=post('due_at')?:null;db()->prepare("INSERT INTO revision_rounds(order_id,round_no,due_at) VALUES(?,?,?)")->execute([$o['id'],$rn,$due]);$rid=(int)db()->lastInsertId();
+    $q=db()->prepare("SELECT COALESCE(MAX(round_no),0)+1 FROM revision_rounds WHERE order_id=?");$q->execute([$o['id']]);$rn=(int)$q->fetchColumn();
+    $digitalRules=offer_digital_rules((int)$o['id']);$tz=new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'));
+    if(post('due_at')!==''){$dueObj=new DateTimeImmutable(post('due_at'),$tz);}else{$dueObj=(new DateTimeImmutable('now',$tz))->modify('+'.(int)$digitalRules['revision']['deadline_hours'].' hours');}
+    $due=$dueObj->format('Y-m-d H:i:s');$graceEnd=$dueObj->modify('+'.(int)$digitalRules['revision']['grace_minutes'].' minutes')->format('Y-m-d H:i:s');
+    db()->prepare("INSERT INTO revision_rounds(order_id,round_no,due_at,grace_ends_at) VALUES(?,?,?,?)")->execute([$o['id'],$rn,$due,$graceEnd]);$rid=(int)db()->lastInsertId();
     foreach(array_filter(array_map('trim',preg_split('/\\r?\\n/',post('items')))) as $item){db()->prepare("INSERT INTO revision_items(revision_round_id,description) VALUES(?,?)")->execute([$rid,$item]);}
-    db()->prepare("UPDATE orders SET status='review',updated_at=NOW() WHERE id=?")->execute([$o['id']]);db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")->execute([$o['id'],'Revision '.$rn.' wurde angefordert.']);flash('success','Revision angefordert.');redirect('/admin/auftrag/'.$o['order_no']);
+    db()->prepare("UPDATE orders SET status='review',updated_at=NOW() WHERE id=?")->execute([$o['id']]);db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")->execute([$o['id'],'Revision '.$rn.' wurde angefordert. Frist: '.$dueObj->format('d.m.Y H:i').' · Nachfrist bis '.$dueObj->modify('+'.(int)$digitalRules['revision']['grace_minutes'].' minutes')->format('d.m.Y H:i').'.']);notify_seller((int)$o['seller_id'],'digital.revision_requested','Revision angefordert','Für Auftrag '.$o['order_no'].' wurde Revision '.$rn.' angefordert. Frist: '.$dueObj->format('d.m.Y H:i').'.','/auftrag/'.$o['order_no'].'/digital','revision-'.$rid.'-requested',true);flash('success','Revision angefordert.');redirect('/admin/auftrag/'.$o['order_no']);
 }
 
 
