@@ -140,6 +140,32 @@ foreach($runningOrders as $row){
             $pdo->prepare("UPDATE order_days SET status='active' WHERE id=? AND calendar_date<=?")->execute([$day['id'],$now->format('Y-m-d')]);
         }
     }
+    $interval=max(0,(int)setting_value('interim_summary_interval','7'));
+    if($interval>0){
+        $cq=$pdo->prepare("SELECT COUNT(*) FROM order_days WHERE order_id=? AND status IN('completed','missed')");
+        $cq->execute([$orderId]);$completedDays=(int)$cq->fetchColumn();
+        if($completedDays>0 && $completedDays%$interval===0){
+            $exists=$pdo->prepare("SELECT COUNT(*) FROM order_interim_summaries WHERE order_id=? AND completed_days=?");
+            $exists->execute([$orderId,$completedDays]);
+            if((int)$exists->fetchColumn()===0){
+                $snapshot=build_interim_summary($orderId,$completedDays);
+                $pdo->prepare("INSERT INTO order_interim_summaries(order_id,completed_days,snapshot_json) VALUES(?,?,?)")
+                    ->execute([$orderId,$completedDays,json_encode($snapshot,JSON_UNESCAPED_UNICODE)]);
+                $oq=$pdo->prepare("SELECT seller_id,order_no FROM orders WHERE id=?");$oq->execute([$orderId]);$ord=$oq->fetch();
+                if($ord){
+                    notify_seller(
+                        (int)$ord['seller_id'],
+                        'order.interim_summary',
+                        'Neuer Zwischenstand',
+                        'Für Auftrag '.$ord['order_no'].' wurde nach '.$completedDays.' abgeschlossenen Tagen ein neuer Zwischenstand erstellt.',
+                        '/auftrag/'.$ord['order_no'].'/zwischenstaende',
+                        'interim-'.$orderId.'-'.$completedDays,
+                        false
+                    );
+                }
+            }
+        }
+    }
     advance_order_to_shipping_if_ready($orderId);
 }
 
