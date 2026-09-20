@@ -684,12 +684,13 @@ if (preg_match('#^/admin/angebot/(\\d+)/duplizieren$#',$path,$m) && $method==='P
     $q=db()->prepare("SELECT * FROM offers WHERE id=?");$q->execute([(int)$m[1]]);$o=$q->fetch();if(!$o)not_found();
     $title=$o['title'].' – Kopie';$slug=preg_replace('/[^a-z0-9-]/','',strtolower(str_replace(' ','-',$title))).'-'.substr(bin2hex(random_bytes(3)),0,6);
     db()->beginTransaction();try{
-        db()->prepare("INSERT INTO offers(category_id,title,slug,description,compensation,duration_days,fulfillment_type,evidence_rules_json,shipping_rules_json,status,current_version) VALUES(?,?,?,?,?,?,?,?,?,'draft',1)")
-            ->execute([$o['category_id'],$title,$slug,$o['description'],$o['compensation'],$o['duration_days'],$o['fulfillment_type'],$o['evidence_rules_json'],$o['shipping_rules_json']]);
+        db()->prepare("INSERT INTO offers(category_id,title,slug,description,compensation,duration_days,fulfillment_type,evidence_rules_json,shipping_rules_json,shipping_address_id,shipping_cost_mode,shipping_allowance,preferred_carrier,status,current_version) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,'draft',1)")
+            ->execute([$o['category_id'],$title,$slug,$o['description'],$o['compensation'],$o['duration_days'],$o['fulfillment_type'],$o['evidence_rules_json'],$o['shipping_rules_json'],$o['shipping_address_id'],$o['shipping_cost_mode'],$o['shipping_allowance'],$o['preferred_carrier']]);
         $id=(int)db()->lastInsertId();
-        $snap=json_encode(['category_id'=>(int)$o['category_id'],'title'=>$title,'description'=>$o['description'],'compensation'=>(float)$o['compensation'],'duration_days'=>$o['duration_days'],'fulfillment_type'=>$o['fulfillment_type'],'status'=>'draft'],JSON_UNESCAPED_UNICODE);
+        $snap=json_encode(['category_id'=>(int)$o['category_id'],'title'=>$title,'description'=>$o['description'],'compensation'=>(float)$o['compensation'],'duration_days'=>$o['duration_days'],'fulfillment_type'=>$o['fulfillment_type'],'status'=>'draft','shipping'=>build_shipping_snapshot($o)],JSON_UNESCAPED_UNICODE);
         db()->prepare("INSERT INTO offer_versions(offer_id,version_no,snapshot_json) VALUES(?,1,?)")->execute([$id,$snap]);
         $opt=db()->prepare("INSERT INTO offer_options(offer_id,label,price,requirements_json,active) SELECT ?,label,price,requirements_json,active FROM offer_options WHERE offer_id=?");$opt->execute([$id,$o['id']]);
+        $shipSteps=db()->prepare("INSERT INTO offer_shipping_steps(offer_id,sort_order,title,instructions,required_photos,requires_text,requires_checkbox,is_dispatch_step,deadline_hours,active) SELECT ?,sort_order,title,instructions,required_photos,requires_text,requires_checkbox,is_dispatch_step,deadline_hours,active FROM offer_shipping_steps WHERE offer_id=?");$shipSteps->execute([$id,$o['id']]);
         db()->commit();
     }catch(Throwable $e){db()->rollBack();throw $e;}
     flash('success','Angebot wurde als Entwurf dupliziert.');redirect('/admin/angebot/'.$id);
