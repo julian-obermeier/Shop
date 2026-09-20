@@ -7,6 +7,7 @@ use App\Services\ConsentService;
 use App\Services\OrderService;
 use App\Services\V1OrderWorkflowService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class OrderController extends Controller
 {
@@ -23,7 +24,27 @@ class OrderController extends Controller
             'options','fieldValues','days.proofs','statusHistory','precheck','shipment',
             'goodsReceipt','goodsInspection','conversation','proofChallenges','shipment.evidences'
         );
-        return view('orders.show',compact('order'));
+
+        $runId=DB::table('order_runs')->where('order_id',$order->id)->where('run_number',$order->series_number)->value('id');
+        $precheckSlots=data_get($order->offer_snapshot,'category_config.precheck_slots',[]);
+        if(!is_array($precheckSlots) || count($precheckSlots)===0) $precheckSlots=[['key'=>'item','label'=>'Konkreter Artikel']];
+
+        $precheckEvidence=DB::table('order_precheck_evidences')
+            ->where('order_id',$order->id)
+            ->where('order_run_id',$runId)
+            ->orderByDesc('id')
+            ->get()
+            ->unique('slot_key')
+            ->keyBy('slot_key');
+
+        $violations=DB::table('violations')->where('order_id',$order->id)->latest('id')->get();
+        $extensionDays=DB::table('extension_days')->where('order_id',$order->id)->orderBy('sequence_no')->get();
+        $damageCases=DB::table('damage_cases')->where('order_id',$order->id)->latest('id')->get();
+        $digitalComponent=DB::table('digital_components')->where('order_id',$order->id)->first();
+
+        return view('orders.show',compact(
+            'order','precheckSlots','precheckEvidence','violations','extensionDays','damageCases','digitalComponent'
+        ));
     }
 
     public function store(Request $request, Offer $offer, V1OrderWorkflowService $workflow, ConsentService $consents)
