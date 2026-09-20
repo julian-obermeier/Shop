@@ -1079,10 +1079,10 @@ if (preg_match('#^/admin/angebot/(\\d+)$#',$path,$m)&&$method==='GET') {
 <label>Text Maximalzeichen (0 = unbegrenzt)<input type="number" min="0" name="digital_text_max_chars" value="<?=e($digitalRules['text']['max_chars'])?>"></label>
 <label>Max. Größe je Audio/Video (MB)<input type="number" min="1" max="500" name="digital_max_file_mb" value="<?=e($digitalRules['media']['max_file_mb'])?>"></label>
 <label>Erstabgabe innerhalb (Stunden)<input type="number" min="1" name="digital_deadline_hours" value="<?=e($digitalRules['deadline']['hours_after_acceptance'])?>"></label>
-<label>Nachfrist Erstabgabe (Minuten)<input type="number" min="0" name="digital_grace_minutes" value="<?=e($digitalRules['deadline']['grace_minutes'])?>"></label>
+<label>Nachfrist Erstabgabe (Minuten)<input type="number" min="0" name="digital_grace_minutes" max="60" value="<?=e($digitalRules['deadline']['grace_minutes'])?>"></label>
 <label>Fristverstoß Erstabgabe<select name="digital_violation_effect"><option value="log_only" <?=$digitalRules['deadline']['violation_effect']==='log_only'?'selected':''?>>Nur dokumentieren</option><option value="extension_day" <?=$digitalRules['deadline']['violation_effect']==='extension_day'?'selected':''?>>Bestätigter Verstoß +1 Durchführungstag</option></select></label>
 <label>Revisionsfrist (Stunden)<input type="number" min="1" name="digital_revision_deadline_hours" value="<?=e($digitalRules['revision']['deadline_hours'])?>"></label>
-<label>Nachfrist Revision (Minuten)<input type="number" min="0" name="digital_revision_grace_minutes" value="<?=e($digitalRules['revision']['grace_minutes'])?>"></label>
+<label>Nachfrist Revision (Minuten)<input type="number" min="0" name="digital_revision_grace_minutes" max="60" value="<?=e($digitalRules['revision']['grace_minutes'])?>"></label>
 <label>Fristverstoß Revision<select name="digital_revision_violation_effect"><option value="log_only" <?=$digitalRules['revision']['violation_effect']==='log_only'?'selected':''?>>Nur dokumentieren</option><option value="extension_day" <?=$digitalRules['revision']['violation_effect']==='extension_day'?'selected':''?>>Bestätigter Verstoß +1 Durchführungstag</option></select></label>
 </div>
 <h3>Versandbedingungen</h3><div class="form-grid">
@@ -1169,12 +1169,12 @@ if (preg_match('#^/admin/angebot/(\\d+)$#',$path,$m)&&$method==='POST') {
       'media'=>['max_file_mb'=>max(1,(int)post('digital_max_file_mb','50'))],
       'deadline'=>[
         'hours_after_acceptance'=>max(1,(int)post('digital_deadline_hours','72')),
-        'grace_minutes'=>max(0,(int)post('digital_grace_minutes','60')),
+        'grace_minutes'=>max(0,min(60,(int)post('digital_grace_minutes','60'))),
         'violation_effect'=>post('digital_violation_effect','log_only'),
       ],
       'revision'=>[
         'deadline_hours'=>max(1,(int)post('digital_revision_deadline_hours','48')),
-        'grace_minutes'=>max(0,(int)post('digital_revision_grace_minutes','60')),
+        'grace_minutes'=>max(0,min(60,(int)post('digital_revision_grace_minutes','60'))),
         'violation_effect'=>post('digital_revision_violation_effect','log_only'),
       ],
     ]);
@@ -2003,10 +2003,10 @@ if ($path==='/admin/einzelangebote' && $method==='GET') {
         <label>Text Maximalzeichen (0 = unbegrenzt)<input type="number" min="0" name="digital_text_max_chars" value="0"></label>
         <label>Max. Größe je Audio/Video (MB)<input type="number" min="1" max="500" name="digital_max_file_mb" value="50"></label>
         <label>Erstabgabe innerhalb (Stunden)<input type="number" min="1" name="digital_deadline_hours" value="72"></label>
-        <label>Nachfrist Erstabgabe (Minuten)<input type="number" min="0" name="digital_grace_minutes" value="60"></label>
+        <label>Nachfrist Erstabgabe (Minuten)<input type="number" min="0" name="digital_grace_minutes" max="60" value="60"></label>
         <label>Fristverstoß Erstabgabe<select name="digital_violation_effect"><option value="log_only">Nur dokumentieren</option><option value="extension_day">Bestätigter Verstoß +1 digitaler Bearbeitungstag</option></select></label>
         <label>Revisionsfrist (Stunden)<input type="number" min="1" name="digital_revision_deadline_hours" value="48"></label>
-        <label>Nachfrist Revision (Minuten)<input type="number" min="0" name="digital_revision_grace_minutes" value="60"></label>
+        <label>Nachfrist Revision (Minuten)<input type="number" min="0" name="digital_revision_grace_minutes" max="60" value="60"></label>
         <label>Fristverstoß Revision<select name="digital_revision_violation_effect"><option value="log_only">Nur dokumentieren</option><option value="extension_day">Bestätigter Verstoß +1 digitaler Bearbeitungstag</option></select></label>
       </div>
       <h3>Versandbedingungen</h3>
@@ -2053,12 +2053,12 @@ if ($path==='/admin/einzelangebote' && $method==='POST') {
       'media'=>['max_file_mb'=>max(1,(int)post('digital_max_file_mb','50'))],
       'deadline'=>[
         'hours_after_acceptance'=>max(1,(int)post('digital_deadline_hours','72')),
-        'grace_minutes'=>max(0,(int)post('digital_grace_minutes','60')),
+        'grace_minutes'=>max(0,min(60,(int)post('digital_grace_minutes','60'))),
         'violation_effect'=>post('digital_violation_effect','log_only'),
       ],
       'revision'=>[
         'deadline_hours'=>max(1,(int)post('digital_revision_deadline_hours','48')),
-        'grace_minutes'=>max(0,(int)post('digital_revision_grace_minutes','60')),
+        'grace_minutes'=>max(0,min(60,(int)post('digital_revision_grace_minutes','60'))),
         'violation_effect'=>post('digital_revision_violation_effect','log_only'),
       ],
     ]);
