@@ -37,7 +37,7 @@ if($path==='/angebote'&&$method==='GET'){
    (SELECT COUNT(*) FROM orders x WHERE x.offer_id=o.id AND x.status IN('precheck','running','shipping','review','payout')) active_count
    FROM offers o JOIN categories c ON c.id=o.category_id WHERE o.status='active' AND o.visibility='public'";$args=[];
  if($q!==''){$sql.=" AND (o.title LIKE ? OR o.description LIKE ?)";$args[]="%$q%";$args[]="%$q%";}
- if($cat){$sql.=" AND o.category_id=?";$args[]=$cat;}
+ if($cat){$sql.=" AND (o.category_id=? OR EXISTS(SELECT 1 FROM offer_components oc WHERE oc.offer_id=o.id AND oc.category_id=? AND oc.active=1))";$args[]=$cat;$args[]=$cat;}
  if($minComp!==null){$sql.=" AND o.compensation>=?";$args[]=$minComp;}
  if($maxComp!==null){$sql.=" AND o.compensation<=?";$args[]=$maxComp;}
  if($maxDays!==null){$sql.=" AND (o.duration_days IS NULL OR o.duration_days<=?)";$args[]=$maxDays;}
