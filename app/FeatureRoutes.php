@@ -131,8 +131,33 @@ if (preg_match('#^/auftrag/(\d{8})/chat$#',$path,$m)&&$method==='POST') {
     $msg=post('message');if($msg!=='')db()->prepare("INSERT INTO chat_messages(order_id,sender_type,sender_id,message) VALUES(?,'seller',?,?)")->execute([$o['id'],$s['id'],$msg]);redirect('/auftrag/'.$o['order_no'].'/chat');
 }
 if (preg_match('#^/auftrag/(\d{8})/tagesnachweis$#',$path,$m)&&$method==='POST') {
-    $s=require_seller();$st=db()->prepare("SELECT * FROM orders WHERE order_no=? AND seller_id=? AND status='running'");$st->execute([$m[1],$s['id']]);$o=$st->fetch();if(!$o){flash('error','Der Auftrag ist nicht in der Durchführungsphase.');redirect('/dashboard');}
-    try{$up=private_upload($_FILES['evidence']??[],'order-'.$o['id']);$run=db()->prepare("SELECT id FROM order_runs WHERE order_id=? ORDER BY run_no DESC LIMIT 1");$run->execute([$o['id']]);db()->prepare("INSERT INTO evidences(order_id,order_run_id,seller_id,evidence_type,day_no,window_key,file_path,mime_type,file_size,sha256) VALUES(?,?,?,'daily',?,?,?,?,?,?)")->execute([$o['id'],$run->fetchColumn()?:null,$s['id'],max(1,(int)post('day_no','1')),post('window_key','custom'),$up['path'],$up['mime'],$up['size'],$up['sha256']]);flash('success','Tagesnachweis gespeichert.');}catch(Throwable $e){flash('error',$e->getMessage());}
+    $s=require_seller();
+    $st=db()->prepare("SELECT * FROM orders WHERE order_no=? AND seller_id=? AND status='running'");$st->execute([$m[1],$s['id']]);$o=$st->fetch();
+    if(!$o){flash('error','Der Auftrag ist nicht in der Durchführungsphase.');redirect('/dashboard');}
+
+    $windowId=(int)post('window_id');
+    $runId=current_run_id((int)$o['id']);
+    $q=db()->prepare("SELECT * FROM evidence_windows WHERE id=? AND order_id=? AND order_run_id<=>? AND starts_at<=NOW() AND COALESCE(grace_ends_at,ends_at)>=NOW() AND status IN('planned','open','submitted')");
+    $q->execute([$windowId,$o['id'],$runId]);$w=$q->fetch();
+    if(!$w){flash('error','Dieses Nachweisfenster ist nicht geöffnet oder die Nachfrist ist abgelaufen.');redirect('/auftrag/'.$o['order_no']);}
+
+    $cnt=db()->prepare("SELECT COUNT(*) FROM evidences WHERE order_id=? AND order_run_id<=>? AND evidence_type='daily' AND day_no=? AND window_key=? AND status IN('submitted','accepted')");
+    $cnt->execute([$o['id'],$runId,$w['day_no'],$w['window_key']]);$submitted=(int)$cnt->fetchColumn();
+    if($submitted>=(int)$w['required_count']){flash('error','Für dieses Zeitfenster wurden bereits alle Pflichtnachweise eingereicht.');redirect('/auftrag/'.$o['order_no']);}
+
+    try{
+        $up=private_upload($_FILES['evidence']??[],'order-'.$o['id'].'/daily');
+        db()->prepare("INSERT INTO evidences(order_id,order_run_id,seller_id,evidence_type,day_no,window_key,source_type,source_id,file_path,mime_type,file_size,sha256) VALUES(?,?,?,'daily',?,?,'window',?,?,?,?,?)")
+          ->execute([$o['id'],$runId,$s['id'],$w['day_no'],$w['window_key'],$w['id'],$up['path'],$up['mime'],$up['size'],$up['sha256']]);
+
+        $submitted++;
+        if($submitted>=(int)$w['required_count']) db()->prepare("UPDATE evidence_windows SET status='submitted' WHERE id=?")->execute([$w['id']]);
+        elseif($w['status']==='planned') db()->prepare("UPDATE evidence_windows SET status='open' WHERE id=?")->execute([$w['id']]);
+
+        $late=strtotime($w['ends_at'])<time();
+        log_event('evidence.daily.submitted',(int)$s['id'],(int)$o['id'],['window_id'=>(int)$w['id'],'day_no'=>(int)$w['day_no'],'window_key'=>$w['window_key'],'late'=>$late]);
+        flash('success','Tagesnachweis gespeichert.'.($late?' Einreichung erfolgte innerhalb der Nachfrist.':''));
+    }catch(Throwable $e){flash('error',$e->getMessage());}
     redirect('/auftrag/'.$o['order_no']);
 }
 if (preg_match('#^/auftrag/(\d{8})/beschaedigung$#',$path,$m)&&$method==='POST') {
