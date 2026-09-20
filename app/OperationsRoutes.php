@@ -246,20 +246,162 @@ if ($path==='/admin/kalender' && $method==='GET') {
 
 if ($path==='/admin/heute' && $method==='GET') {
     require_admin();
-    $openViolations=db()->query("SELECT v.*,o.order_no,f.title FROM violations v JOIN orders o ON o.id=v.order_id JOIN offers f ON f.id=o.offer_id WHERE v.status IN('open','reviewed') ORDER BY v.created_at")->fetchAll();
-    $prechecks=db()->query("SELECT DISTINCT o.order_no,f.title,CONCAT(s.first_name,' ',s.last_name) seller_name FROM orders o JOIN offers f ON f.id=o.offer_id JOIN sellers s ON s.id=o.seller_id JOIN evidences e ON e.order_id=o.id WHERE o.status='precheck' AND e.evidence_type='precheck' AND e.status='submitted' ORDER BY o.created_at")->fetchAll();
-    $damage=db()->query("SELECT d.*,o.order_no,f.title FROM damage_cases d JOIN orders o ON o.id=d.order_id JOIN offers f ON f.id=o.offer_id WHERE d.status IN('reported','evidence_requested','review') ORDER BY d.created_at")->fetchAll();
-    $payouts=db()->query("SELECT p.*,CONCAT(s.first_name,' ',s.last_name) seller_name FROM payout_requests p JOIN sellers s ON s.id=p.seller_id WHERE p.status IN('requested','review','released') ORDER BY p.created_at")->fetchAll();
-    $tasks=db()->query("SELECT t.*,o.order_no FROM order_tasks t JOIN orders o ON o.id=t.order_id WHERE t.status='submitted' ORDER BY t.submitted_at")->fetchAll();
 
-    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Administration</div><h1>Heute – Arbeitsliste</h1></div><div class="actions"><a class="btn secondary" href="<?=e(url('/admin/kalender'))?>">Kalender</a><a class="btn secondary" href="<?=e(url('/admin/suche'))?>">Suche</a></div></div>
-    <div class="grid two">
-      <section class="panel"><h2>Sofort bearbeiten · Vorabkontrollen</h2><?php foreach($prechecks as $x):?><div><a href="<?=e(url('/admin/auftrag/'.$x['order_no']))?>"><?=e($x['order_no'].' · '.$x['title'])?></a> · <?=e($x['seller_name'])?></div><?php endforeach;?><?php if(!$prechecks):?><p class="meta">Keine offenen Vorabkontrollen.</p><?php endif;?></section>
-      <section class="panel"><h2>Offene Verstöße</h2><?php foreach($openViolations as $x):?><div><a href="<?=e(url('/admin/auftrag/'.$x['order_no']))?>"><?=e($x['order_no'])?></a> · <?=e($x['reason'])?></div><?php endforeach;?><?php if(!$openViolations):?><p class="meta">Keine offenen Verstöße.</p><?php endif;?></section>
-      <section class="panel"><h2>Beschädigungen</h2><?php foreach($damage as $x):?><div><a href="<?=e(url('/admin/auftrag/'.$x['order_no']))?>"><?=e($x['order_no'].' · '.$x['title'])?></a> · <?=e($x['status'])?></div><?php endforeach;?><?php if(!$damage):?><p class="meta">Keine offenen Beschädigungsvorgänge.</p><?php endif;?></section>
-      <section class="panel"><h2>Eingereichte Aufgaben</h2><?php foreach($tasks as $x):?><div><a href="<?=e(url('/admin/auftrag/'.$x['order_no']))?>"><?=e($x['order_no'].' · '.$x['title'])?></a></div><?php endforeach;?><?php if(!$tasks):?><p class="meta">Keine Aufgaben zur Prüfung.</p><?php endif;?></section>
-      <section class="panel"><h2>Auszahlungen</h2><?php foreach($payouts as $x):?><div><?=e($x['seller_name'])?> · <?=money($x['amount'])?> · <?=e($x['status'])?></div><?php endforeach;?><?php if(!$payouts):?><p class="meta">Keine offenen Auszahlungen.</p><?php endif;?></section>
+    $deadlines=array_values(array_filter(
+      collect_admin_deadlines(),
+      fn(array $row)=>in_array((string)($row['calendar_group']??''),['overdue','today'],true)
+    ));
+
+    $prechecks=db()->query("SELECT DISTINCT o.order_no,f.title,CONCAT(s.first_name,' ',s.last_name) seller_name
+      FROM orders o
+      JOIN offers f ON f.id=o.offer_id
+      JOIN sellers s ON s.id=o.seller_id
+      JOIN evidences e ON e.order_id=o.id
+      WHERE o.status='precheck' AND o.archived_at IS NULL
+        AND e.evidence_type='precheck' AND e.status='submitted'
+      ORDER BY o.created_at")->fetchAll();
+
+    $evidenceReviews=db()->query("SELECT e.id,e.evidence_type,e.created_at,e.is_late,o.order_no,f.title,
+        CONCAT(s.first_name,' ',s.last_name) seller_name
+      FROM evidences e
+      JOIN orders o ON o.id=e.order_id
+      JOIN offers f ON f.id=o.offer_id
+      JOIN sellers s ON s.id=o.seller_id
+      WHERE e.status='submitted'
+        AND e.evidence_type NOT IN('precheck','task')
+        AND o.archived_at IS NULL
+      ORDER BY e.created_at")->fetchAll();
+
+    $taskReviews=db()->query("SELECT t.*,o.order_no,f.title offer_title,CONCAT(s.first_name,' ',s.last_name) seller_name
+      FROM order_tasks t
+      JOIN orders o ON o.id=t.order_id
+      JOIN offers f ON f.id=o.offer_id
+      JOIN sellers s ON s.id=o.seller_id
+      WHERE t.status='submitted' AND o.archived_at IS NULL
+      ORDER BY t.submitted_at")->fetchAll();
+
+    $digitalReviews=db()->query("SELECT dv.id,dv.version_no,dv.created_at,o.order_no,f.title,
+        CONCAT(s.first_name,' ',s.last_name) seller_name,
+        (SELECT rr.round_no FROM revision_rounds rr WHERE rr.order_id=o.id AND rr.status='submitted' ORDER BY rr.round_no DESC LIMIT 1) revision_round
+      FROM digital_versions dv
+      JOIN orders o ON o.id=dv.order_id
+      JOIN offers f ON f.id=o.offer_id
+      JOIN sellers s ON s.id=o.seller_id
+      WHERE dv.status='submitted' AND o.archived_at IS NULL
+      ORDER BY dv.created_at")->fetchAll();
+
+    $openViolations=db()->query("SELECT v.*,o.order_no,f.title,CONCAT(s.first_name,' ',s.last_name) seller_name
+      FROM violations v
+      JOIN orders o ON o.id=v.order_id
+      JOIN offers f ON f.id=o.offer_id
+      JOIN sellers s ON s.id=o.seller_id
+      WHERE v.status IN('open','reviewed') AND o.archived_at IS NULL
+      ORDER BY v.created_at")->fetchAll();
+
+    $damage=db()->query("SELECT d.*,o.order_no,f.title,CONCAT(s.first_name,' ',s.last_name) seller_name
+      FROM damage_cases d
+      JOIN orders o ON o.id=d.order_id
+      JOIN offers f ON f.id=o.offer_id
+      JOIN sellers s ON s.id=o.seller_id
+      WHERE d.status IN('reported','evidence_requested','review') AND o.archived_at IS NULL
+      ORDER BY d.created_at")->fetchAll();
+
+    $shipments=db()->query("SELECT sh.*,o.order_no,f.title,CONCAT(s.first_name,' ',s.last_name) seller_name
+      FROM shipments sh
+      JOIN orders o ON o.id=sh.order_id
+      JOIN offers f ON f.id=o.offer_id
+      JOIN sellers s ON s.id=o.seller_id
+      WHERE sh.status='shipped' AND o.status='shipping' AND o.archived_at IS NULL
+      ORDER BY sh.shipped_at")->fetchAll();
+
+    $payouts=db()->query("SELECT p.*,CONCAT(s.first_name,' ',s.last_name) seller_name
+      FROM payout_requests p
+      JOIN sellers s ON s.id=p.seller_id
+      WHERE p.status IN('requested','review','released')
+      ORDER BY COALESCE(p.scheduled_processing_date,DATE(p.created_at)),p.created_at")->fetchAll();
+
+    $countReviews=count($prechecks)+count($evidenceReviews)+count($taskReviews)+count($digitalReviews);
+    $criticalDeadlines=count(array_filter($deadlines,fn($x)=>in_array((string)($x['escalation_level']??''),['critical','overdue'],true)));
+
+    ob_start();?>
+    <div class="dashboard-head">
+      <div><div class="eyebrow">Administration</div><h1>Heute – Arbeitsliste</h1><p class="meta">Prüfungen, Entscheidungen, Fristen, Wareneingänge und Auszahlungen in einer priorisierten Ansicht.</p></div>
+      <div class="actions"><a class="btn secondary" href="<?=e(url('/admin/fristen'))?>">Alle Fristen</a><a class="btn secondary" href="<?=e(url('/admin/kalender'))?>">Kalender</a><a class="btn secondary" href="<?=e(url('/admin/suche'))?>">Suche</a></div>
     </div>
+
+    <div class="grid">
+      <div class="card"><div class="meta">Zur Prüfung</div><div class="stat"><?=$countReviews?></div></div>
+      <div class="card"><div class="meta">Fristen heute/überfällig</div><div class="stat"><?=count($deadlines)?></div></div>
+      <div class="card"><div class="meta">Kritische Fristen</div><div class="stat"><?=$criticalDeadlines?></div></div>
+      <div class="card"><div class="meta">Offene Entscheidungen</div><div class="stat"><?=count($openViolations)+count($damage)?></div></div>
+    </div>
+
+    <h2>Fristen heute & überfällig</h2>
+    <?php if($deadlines):?><div class="table-wrap"><table>
+      <thead><tr><th>Fällig</th><th>Stufe</th><th>Typ</th><th>Verkäuferin</th><th>Auftrag</th><th>Details</th></tr></thead>
+      <tbody><?php foreach($deadlines as $d):
+        $lvl=(string)($d['escalation_level']??'normal');
+        $link=!empty($d['order_no'])?'/admin/auftrag/'.$d['order_no']:($d['deadline_type']==='private_offer'?'/admin/einzelangebote':'/admin/fristen');
+      ?><tr>
+        <td><?=e(date('d.m.Y H:i',strtotime($d['due_at'])))?></td>
+        <td><span class="badge <?=in_array($lvl,['critical','overdue'],true)?'bad':''?>"><?=e($lvl)?></span></td>
+        <td><?=e($d['deadline_label'])?></td>
+        <td><?=e($d['seller_name']??'–')?></td>
+        <td><a href="<?=e(url($link))?>"><?=e($d['order_no']?:($d['offer_title']??'Öffnen'))?></a></td>
+        <td><?=e($d['details']??'')?></td>
+      </tr><?php endforeach;?></tbody>
+    </table></div><?php else:?><div class="empty">Keine heute fälligen oder überfälligen Fristen.</div><?php endif;?>
+
+    <div class="grid two" style="margin-top:18px">
+      <section class="panel">
+        <h2>Vorabkontrollen <span class="badge"><?=count($prechecks)?></span></h2>
+        <?php foreach($prechecks as $x):?><div><a href="<?=e(url('/admin/auftrag/'.$x['order_no']))?>"><?=e($x['order_no'].' · '.$x['title'])?></a><br><span class="meta"><?=e($x['seller_name'])?></span></div><?php endforeach;?>
+        <?php if(!$prechecks):?><p class="meta">Keine offenen Vorabkontrollen.</p><?php endif;?>
+      </section>
+
+      <section class="panel">
+        <h2>Weitere Nachweise <span class="badge"><?=count($evidenceReviews)?></span></h2>
+        <?php foreach($evidenceReviews as $x):?><div><a href="<?=e(url('/admin/auftrag/'.$x['order_no']))?>"><?=e($x['order_no'].' · '.$x['title'])?></a> · <?=e($x['evidence_type'])?><?php if($x['is_late']):?> <span class="badge bad">verspätet</span><?php endif;?><br><span class="meta"><?=e($x['seller_name'].' · '.date('d.m.Y H:i',strtotime($x['created_at'])))?></span></div><?php endforeach;?>
+        <?php if(!$evidenceReviews):?><p class="meta">Keine weiteren Nachweise zur Prüfung.</p><?php endif;?>
+      </section>
+
+      <section class="panel">
+        <h2>Zusatzaufgaben <span class="badge"><?=count($taskReviews)?></span></h2>
+        <?php foreach($taskReviews as $x):?><div><a href="<?=e(url('/admin/auftrag/'.$x['order_no']))?>"><?=e($x['order_no'].' · '.$x['title'])?></a><br><span class="meta"><?=e($x['seller_name'].' · '.$x['offer_title'])?></span></div><?php endforeach;?>
+        <?php if(!$taskReviews):?><p class="meta">Keine Aufgaben zur Prüfung.</p><?php endif;?>
+      </section>
+
+      <section class="panel">
+        <h2>Digitale Abgaben <span class="badge"><?=count($digitalReviews)?></span></h2>
+        <?php foreach($digitalReviews as $x):?><div><a href="<?=e(url('/admin/auftrag/'.$x['order_no']))?>"><?=e($x['order_no'].' · '.$x['title'])?></a> · Version <?=e($x['version_no'])?><?= $x['revision_round']?' · Revision '.e($x['revision_round']):'' ?><br><span class="meta"><?=e($x['seller_name'].' · '.date('d.m.Y H:i',strtotime($x['created_at'])))?></span></div><?php endforeach;?>
+        <?php if(!$digitalReviews):?><p class="meta">Keine digitalen Abgaben zur Prüfung.</p><?php endif;?>
+      </section>
+
+      <section class="panel">
+        <h2>Offene Verstöße <span class="badge"><?=count($openViolations)?></span></h2>
+        <?php foreach($openViolations as $x):?><div><a href="<?=e(url('/admin/auftrag/'.$x['order_no']))?>"><?=e($x['order_no'].' · '.$x['title'])?></a><br><?=e($x['reason'])?><br><span class="meta"><?=e($x['seller_name'])?></span></div><?php endforeach;?>
+        <?php if(!$openViolations):?><p class="meta">Keine offenen Verstöße.</p><?php endif;?>
+      </section>
+
+      <section class="panel">
+        <h2>Beschädigungen <span class="badge"><?=count($damage)?></span></h2>
+        <?php foreach($damage as $x):?><div><a href="<?=e(url('/admin/auftrag/'.$x['order_no']))?>"><?=e($x['order_no'].' · '.$x['title'])?></a> · <?=e($x['status'])?><br><span class="meta"><?=e($x['seller_name'].' · '.$x['reason'])?></span></div><?php endforeach;?>
+        <?php if(!$damage):?><p class="meta">Keine offenen Beschädigungsvorgänge.</p><?php endif;?>
+      </section>
+
+      <section class="panel">
+        <h2>Versandt – Wareneingang offen <span class="badge"><?=count($shipments)?></span></h2>
+        <?php foreach($shipments as $x):?><div><a href="<?=e(url('/admin/auftrag/'.$x['order_no']))?>"><?=e($x['order_no'].' · '.$x['title'])?></a><br><span class="meta"><?=e($x['seller_name'])?><?= $x['tracking_number']?' · Tracking '.e($x['tracking_number']):'' ?></span></div><?php endforeach;?>
+        <?php if(!$shipments):?><p class="meta">Keine versandten Aufträge mit offenem Wareneingang.</p><?php endif;?>
+      </section>
+
+      <section class="panel">
+        <h2>Auszahlungen <span class="badge"><?=count($payouts)?></span></h2>
+        <?php foreach($payouts as $x):?><div><a href="<?=e(url('/admin/auszahlung/'.$x['id']))?>">#<?=e($x['id'])?> · <?=e($x['seller_name'])?></a> · <?=money($x['net_amount'])?> · <?=e($x['status'])?><?php if($x['scheduled_processing_date']):?><br><span class="meta">Bearbeitung <?=e(date('d.m.Y',strtotime($x['scheduled_processing_date'])))?></span><?php endif;?></div><?php endforeach;?>
+        <?php if(!$payouts):?><p class="meta">Keine offenen Auszahlungen.</p><?php endif;?>
+      </section>
+    </div>
+
     <?php render('Admin Heute',ob_get_clean());exit;
 }
 
