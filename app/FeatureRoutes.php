@@ -1043,7 +1043,7 @@ if ($path==='/admin/suche' && $method==='GET') {
 if ($path==='/admin/aufgabenbibliothek' && $method==='GET') {
     require_admin();$rows=db()->query("SELECT * FROM task_library ORDER BY active DESC,title")->fetchAll();
     ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Administration</div><h1>Aufgabenbibliothek</h1></div></div>
-    <form class="panel" method="post"><?=csrf_field()?><label>Titel<input name="title" required></label><label>Beschreibung<textarea name="description"></textarea></label><div class="form-grid"><label>Antworttyp<select name="response_type"><option value="text">Freitext</option><option value="number">Zahl</option><option value="scale10">Skala 1–10</option><option value="boolean">Ja/Nein</option></select></label><label>Pflichtfotos<input type="number" min="0" max="20" name="default_required_photos" value="0"></label><label>Standardvergütung (€)<input type="number" step=".01" min="0" name="default_compensation" value="0"></label></div><label><input style="width:auto" type="checkbox" name="violation_enabled" value="1" checked> Nichterfüllung kann Verstoß auslösen</label><button class="btn">Vorlage speichern</button></form>
+    <form class="panel" method="post"><?=csrf_field()?><label>Titel<input name="title" required></label><label>Beschreibung<textarea name="description"></textarea></label><div class="form-grid"><label>Antworttyp<select name="response_type"><option value="text">Freitext</option><option value="number">Zahl</option><option value="scale10">Skala 1–10</option><option value="boolean">Ja/Nein</option></select></label><label>Pflichtfotos<input type="number" min="0" max="20" name="default_required_photos" value="0"></label><label>Pflichtfotos<input type="number" min="0" max="20" name="default_required_photos" value="0"></label><label>Standardvergütung (€)<input type="number" step=".01" min="0" name="default_compensation" value="0"></label></div><label><input style="width:auto" type="checkbox" name="violation_enabled" value="1" checked> Nichterfüllung kann Verstoß auslösen</label><button class="btn">Vorlage speichern</button></form>
     <h2>Vorlagen</h2><div class="table-wrap"><table><thead><tr><th>Titel</th><th>Typ</th><th>Pflichtfotos</th><th>Vergütung</th><th>Status</th></tr></thead><tbody><?php foreach($rows as $x):$fields=json_decode($x['fields_json']??'{}',true)?:[];?><tr><td><?=e($x['title'])?></td><td><?=e($fields['response_type']??'text')?></td><td><?=e($x['default_required_photos']??0)?></td><td><?=money($x['default_compensation'])?></td><td><?=$x['active']?'Aktiv':'Inaktiv'?></td></tr><?php endforeach;?></tbody></table></div>
     <?php render('Aufgabenbibliothek',ob_get_clean());exit;
 }
@@ -1056,9 +1056,9 @@ if ($path==='/admin/aufgabenbibliothek' && $method==='POST') {
 
 if (preg_match('#^/admin/auftrag/(\d{8})/aufgabe$#',$path,$m) && $method==='POST') {
     require_admin();$q=db()->prepare("SELECT * FROM orders WHERE order_no=? AND status IN('running','review')");$q->execute([$m[1]]);$o=$q->fetch();if(!$o)not_found();
-    $fields=json_encode(['response_type'=>post('response_type','text')],JSON_UNESCAPED_UNICODE);$comp=max(0,(float)post('compensation'));
-    db()->prepare("INSERT INTO order_tasks(order_id,title,description,due_at,fields_json,compensation,violation_enabled) VALUES(?,?,?,?,?,?,?)")
-      ->execute([$o['id'],post('title'),post('description'),post('due_at')?:null,$fields,$comp,($_POST['violation_enabled']??'')==='1'?1:0]);
+    $fields=json_encode(['response_type'=>post('response_type','text')],JSON_UNESCAPED_UNICODE);$comp=max(0,(float)post('compensation'));$requiredPhotos=max(0,(int)post('required_photos','0'));
+    db()->prepare("INSERT INTO order_tasks(order_id,title,description,due_at,fields_json,required_photos,compensation,violation_enabled) VALUES(?,?,?,?,?,?,?,?)")
+      ->execute([$o['id'],post('title'),post('description'),post('due_at')?:null,$fields,$requiredPhotos,$comp,($_POST['violation_enabled']??'')==='1'?1:0]);
     $taskId=(int)db()->lastInsertId();
     if($comp>0){db()->prepare("UPDATE orders SET total_compensation=total_compensation+? WHERE id=?")->execute([$comp,$o['id']]);db()->prepare("INSERT INTO wallet_entries(seller_id,order_id,entry_type,amount,description) VALUES(?,?,'reserved',?,'Vergütung Zusatzaufgabe')")->execute([$o['seller_id'],$o['id'],$comp]);}
     notify_seller((int)$o['seller_id'],'task.created','Neue Zusatzaufgabe','Für Auftrag '.$o['order_no'].' wurde eine Zusatzaufgabe hinzugefügt: '.post('title'),'/auftrag/'.$o['order_no'].'/aufgabe/'.$taskId,'task-created-'.$taskId,true);
@@ -1067,8 +1067,8 @@ if (preg_match('#^/admin/auftrag/(\d{8})/aufgabe$#',$path,$m) && $method==='POST
 if (preg_match('#^/admin/auftrag/(\d{8})/aufgabe-aus-vorlage$#',$path,$m) && $method==='POST') {
     require_admin();$q=db()->prepare("SELECT * FROM orders WHERE order_no=? AND status IN('running','review')");$q->execute([$m[1]]);$o=$q->fetch();if(!$o)not_found();
     $q=db()->prepare("SELECT * FROM task_library WHERE id=? AND active=1");$q->execute([(int)post('template_id')]);$t=$q->fetch();if(!$t)not_found();
-    $comp=(float)$t['default_compensation'];db()->prepare("INSERT INTO order_tasks(order_id,title,description,due_at,fields_json,compensation,violation_enabled) VALUES(?,?,?,?,?,?,?)")
-      ->execute([$o['id'],$t['title'],$t['description'],post('due_at')?:null,$t['fields_json'],$comp,$t['violation_enabled']]);
+    $comp=(float)$t['default_compensation'];$requiredPhotos=max(0,(int)($t['default_required_photos']??0));db()->prepare("INSERT INTO order_tasks(order_id,title,description,due_at,fields_json,required_photos,compensation,violation_enabled) VALUES(?,?,?,?,?,?,?,?)")
+      ->execute([$o['id'],$t['title'],$t['description'],post('due_at')?:null,$t['fields_json'],$requiredPhotos,$comp,$t['violation_enabled']]);
     $taskId=(int)db()->lastInsertId();
     if($comp>0){db()->prepare("UPDATE orders SET total_compensation=total_compensation+? WHERE id=?")->execute([$comp,$o['id']]);db()->prepare("INSERT INTO wallet_entries(seller_id,order_id,entry_type,amount,description) VALUES(?,?,'reserved',?,'Vergütung Zusatzaufgabe')")->execute([$o['seller_id'],$o['id'],$comp]);}
     notify_seller((int)$o['seller_id'],'task.created','Neue Zusatzaufgabe','Für Auftrag '.$o['order_no'].' wurde eine Zusatzaufgabe hinzugefügt: '.$t['title'],'/auftrag/'.$o['order_no'].'/aufgabe/'.$taskId,'task-created-'.$taskId,true);
@@ -1076,12 +1076,56 @@ if (preg_match('#^/admin/auftrag/(\d{8})/aufgabe-aus-vorlage$#',$path,$m) && $me
 }
 
 if (preg_match('#^/auftrag/(\d{8})/aufgabe/(\d+)$#',$path,$m) && $method==='GET') {
-    $s=require_seller();$q=db()->prepare("SELECT t.*,o.order_no FROM order_tasks t JOIN orders o ON o.id=t.order_id WHERE o.order_no=? AND t.id=? AND o.seller_id=?");$q->execute([$m[1],(int)$m[2],$s['id']]);$t=$q->fetch();if(!$t)not_found();
+    $s=require_seller();
+    $q=db()->prepare("SELECT t.*,o.order_no,o.status order_status,o.archived_at FROM order_tasks t JOIN orders o ON o.id=t.order_id WHERE o.order_no=? AND t.id=? AND o.seller_id=?");
+    $q->execute([$m[1],(int)$m[2],$s['id']]);$t=$q->fetch();if(!$t)not_found();
     $fields=json_decode($t['fields_json']??'{}',true)?:[];$type=$fields['response_type']??'text';
-    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Zusatzaufgabe · <?=e($t['order_no'])?></div><h1><?=e($t['title'])?></h1></div><a class="btn secondary" href="<?=e(url('/auftrag/'.$t['order_no']))?>">Zum Auftrag</a></div><div class="grid two"><section class="panel"><h2>Aufgabe</h2><p><?=nl2br(e($t['description']??''))?></p><p class="meta">Frist: <?=e($t['due_at']?date('d.m.Y H:i',strtotime($t['due_at'])):'keine feste Frist')?><?php if((float)$t['compensation']>0):?><br>Zusatzvergütung: <?=money($t['compensation'])?><?php endif;?></p></section><form class="panel" method="post"><?=csrf_field()?><h2>Antwort</h2><?php if($type==='number'):?><input type="number" step="any" name="value" required><?php elseif($type==='scale10'):?><select name="value"><?php for($n=1;$n<=10;$n++):?><option value="<?=$n?>"><?=$n?></option><?php endfor;?></select><?php elseif($type==='boolean'):?><select name="value"><option value="Ja">Ja</option><option value="Nein">Nein</option></select><?php else:?><textarea name="value" required></textarea><?php endif;?><button class="btn" <?=$t['status']!=='open'?'disabled':''?>>Aufgabe einreichen</button></form></div><?php render('Zusatzaufgabe',ob_get_clean());exit;
+    $q=db()->prepare("SELECT * FROM evidences WHERE source_type='task' AND source_id=? ORDER BY created_at");
+    $q->execute([$t['id']]);$taskEvidence=$q->fetchAll();
+    $validPhotos=count(array_filter($taskEvidence,fn($e)=>in_array($e['status'],['submitted','accepted'],true)));
+    $requiredPhotos=max(0,(int)($t['required_photos']??0));
+    $canWork=in_array($t['status'],['open','rejected'],true) && empty($t['archived_at']);
+
+    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Zusatzaufgabe · <?=e($t['order_no'])?></div><h1><?=e($t['title'])?></h1></div><a class="btn secondary" href="<?=e(url('/auftrag/'.$t['order_no']))?>">Zum Auftrag</a></div>
+    <div class="grid two">
+      <section class="panel"><h2>Aufgabe</h2><p><?=nl2br(e($t['description']??''))?></p><p class="meta">Frist: <?=e($t['due_at']?date('d.m.Y H:i',strtotime($t['due_at'])):'keine feste Frist')?><?php if((float)$t['compensation']>0):?><br>Vergütung: <?=money($t['compensation'])?><?php endif;?><?php if($t['planned_day_no']):?><br>Geplant für Durchführungstag <?=e($t['planned_day_no'])?><?php endif;?></p>
+      <?php if($requiredPhotos>0):?><h3>Pflichtfotos</h3><p><strong><?=e($validPhotos)?> / <?=e($requiredPhotos)?></strong> gültig eingereicht</p><div class="progress"><span style="width:<?=e((string)min(100,round(($validPhotos/$requiredPhotos)*100)))?>%"></span></div>
+      <div class="timeline" style="margin-top:12px"><?php foreach($taskEvidence as $ev):?><div>Foto <?=e($ev['id'])?> · <span class="badge"><?=e($ev['status'])?></span> · <?=e(date('d.m.Y H:i',strtotime($ev['created_at'])))?><?php if($ev['status']==='rejected'&&$ev['rejection_reason']):?><br><span class="meta"><?=e($ev['rejection_reason'])?></span><?php endif;?></div><?php endforeach;?></div>
+      <?php if($canWork && $validPhotos<$requiredPhotos):?><form method="post" action="<?=e(url('/auftrag/'.$t['order_no'].'/aufgabe/'.$t['id'].'/foto'))?>" enctype="multipart/form-data" style="margin-top:12px"><?=csrf_field()?><label>Nächstes Pflichtfoto<input data-camera-input type="file" name="evidence" accept="image/*" capture="environment" required></label><button class="btn secondary">Foto einreichen</button></form><?php endif;?>
+      <?php endif;?></section>
+      <form class="panel" method="post"><?=csrf_field()?><h2>Antwort & Abschluss</h2>
+        <?php if($type==='number'):?><input type="number" step="any" name="value" required>
+        <?php elseif($type==='scale10'):?><select name="value"><?php for($n=1;$n<=10;$n++):?><option value="<?=$n?>"><?=$n?></option><?php endfor;?></select>
+        <?php elseif($type==='boolean'):?><select name="value"><option value="Ja">Ja</option><option value="Nein">Nein</option></select>
+        <?php else:?><textarea name="value" required></textarea><?php endif;?>
+        <?php if($requiredPhotos>0 && $validPhotos<$requiredPhotos):?><p class="meta">Die Aufgabe kann erst final eingereicht werden, wenn alle <?=e($requiredPhotos)?> Pflichtfotos vorhanden sind.</p><?php endif;?>
+        <button class="btn" <?=(!$canWork||$validPhotos<$requiredPhotos)?'disabled':''?>>Aufgabe final einreichen</button>
+      </form>
+    </div>
+    <?php render('Zusatzaufgabe',ob_get_clean());exit;
 }
+if (preg_match('#^/auftrag/(\d{8})/aufgabe/(\d+)/foto$#',$path,$m) && $method==='POST') {
+    $s=require_seller();
+    $q=db()->prepare("SELECT t.*,o.order_no,o.archived_at FROM order_tasks t JOIN orders o ON o.id=t.order_id WHERE o.order_no=? AND t.id=? AND o.seller_id=?");
+    $q->execute([$m[1],(int)$m[2],$s['id']]);$t=$q->fetch();if(!$t)not_found();
+    if(!in_array($t['status'],['open','rejected'],true)||$t['archived_at']){flash('error','Für diese Aufgabe können keine weiteren Fotos eingereicht werden.');redirect('/auftrag/'.$t['order_no'].'/aufgabe/'.$t['id']);}
+    $required=max(0,(int)($t['required_photos']??0));
+    $q=db()->prepare("SELECT COUNT(*) FROM evidences WHERE source_type='task' AND source_id=? AND status IN('submitted','accepted')");
+    $q->execute([$t['id']]);if((int)$q->fetchColumn()>=$required){flash('error','Alle geforderten Pflichtfotos sind bereits vorhanden.');redirect('/auftrag/'.$t['order_no'].'/aufgabe/'.$t['id']);}
+    try{
+      $up=private_upload($_FILES['evidence']??[],'order-'.$t['order_id'].'/tasks');
+      $late=$t['due_at']&&strtotime($t['due_at'])<time()?1:0;
+      db()->prepare("INSERT INTO evidences(order_id,order_run_id,seller_id,evidence_type,source_type,source_id,file_path,mime_type,file_size,sha256,is_late) VALUES(?,?,?,'task','task',?,?,?,?,?,?)")
+        ->execute([$t['order_id'],current_run_id((int)$t['order_id']),$s['id'],$t['id'],$up['path'],$up['mime'],$up['size'],$up['sha256'],$late]);
+      flash('success','Pflichtfoto wurde eingereicht.');
+    }catch(Throwable $e){flash('error',$e->getMessage());}
+    redirect('/auftrag/'.$t['order_no'].'/aufgabe/'.$t['id']);
+}
+
 if (preg_match('#^/auftrag/(\d{8})/aufgabe/(\d+)$#',$path,$m) && $method==='POST') {
-    $s=require_seller();$q=db()->prepare("SELECT t.*,o.seller_id,o.order_no FROM order_tasks t JOIN orders o ON o.id=t.order_id WHERE o.order_no=? AND t.id=? AND o.seller_id=? AND t.status='open'");$q->execute([$m[1],(int)$m[2],$s['id']]);$t=$q->fetch();if(!$t)not_found();
+    $s=require_seller();$q=db()->prepare("SELECT t.*,o.seller_id,o.order_no FROM order_tasks t JOIN orders o ON o.id=t.order_id WHERE o.order_no=? AND t.id=? AND o.seller_id=? AND t.status IN('open','rejected')");$q->execute([$m[1],(int)$m[2],$s['id']]);$t=$q->fetch();if(!$t)not_found();
+    $required=max(0,(int)($t['required_photos']??0));$pc=db()->prepare("SELECT COUNT(*) FROM evidences WHERE source_type='task' AND source_id=? AND status IN('submitted','accepted')");$pc->execute([$t['id']]);
+    if((int)$pc->fetchColumn()<$required){flash('error','Bitte reiche zuerst alle Pflichtfotos ein.');redirect('/auftrag/'.$t['order_no'].'/aufgabe/'.$t['id']);}
     $payload=json_encode(['value'=>post('value')],JSON_UNESCAPED_UNICODE);db()->prepare("UPDATE order_tasks SET submission_json=?,status='submitted',submitted_at=NOW() WHERE id=?")->execute([$payload,$t['id']]);
     flash('success','Zusatzaufgabe wurde eingereicht.');redirect('/auftrag/'.$t['order_no']);
 }
