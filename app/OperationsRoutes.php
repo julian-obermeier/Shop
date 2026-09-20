@@ -1002,3 +1002,71 @@ if (preg_match('#^/admin/auftragsbestandteil/(\d+)/status$#',$path,$m) && $metho
     }
     redirect('/admin/auftrag/'.$component['order_no']);
 }
+
+
+if ($path==='/admin/fristen' && $method==='GET') {
+    require_admin();
+    $all=collect_admin_deadlines();
+
+    $type=trim((string)($_GET['type']??''));
+    $level=trim((string)($_GET['level']??''));
+    $sellerId=(int)($_GET['seller_id']??0);
+    $categoryId=(int)($_GET['category_id']??0);
+    $qtext=mb_strtolower(trim((string)($_GET['q']??'')));
+
+    $rows=array_values(array_filter($all,function(array $x) use($type,$level,$sellerId,$categoryId,$qtext): bool {
+        if($type!=='' && ($x['deadline_type']??'')!==$type) return false;
+        if($level!=='' && ($x['escalation_level']??'')!==$level) return false;
+        if($sellerId>0 && (int)($x['seller_id']??0)!==$sellerId) return false;
+        if($categoryId>0 && (int)($x['category_id']??0)!==$categoryId) return false;
+        if($qtext!==''){
+            $hay=mb_strtolower(implode(' ',[
+                (string)($x['order_no']??''),
+                (string)($x['seller_name']??''),
+                (string)($x['offer_title']??''),
+                (string)($x['details']??''),
+            ]));
+            if(!str_contains($hay,$qtext)) return false;
+        }
+        return true;
+    }));
+
+    $groups=['overdue'=>[],'today'=>[],'tomorrow'=>[],'later'=>[]];
+    foreach($rows as $row)$groups[$row['calendar_group']??'later'][]=$row;
+
+    $types=[];foreach($all as $row)$types[$row['deadline_type']]=$row['deadline_label'];
+    asort($types);
+    $sellers=db()->query("SELECT id,first_name,last_name FROM sellers WHERE deleted_at IS NULL ORDER BY last_name,first_name")->fetchAll();
+    $categories=db()->query("SELECT id,name FROM categories WHERE is_active=1 ORDER BY sort_order,name")->fetchAll();
+    $groupLabels=['overdue'=>'Überfällig','today'=>'Heute','tomorrow'=>'Morgen','later'=>'Später'];
+    $levelLabels=['normal'=>'normal','soon'=>'bald fällig','critical'=>'kritisch','overdue'=>'überfällig'];
+
+    ob_start();?>
+    <div class="dashboard-head"><div><div class="eyebrow">Administration</div><h1>Zentrale Fristenübersicht</h1><p class="meta">Eskalationsstufen basieren auf den globalen Schwellenwerten. Kritisch: <?=e(setting_value('escalation_critical_minutes','120'))?> Min. · bald fällig: <?=e(setting_value('escalation_soon_minutes','1440'))?> Min.</p></div><div class="actions"><a class="btn secondary" href="<?=e(url('/admin/kalender'))?>">Kalender</a><a class="btn secondary" href="<?=e(url('/admin/heute'))?>">Heute</a></div></div>
+
+    <form class="panel" method="get"><div class="form-grid">
+      <label>Suche<input name="q" value="<?=e($_GET['q']??'')?>" placeholder="Auftragsnr., Verkäuferin, Angebot, Details"></label>
+      <label>Fristtyp<select name="type"><option value="">Alle</option><?php foreach($types as $key=>$labelText):?><option value="<?=e($key)?>" <?=$type===$key?'selected':''?>><?=e($labelText)?></option><?php endforeach;?></select></label>
+      <label>Eskalation<select name="level"><option value="">Alle</option><?php foreach($levelLabels as $key=>$labelText):?><option value="<?=e($key)?>" <?=$level===$key?'selected':''?>><?=e($labelText)?></option><?php endforeach;?></select></label>
+      <label>Verkäuferin<select name="seller_id"><option value="">Alle</option><?php foreach($sellers as $sellerRow):?><option value="<?=$sellerRow['id']?>" <?=$sellerId===(int)$sellerRow['id']?'selected':''?>><?=e($sellerRow['last_name'].', '.$sellerRow['first_name'])?></option><?php endforeach;?></select></label>
+      <label>Kategorie<select name="category_id"><option value="">Alle</option><?php foreach($categories as $cat):?><option value="<?=$cat['id']?>" <?=$categoryId===(int)$cat['id']?'selected':''?>><?=e($cat['name'])?></option><?php endforeach;?></select></label>
+    </div><div class="actions"><button class="btn">Filtern</button><a class="btn secondary" href="<?=e(url('/admin/fristen'))?>">Filter zurücksetzen</a></div></form>
+
+    <?php foreach($groupLabels as $groupKey=>$groupLabel):?>
+      <h2><?=e($groupLabel)?> <span class="badge"><?=count($groups[$groupKey])?></span></h2>
+      <?php if($groups[$groupKey]):?><div class="table-wrap"><table><thead><tr><th>Fällig</th><th>Eskalation</th><th>Typ</th><th>Verkäuferin</th><th>Auftrag / Angebot</th><th>Details</th><th></th></tr></thead><tbody>
+      <?php foreach($groups[$groupKey] as $row): $lvl=$row['escalation_level']??'normal';?>
+        <tr>
+          <td><?=e(date('d.m.Y H:i',strtotime($row['due_at'])))?></td>
+          <td><span class="badge <?=in_array($lvl,['critical','overdue'],true)?'bad':''?>"><?=e($levelLabels[$lvl]??$lvl)?></span></td>
+          <td><?=e($row['deadline_label'])?></td>
+          <td><?=e($row['seller_name']??'–')?></td>
+          <td><?php if(!empty($row['order_no'])):?><a href="<?=e(url('/admin/auftrag/'.$row['order_no']))?>"><?=e($row['order_no'])?></a><br><?php endif;?><span class="meta"><?=e($row['offer_title']??'')?></span></td>
+          <td><?=e($row['details']??'')?></td>
+          <td><?php if(!empty($row['order_no'])):?><a href="<?=e(url('/admin/auftrag/'.$row['order_no'].'/fristen'))?>">Fristen bearbeiten</a><?php else:?><a href="<?=e(url('/admin/einzelangebote'))?>">Einzelangebote</a><?php endif;?></td>
+        </tr>
+      <?php endforeach;?></tbody></table></div><?php else:?><div class="empty">Keine Fristen in dieser Gruppe.</div><?php endif;?>
+    <?php endforeach;?>
+
+    <?php render('Zentrale Fristenübersicht',ob_get_clean());exit;
+}
