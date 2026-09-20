@@ -437,3 +437,66 @@ if (preg_match('#^/admin/auftrag/(\\d{8})/tag/(\\d+)/verschieben$#',$path,$m) &&
     notify_seller((int)$day['seller_id'],'order.day_shifted','Auftragstag verschoben','Durchführungstag '.$day['day_no'].' in Auftrag '.$day['order_no'].' wurde auf '.$newDate->format('d.m.Y').' verschoben. Grund: '.$reason,'/auftrag/'.$day['order_no'],null,true);
     flash('success','Durchführungstag und seine offenen Nachweisfenster wurden verschoben.');redirect('/admin/auftrag/'.$day['order_no'].'/fristen');
 }
+
+
+if (preg_match('#^/admin/frist/(spontan|aufgabe|versand|revision)/(\d+)/aendern$#',$path,$m) && $method==='POST') {
+    $a=require_admin();
+    $type=$m[1];$id=(int)$m[2];
+    $map=[
+      'spontan'=>['table'=>'spontaneous_requests','status'=>['requested','seen','confirmed'],'label'=>'Spontaner Nachweis','grace'=>true],
+      'aufgabe'=>['table'=>'order_tasks','status'=>['open','rejected'],'label'=>'Zusatzaufgabe','grace'=>false],
+      'versand'=>['table'=>'order_shipping_steps','status'=>['open'],'label'=>'Versand-/Endschritt','grace'=>false],
+      'revision'=>['table'=>'revision_rounds','status'=>['open'],'label'=>'Digitale Revision','grace'=>true],
+    ];
+    $cfg=$map[$type];
+
+    $q=db()->prepare("SELECT x.*,o.order_no,o.seller_id,o.archived_at FROM {$cfg['table']} x JOIN orders o ON o.id=x.order_id WHERE x.id=?");
+    $q->execute([$id]);$row=$q->fetch();if(!$row)not_found();
+    if($row['archived_at'] || !in_array($row['status'],$cfg['status'],true)){
+        flash('error','Diese Frist ist in ihrem aktuellen Status nicht mehr änderbar.');
+        redirect('/admin/auftrag/'.$row['order_no'].'/fristen');
+    }
+
+    $reason=post('reason');
+    if($reason===''){flash('error','Bitte einen Änderungsgrund angeben.');redirect('/admin/auftrag/'.$row['order_no'].'/fristen');}
+
+    $tz=new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'));
+    try{$due=new DateTimeImmutable(post('due_at'),$tz);}catch(Throwable){flash('error','Ungültige Frist.');redirect('/admin/auftrag/'.$row['order_no'].'/fristen');}
+    $now=new DateTimeImmutable('now',$tz);
+    if($due<=$now){flash('error','Die neue Frist muss in der Zukunft liegen.');redirect('/admin/auftrag/'.$row['order_no'].'/fristen');}
+
+    $graceEnd=null;
+    if($cfg['grace']){
+        try{$graceEnd=new DateTimeImmutable(post('grace_ends_at'),$tz);}catch(Throwable){flash('error','Ungültige Nachfrist.');redirect('/admin/auftrag/'.$row['order_no'].'/fristen');}
+        if($graceEnd<$due){flash('error','Die Nachfrist darf nicht vor der regulären Frist enden.');redirect('/admin/auftrag/'.$row['order_no'].'/fristen');}
+    }
+
+    $old=['due_at'=>$row['due_at']??null];
+    if($cfg['grace'])$old['grace_ends_at']=$row['grace_ends_at']??null;
+    $new=['due_at'=>$due->format('Y-m-d H:i:s')];
+    if($cfg['grace'])$new['grace_ends_at']=$graceEnd->format('Y-m-d H:i:s');
+    if($old===$new){flash('error','Die neue Frist entspricht der bisherigen Frist.');redirect('/admin/auftrag/'.$row['order_no'].'/fristen');}
+
+    db()->beginTransaction();
+    try{
+        if($cfg['grace']){
+            db()->prepare("UPDATE {$cfg['table']} SET due_at=?,grace_ends_at=? WHERE id=?")->execute([$new['due_at'],$new['grace_ends_at'],$id]);
+        }else{
+            db()->prepare("UPDATE {$cfg['table']} SET due_at=? WHERE id=?")->execute([$new['due_at'],$id]);
+        }
+
+        db()->prepare("INSERT INTO order_changes(order_id,admin_id,field_name,old_value,new_value,reason,effective_day_no) VALUES(?,?,?,?,?,?,NULL)")
+          ->execute([$row['order_id'],$a['id'],'deadline_'.$type.'_'.$id,json_encode($old,JSON_UNESCAPED_UNICODE),json_encode($new,JSON_UNESCAPED_UNICODE),$reason]);
+
+        $message=$cfg['label'].'-Frist geändert: '.$due->format('d.m.Y H:i');
+        if($graceEnd)$message.=', Nachfrist bis '.$graceEnd->format('d.m.Y H:i');
+        $message.='. Grund: '.$reason;
+        db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")->execute([$row['order_id'],$message]);
+        log_event('order.deadline_changed',(int)$row['seller_id'],(int)$row['order_id'],['deadline_type'=>$type,'entity_id'=>$id,'old'=>$old,'new'=>$new,'reason'=>$reason,'admin_id'=>(int)$a['id']]);
+        db()->commit();
+    }catch(Throwable $e){if(db()->inTransaction())db()->rollBack();throw $e;}
+
+    notify_seller((int)$row['seller_id'],'order.deadline_changed',$cfg['label'].'-Frist geändert',$cfg['label'].' in Auftrag '.$row['order_no'].' ist jetzt bis '.$due->format('d.m.Y H:i').' fällig.'.($graceEnd?' Nachfrist bis '.$graceEnd->format('d.m.Y H:i').'.':'').' Grund: '.$reason,'/auftrag/'.$row['order_no'],null,true);
+    flash('success',$cfg['label'].'-Frist wurde geändert und dokumentiert.');
+    redirect('/admin/auftrag/'.$row['order_no'].'/fristen');
+}
