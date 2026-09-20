@@ -218,18 +218,51 @@ if(preg_match('#^/angebot/([a-z0-9-]+)/annehmen$#',$path,$m)&&$method==='POST'){
  flash('success','Auftrag '.$no.' wurde angenommen. Gesamtwert: '.money($total).'. Eine Auftragsbestätigung wurde per E-Mail versendet.'.($pureDigital?' Die digitale Durchführung ist sofort aktiv.':''));redirect($pureDigital?'/auftrag/'.$no.'/digital':'/auftrag/'.$no);
 }
 if($path==='/registrieren'&&$method==='GET'){
- ob_start();?><div class="grid two"><section><div class="eyebrow">Verkäuferinnenkonto</div><h1>Registrieren</h1><p>Nur für Volljährige ab 18 Jahren. Es gibt kein öffentliches Verkäuferinnenprofil.</p></section><form class="panel" method="post"><?=csrf_field()?><div class="form-grid"><label>Vorname<input name="first_name" required></label><label>Nachname<input name="last_name" required></label><label>Geburtsdatum<input type="date" name="birth_date" required></label><label>Telefon<input name="phone" required></label><label>Straße / Hausnummer<input name="street" required></label><label>PLZ<input name="postal_code" required></label><label>Ort<input name="city" required></label><label>E-Mail<input type="email" name="email" required></label></div><label>Passwort<input type="password" name="password" minlength="10" required></label><label><input type="checkbox" name="adult" value="1" required style="width:auto"> Ich bestätige, dass ich mindestens 18 Jahre alt bin und die Plattformregeln akzeptiere.</label><button class="btn">Konto erstellen</button></form></div><?php render('Registrieren',ob_get_clean());exit;
+ ob_start();?><div class="grid two"><section><div class="eyebrow">Verkäuferinnenkonto</div><h1>Registrieren</h1><p>Nur für Volljährige ab 18 Jahren. Es gibt kein öffentliches Verkäuferinnenprofil.</p><p class="meta">Vor der Registrierung werden die zentralen Vertrags-, Datenschutz-, Dokumentations-, Versand- und Auszahlungsregeln ausdrücklich bestätigt.</p></section><form class="panel" method="post"><?=csrf_field()?><div class="form-grid"><label>Vorname<input name="first_name" required></label><label>Nachname<input name="last_name" required></label><label>Geburtsdatum<input type="date" name="birth_date" required></label><label>Telefon<input name="phone" required></label><label>Straße / Hausnummer<input name="street" required></label><label>PLZ<input name="postal_code" required></label><label>Ort<input name="city" required></label><label>E-Mail<input type="email" name="email" required></label></div><label>Passwort<input type="password" name="password" minlength="10" required></label>
+ <h2>Pflichtbestätigungen</h2>
+ <label><input type="checkbox" name="adult" value="1" required style="width:auto"> Ich bestätige, dass ich mindestens 18 Jahre alt bin.</label>
+ <label><input type="checkbox" name="legal_terms" value="1" required style="width:auto"> Ich akzeptiere die <a href="<?=e(url('/agb'))?>" target="_blank">AGB/Nutzungsbedingungen</a> und die <a href="<?=e(url('/regeln'))?>" target="_blank">Plattformregeln</a>.</label>
+ <label><input type="checkbox" name="legal_privacy" value="1" required style="width:auto"> Ich habe die <a href="<?=e(url('/datenschutz'))?>" target="_blank">Datenschutzhinweise</a> gelesen.</label>
+ <label><input type="checkbox" name="legal_content" value="1" required style="width:auto"> Ich bestätige die Regeln zu erlaubten Artikeln/Inhalten, Volljährigkeit, Einwilligung und persönlicher Erfüllung.</label>
+ <label><input type="checkbox" name="legal_documentation" value="1" required style="width:auto"> Ich akzeptiere die jeweiligen Nachweis-, Dokumentations-, Frist- und Verstoßregeln.</label>
+ <label><input type="checkbox" name="legal_shipping" value="1" required style="width:auto"> Ich akzeptiere die auftragsbezogenen Verpackungs- und Versandbedingungen.</label>
+ <label><input type="checkbox" name="legal_payout" value="1" required style="width:auto"> Ich akzeptiere die Wallet- und Auszahlungsregeln einschließlich möglicher methodenabhängiger Gebühren.</label>
+ <button class="btn">Konto erstellen</button></form></div><?php render('Registrieren',ob_get_clean());exit;
 }
 if($path==='/registrieren'&&$method==='POST'){
  $birth=post('birth_date');$adult=($_POST['adult']??'')==='1';$email=strtolower(post('email'));$pass=(string)($_POST['password']??'');
- $age=$birth?date_diff(new DateTime($birth),new DateTime('today'))->y:0;
- if(!$adult||$age<18||!filter_var($email,FILTER_VALIDATE_EMAIL)||strlen($pass)<10){flash('error','Bitte prüfe Volljährigkeit, E-Mail und Passwort.');redirect('/registrieren');}
+ $requiredLegal=['legal_terms','legal_privacy','legal_content','legal_documentation','legal_shipping','legal_payout'];
+ $legalOk=true;foreach($requiredLegal as $field){if(($_POST[$field]??'')!=='1'){$legalOk=false;break;}}
+ try{$age=$birth?date_diff(new DateTime($birth),new DateTime('today'))->y:0;}catch(Throwable){$age=0;}
+ if(!$adult||!$legalOk||$age<18||!filter_var($email,FILTER_VALIDATE_EMAIL)||strlen($pass)<10){flash('error','Bitte prüfe Volljährigkeit, Pflichtbestätigungen, E-Mail und Passwort.');redirect('/registrieren');}
+ $pdo=db();$pdo->beginTransaction();
  try{
-  db()->prepare("INSERT INTO sellers(first_name,last_name,birth_date,street,postal_code,city,phone,email,password_hash) VALUES(?,?,?,?,?,?,?,?,?)")->execute([post('first_name'),post('last_name'),$birth,post('street'),post('postal_code'),post('city'),post('phone'),$email,password_hash($pass,PASSWORD_DEFAULT)]);
-  $id=(int)db()->lastInsertId();[$raw,$hash]=make_token();db()->prepare("INSERT INTO email_verifications(seller_id,token_hash,expires_at) VALUES(?,?,DATE_ADD(NOW(),INTERVAL 24 HOUR))")->execute([$id,$hash]);
+  $pdo->prepare("INSERT INTO sellers(first_name,last_name,birth_date,street,postal_code,city,phone,email,password_hash) VALUES(?,?,?,?,?,?,?,?,?)")->execute([post('first_name'),post('last_name'),$birth,post('street'),post('postal_code'),post('city'),post('phone'),$email,password_hash($pass,PASSWORD_DEFAULT)]);
+  $id=(int)$pdo->lastInsertId();
+  $acceptance=[
+    'adult_18'=>true,
+    'terms_and_platform_rules'=>true,
+    'privacy_notice'=>true,
+    'allowed_products_content_and_personal_fulfillment'=>true,
+    'documentation_deadlines_and_violations'=>true,
+    'shipping_rules'=>true,
+    'wallet_and_payout_rules'=>true,
+  ];
+  $pdo->prepare("INSERT INTO seller_legal_acceptances(seller_id,context,rules_version,payload_json) VALUES(?,'registration','2026-09-v1',?)")
+    ->execute([$id,json_encode($acceptance,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES)]);
+  [$raw,$hash]=make_token();$pdo->prepare("INSERT INTO email_verifications(seller_id,token_hash,expires_at) VALUES(?,?,DATE_ADD(NOW(),INTERVAL 24 HOUR))")->execute([$id,$hash]);
+  $pdo->commit();
   send_app_mail($email,'E-Mail bestätigen','<p>Bitte bestätige deine E-Mail:</p><p><a href="'.e(url('/email-bestaetigen?token='.$raw)).'">E-Mail bestätigen</a></p>');
-  $_SESSION['seller_id']=$id;session_regenerate_id(true);flash('success','Konto erstellt. Bitte bestätige deine E-Mail-Adresse.');redirect('/dashboard');
- }catch(PDOException $e){flash('error','Diese E-Mail-Adresse ist bereits registriert.');redirect('/registrieren');}
+  $_SESSION['seller_id']=$id;session_regenerate_id(true);flash('success','Konto erstellt. Die Pflichtbestätigungen wurden dokumentiert. Bitte bestätige deine E-Mail-Adresse.');redirect('/dashboard');
+ }catch(PDOException $e){
+  if($pdo->inTransaction())$pdo->rollBack();
+  if((int)($e->errorInfo[1]??0)===1062)flash('error','Diese E-Mail-Adresse ist bereits registriert.');
+  else flash('error','Die Registrierung konnte nicht abgeschlossen werden.');
+  redirect('/registrieren');
+ }catch(Throwable $e){
+  if($pdo->inTransaction())$pdo->rollBack();
+  flash('error','Die Registrierung konnte nicht abgeschlossen werden.');redirect('/registrieren');
+ }
 }
 if($path==='/email-bestaetigen'&&$method==='GET'){
  $hash=hash('sha256',(string)($_GET['token']??''));$st=db()->prepare("SELECT * FROM email_verifications WHERE token_hash=? AND expires_at>NOW()");$st->execute([$hash]);$v=$st->fetch();
