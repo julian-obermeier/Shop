@@ -1,1 +1,1 @@
--- Status für provisorische Zusatztage wird bereits in 20260920_02_operations.sql angelegt.
+SELECT 1;
