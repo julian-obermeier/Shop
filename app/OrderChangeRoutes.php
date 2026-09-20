@@ -305,3 +305,135 @@ if (preg_match('#^/admin/auftrag/(\\d{8})/nachweisplan$#',$path,$m) && $method==
     flash('success','Nachweisplan aktualisiert und dokumentiert.');
     redirect('/admin/auftrag/'.$o['order_no'].'/nachweisplan');
 }
+
+
+if (preg_match('#^/admin/auftrag/(\\d{8})/fristen$#',$path,$m) && $method==='GET') {
+    require_admin();
+    $q=db()->prepare("SELECT o.*,f.title,CONCAT(s.first_name,' ',s.last_name) seller_name FROM orders o JOIN offers f ON f.id=o.offer_id JOIN sellers s ON s.id=o.seller_id WHERE o.order_no=?");
+    $q->execute([$m[1]]);$o=$q->fetch();if(!$o)not_found();
+
+    $runId=current_run_id((int)$o['id']);
+    $days=[];$windowsByDay=[];
+    if($runId){
+        $q=db()->prepare("SELECT * FROM order_days WHERE order_id=? AND order_run_id=? ORDER BY day_no");
+        $q->execute([$o['id'],$runId]);$days=$q->fetchAll();
+
+        $q=db()->prepare("SELECT * FROM evidence_windows WHERE order_id=? AND order_run_id=? ORDER BY day_no,starts_at");
+        $q->execute([$o['id'],$runId]);
+        foreach($q->fetchAll() as $w)$windowsByDay[(int)$w['day_no']][]=$w;
+    }
+
+    ob_start();?>
+    <div class="dashboard-head"><div><div class="eyebrow">Auftrag <?=e($o['order_no'])?></div><h1>Fristen & Tagesplan</h1><p class="meta"><?=e($o['title'])?> · <?=e($o['seller_name'])?></p></div><div class="actions"><a class="btn secondary" href="<?=e(url('/admin/auftrag/'.$o['order_no'].'/nachweisplan'))?>">Nachweisanzahl</a><a class="btn secondary" href="<?=e(url('/admin/auftrag/'.$o['order_no']))?>">Zum Auftrag</a></div></div>
+    <?php if(!$runId):?><div class="empty">Für diesen Auftrag existiert noch kein Durchführungslauf.</div><?php endif;?>
+    <div class="timeline">
+    <?php foreach($days as $day): $mutable=in_array($day['status'],['planned','active'],true); ?>
+      <section class="panel">
+        <div class="dashboard-head"><div><strong>Tag <?=e($day['day_no'])?> · <?=e(date('d.m.Y',strtotime($day['calendar_date'])))?></strong><br><span class="badge"><?=e($day['status'])?></span></div>
+        <?php if($mutable && $day['calendar_date']>=date('Y-m-d')):?><form method="post" action="<?=e(url('/admin/auftrag/'.$o['order_no'].'/tag/'.$day['id'].'/verschieben'))?>" class="actions"><?=csrf_field()?><input type="date" name="new_date" min="<?=e((new DateTimeImmutable('tomorrow'))->format('Y-m-d'))?>" value="<?=e($day['calendar_date'])?>" required><input name="reason" placeholder="Grund der Verschiebung" required><button class="btn secondary">Tag verschieben</button></form><?php endif;?></div>
+
+        <div class="table-wrap"><table><thead><tr><th>Fenster</th><th>Start</th><th>Ende</th><th>Nachfrist</th><th>Pflichtfotos</th><th>Status</th><th>Ändern</th></tr></thead><tbody>
+        <?php foreach($windowsByDay[(int)$day['day_no']]??[] as $w): $windowMutable=in_array($w['status'],['planned','open'],true); ?>
+          <tr>
+            <td><?=e($w['window_key'])?></td><td><?=e(date('d.m.Y H:i',strtotime($w['starts_at'])))?></td><td><?=e(date('d.m.Y H:i',strtotime($w['ends_at'])))?></td><td><?=e(date('d.m.Y H:i',strtotime($w['grace_ends_at']?:$w['ends_at'])))?></td><td><?=e($w['required_count'])?></td><td><?=e($w['status'])?></td>
+            <td><?php if($windowMutable):?><details><summary>Frist ändern</summary><form method="post" action="<?=e(url('/admin/nachweisfenster/'.$w['id'].'/aendern'))?>" style="min-width:310px;margin-top:8px"><?=csrf_field()?><label>Start<input type="datetime-local" name="starts_at" value="<?=e(date('Y-m-d\TH:i',strtotime($w['starts_at'])))?>" required></label><label>Ende<input type="datetime-local" name="ends_at" value="<?=e(date('Y-m-d\TH:i',strtotime($w['ends_at'])))?>" required></label><label>Nachfrist bis<input type="datetime-local" name="grace_ends_at" value="<?=e(date('Y-m-d\TH:i',strtotime($w['grace_ends_at']?:$w['ends_at'])))?>" required></label><label>Grund<textarea name="reason" required></textarea></label><button class="btn">Frist speichern</button></form></details><?php else:?><span class="meta">nicht mehr änderbar</span><?php endif;?></td>
+          </tr>
+        <?php endforeach;?>
+        </tbody></table></div>
+      </section>
+    <?php endforeach;?>
+    </div>
+    <?php render('Fristen & Tagesplan',ob_get_clean());exit;
+}
+
+if (preg_match('#^/admin/nachweisfenster/(\\d+)/aendern$#',$path,$m) && $method==='POST') {
+    $a=require_admin();
+    $q=db()->prepare("SELECT w.*,o.order_no,o.seller_id,o.archived_at FROM evidence_windows w JOIN orders o ON o.id=w.order_id WHERE w.id=?");
+    $q->execute([(int)$m[1]]);$w=$q->fetch();if(!$w)not_found();
+    if($w['archived_at'] || !in_array($w['status'],['planned','open'],true)){flash('error','Dieses Nachweisfenster ist nicht mehr änderbar.');redirect('/admin/auftrag/'.$w['order_no'].'/fristen');}
+
+    $reason=post('reason');if($reason===''){flash('error','Bitte einen Änderungsgrund angeben.');redirect('/admin/auftrag/'.$w['order_no'].'/fristen');}
+    $tz=new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'));
+    try{
+        $start=new DateTimeImmutable(post('starts_at'),$tz);
+        $end=new DateTimeImmutable(post('ends_at'),$tz);
+        $graceEnd=new DateTimeImmutable(post('grace_ends_at'),$tz);
+    }catch(Throwable){
+        flash('error','Ungültige Datums-/Zeitangabe.');redirect('/admin/auftrag/'.$w['order_no'].'/fristen');
+    }
+    if($end<=$start || $graceEnd<$end){flash('error','Ende muss nach dem Start liegen; die Nachfrist darf nicht vor dem Ende liegen.');redirect('/admin/auftrag/'.$w['order_no'].'/fristen');}
+    $now=new DateTimeImmutable('now',$tz);
+    if($graceEnd<=$now){flash('error','Die neue Nachfrist muss in der Zukunft liegen.');redirect('/admin/auftrag/'.$w['order_no'].'/fristen');}
+
+    $old=json_encode(['starts_at'=>$w['starts_at'],'ends_at'=>$w['ends_at'],'grace_ends_at'=>$w['grace_ends_at']],JSON_UNESCAPED_UNICODE);
+    $new=['starts_at'=>$start->format('Y-m-d H:i:s'),'ends_at'=>$end->format('Y-m-d H:i:s'),'grace_ends_at'=>$graceEnd->format('Y-m-d H:i:s')];
+    $newJson=json_encode($new,JSON_UNESCAPED_UNICODE);
+    if($old===$newJson){flash('error','Die neuen Fristen entsprechen den bisherigen Werten.');redirect('/admin/auftrag/'.$w['order_no'].'/fristen');}
+    $status=$start<=$now?'open':'planned';
+
+    db()->beginTransaction();
+    try{
+        db()->prepare("UPDATE evidence_windows SET starts_at=?,ends_at=?,grace_ends_at=?,status=? WHERE id=?")
+          ->execute([$new['starts_at'],$new['ends_at'],$new['grace_ends_at'],$status,$w['id']]);
+        db()->prepare("INSERT INTO order_changes(order_id,admin_id,field_name,old_value,new_value,reason,effective_day_no) VALUES(?,?,?,?,?,?,?)")
+          ->execute([$w['order_id'],$a['id'],'evidence_window_'.$w['id'],$old,$newJson,$reason,$w['day_no']]);
+        db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")
+          ->execute([$w['order_id'],'Frist für Tag '.$w['day_no'].' / '.$w['window_key'].' geändert. Neue Zeit: '.$start->format('d.m.Y H:i').'–'.$end->format('d.m.Y H:i').', Nachfrist bis '.$graceEnd->format('d.m.Y H:i').'. Grund: '.$reason]);
+        log_event('order.evidence_window_changed',(int)$w['seller_id'],(int)$w['order_id'],['window_id'=>(int)$w['id'],'old'=>json_decode($old,true),'new'=>$new,'reason'=>$reason,'admin_id'=>(int)$a['id']]);
+        db()->commit();
+    }catch(Throwable $e){if(db()->inTransaction())db()->rollBack();throw $e;}
+
+    notify_seller((int)$w['seller_id'],'order.deadline_changed','Nachweisfrist geändert','Die Frist für Tag '.$w['day_no'].' / '.$w['window_key'].' in Auftrag '.$w['order_no'].' wurde geändert. Grund: '.$reason,'/auftrag/'.$w['order_no'],null,true);
+    flash('success','Nachweisfrist aktualisiert und dokumentiert.');redirect('/admin/auftrag/'.$w['order_no'].'/fristen');
+}
+
+if (preg_match('#^/admin/auftrag/(\\d{8})/tag/(\\d+)/verschieben$#',$path,$m) && $method==='POST') {
+    $a=require_admin();
+    $q=db()->prepare("SELECT d.*,o.order_no,o.seller_id,o.archived_at FROM order_days d JOIN orders o ON o.id=d.order_id WHERE d.id=? AND o.order_no=?");
+    $q->execute([(int)$m[2],$m[1]]);$day=$q->fetch();if(!$day)not_found();
+    if($day['archived_at'] || !in_array($day['status'],['planned','active'],true)){flash('error','Dieser Durchführungstag ist nicht mehr verschiebbar.');redirect('/admin/auftrag/'.$day['order_no'].'/fristen');}
+
+    $reason=post('reason');if($reason===''){flash('error','Bitte einen Änderungsgrund angeben.');redirect('/admin/auftrag/'.$day['order_no'].'/fristen');}
+    $tz=new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'));
+    $newDate=DateTimeImmutable::createFromFormat('!Y-m-d',post('new_date'),$tz);
+    $tomorrow=new DateTimeImmutable('tomorrow',$tz);
+    if(!$newDate || $newDate<$tomorrow){flash('error','Ein kompletter Auftragstag kann nur auf morgen oder später verschoben werden. Einzelne heutige Fristen können separat geändert werden.');redirect('/admin/auftrag/'.$day['order_no'].'/fristen');}
+    if($newDate->format('Y-m-d')===$day['calendar_date']){flash('error','Das neue Datum entspricht dem bisherigen Datum.');redirect('/admin/auftrag/'.$day['order_no'].'/fristen');}
+
+    $q=db()->prepare("SELECT COUNT(*) FROM order_days WHERE order_id=? AND order_run_id=? AND calendar_date=? AND id<>?");
+    $q->execute([$day['order_id'],$day['order_run_id'],$newDate->format('Y-m-d'),$day['id']]);
+    if((int)$q->fetchColumn()>0){flash('error','An diesem Datum existiert im aktuellen Durchlauf bereits ein anderer Auftragstag.');redirect('/admin/auftrag/'.$day['order_no'].'/fristen');}
+
+    $oldDate=new DateTimeImmutable($day['calendar_date'].' 00:00:00',$tz);
+    $delta=(int)$oldDate->diff($newDate)->format('%r%a');
+    $modifier=($delta>=0?'+':'').$delta.' days';
+
+    db()->beginTransaction();
+    try{
+        $q=db()->prepare("SELECT * FROM evidence_windows WHERE order_id=? AND order_run_id=? AND day_no=?");
+        $q->execute([$day['order_id'],$day['order_run_id'],$day['day_no']]);$windows=$q->fetchAll();
+
+        db()->prepare("UPDATE order_days SET calendar_date=?,status='planned' WHERE id=?")->execute([$newDate->format('Y-m-d'),$day['id']]);
+        foreach($windows as $w){
+            if(!in_array($w['status'],['planned','open'],true)) throw new RuntimeException('Tag kann nicht vollständig verschoben werden, weil mindestens ein Fenster bereits abgeschlossen oder versäumt wurde.');
+            $start=(new DateTimeImmutable($w['starts_at'],$tz))->modify($modifier);
+            $end=(new DateTimeImmutable($w['ends_at'],$tz))->modify($modifier);
+            $graceEnd=(new DateTimeImmutable($w['grace_ends_at']?:$w['ends_at'],$tz))->modify($modifier);
+            db()->prepare("UPDATE evidence_windows SET starts_at=?,ends_at=?,grace_ends_at=?,status='planned' WHERE id=?")
+              ->execute([$start->format('Y-m-d H:i:s'),$end->format('Y-m-d H:i:s'),$graceEnd->format('Y-m-d H:i:s'),$w['id']]);
+        }
+
+        db()->prepare("INSERT INTO order_changes(order_id,admin_id,field_name,old_value,new_value,reason,effective_day_no) VALUES(?,?,?,?,?,?,?)")
+          ->execute([$day['order_id'],$a['id'],'day_date',$day['calendar_date'],$newDate->format('Y-m-d'),$reason,$day['day_no']]);
+        db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")
+          ->execute([$day['order_id'],'Durchführungstag '.$day['day_no'].' wurde von '.date('d.m.Y',strtotime($day['calendar_date'])).' auf '.$newDate->format('d.m.Y').' verschoben. Grund: '.$reason]);
+        log_event('order.day_shifted',(int)$day['seller_id'],(int)$day['order_id'],['day_no'=>(int)$day['day_no'],'old_date'=>$day['calendar_date'],'new_date'=>$newDate->format('Y-m-d'),'reason'=>$reason,'admin_id'=>(int)$a['id']]);
+        db()->commit();
+    }catch(Throwable $e){
+        if(db()->inTransaction())db()->rollBack();
+        flash('error',$e->getMessage());redirect('/admin/auftrag/'.$day['order_no'].'/fristen');
+    }
+
+    notify_seller((int)$day['seller_id'],'order.day_shifted','Auftragstag verschoben','Durchführungstag '.$day['day_no'].' in Auftrag '.$day['order_no'].' wurde auf '.$newDate->format('d.m.Y').' verschoben. Grund: '.$reason,'/auftrag/'.$day['order_no'],null,true);
+    flash('success','Durchführungstag und seine offenen Nachweisfenster wurden verschoben.');redirect('/admin/auftrag/'.$day['order_no'].'/fristen');
+}
