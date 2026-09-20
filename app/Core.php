@@ -1048,3 +1048,81 @@ function build_interim_summary(int $orderId, int $completedDays): array {
         'created_at'=>date(DATE_ATOM),
     ];
 }
+
+
+function offer_task_occurrence_days(array $task, ?int $durationDays): array {
+    $duration=max(0,(int)$durationDays);
+    if($duration<1) return [];
+    $type=(string)($task['schedule_type']??'day');
+    $value=max(1,(int)($task['schedule_value']??1));
+
+    if($type==='start') return [1];
+    if($type==='end') return [$duration];
+    if($type==='day') return $value<=$duration ? [$value] : [];
+    if($type==='interval'){
+        $days=[];
+        for($d=$value;$d<=$duration;$d+=$value) $days[]=$d;
+        return $days;
+    }
+    return [];
+}
+
+function offer_planned_tasks_summary(int $offerId, ?int $durationDays): array {
+    try{
+        $q=db()->prepare("SELECT * FROM offer_tasks WHERE offer_id=? AND active=1 ORDER BY sort_order,id");
+        $q->execute([$offerId]);$tasks=$q->fetchAll();
+    }catch(PDOException){
+        return ['tasks'=>[],'occurrences'=>0,'compensation'=>0.0];
+    }
+
+    $occurrences=0;$compensation=0.0;$rows=[];
+    foreach($tasks as $task){
+        $days=offer_task_occurrence_days($task,$durationDays);
+        $count=count($days);
+        $occurrences+=$count;
+        $compensation+=(float)$task['compensation']*$count;
+        $task['occurrence_days']=$days;
+        $task['occurrence_count']=$count;
+        $rows[]=$task;
+    }
+    return ['tasks'=>$rows,'occurrences'=>$occurrences,'compensation'=>$compensation];
+}
+
+function instantiate_offer_tasks_for_order(int $orderId): void {
+    $q=db()->prepare("SELECT o.id,o.offer_id,o.duration_days FROM orders o WHERE o.id=?");
+    $q->execute([$orderId]);$order=$q->fetch();
+    if(!$order) return;
+
+    $summary=offer_planned_tasks_summary((int)$order['offer_id'],(int)$order['duration_days']);
+    if(!$summary['tasks']) return;
+
+    $dayQ=db()->prepare("SELECT day_no,calendar_date FROM order_days WHERE order_id=? AND day_type='regular' ORDER BY day_no");
+    $dayQ->execute([$orderId]);$calendar=[];
+    foreach($dayQ->fetchAll() as $d) $calendar[(int)$d['day_no']]=$d['calendar_date'];
+
+    $exists=db()->prepare("SELECT COUNT(*) FROM order_tasks WHERE order_id=? AND source_offer_task_id=? AND planned_day_no=?");
+    $insert=db()->prepare("INSERT INTO order_tasks(order_id,source_offer_task_id,planned_day_no,title,description,due_at,fields_json,compensation,violation_enabled,status) VALUES(?,?,?,?,?,?,?,?,?,'open')");
+
+    foreach($summary['tasks'] as $task){
+        foreach($task['occurrence_days'] as $dayNo){
+            if(empty($calendar[$dayNo])) continue;
+            $exists->execute([$orderId,$task['id'],$dayNo]);
+            if((int)$exists->fetchColumn()>0) continue;
+            $dueTime=(string)($task['due_time']??'20:00:00');
+            if(!preg_match('/^\d{2}:\d{2}(?::\d{2})?$/',$dueTime)) $dueTime='20:00:00';
+            if(strlen($dueTime)===5) $dueTime.=':00';
+            $dueAt=$calendar[$dayNo].' '.$dueTime;
+            $insert->execute([
+                $orderId,
+                $task['id'],
+                $dayNo,
+                $task['title'],
+                $task['description'],
+                $dueAt,
+                $task['fields_json'],
+                $task['compensation'],
+                $task['violation_enabled'],
+            ]);
+        }
+    }
+}
