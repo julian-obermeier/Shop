@@ -519,7 +519,7 @@ if (preg_match('#^/auftrag/(\d{8})/digital$#',$path,$m)&&$method==='POST') {
 }
 if (preg_match('#^/admin/auftrag/(\\d{8})/revision$#',$path,$m)&&$method==='POST') {
     require_admin();$st=db()->prepare("SELECT * FROM orders WHERE order_no=?");$st->execute([$m[1]]);$o=$st->fetch();if(!$o)not_found();
-    $open=db()->prepare("SELECT COUNT(*) FROM revision_rounds WHERE order_id=? AND status='open'");$open->execute([$o['id']]);if((int)$open->fetchColumn()>0){flash('error','Es ist bereits eine Revision offen.');redirect('/admin/auftrag/'.$o['order_no']);}
+    $open=db()->prepare("SELECT COUNT(*) FROM revision_rounds WHERE order_id=? AND status IN('open','submitted')");$open->execute([$o['id']]);if((int)$open->fetchColumn()>0){flash('error','Es ist bereits eine aktive Revision offen oder zur Prüfung eingereicht.');redirect('/admin/auftrag/'.$o['order_no']);}
     $q=db()->prepare("SELECT COALESCE(MAX(round_no),0)+1 FROM revision_rounds WHERE order_id=?");$q->execute([$o['id']]);$rn=(int)$q->fetchColumn();$due=post('due_at')?:null;db()->prepare("INSERT INTO revision_rounds(order_id,round_no,due_at) VALUES(?,?,?)")->execute([$o['id'],$rn,$due]);$rid=(int)db()->lastInsertId();
     foreach(array_filter(array_map('trim',preg_split('/\\r?\\n/',post('items')))) as $item){db()->prepare("INSERT INTO revision_items(revision_round_id,description) VALUES(?,?)")->execute([$rid,$item]);}
     db()->prepare("UPDATE orders SET status='review',updated_at=NOW() WHERE id=?")->execute([$o['id']]);db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")->execute([$o['id'],'Revision '.$rn.' wurde angefordert.']);flash('success','Revision angefordert.');redirect('/admin/auftrag/'.$o['order_no']);
