@@ -123,7 +123,21 @@ function require_admin(): array {
     return $a;
 }
 
+function send_security_headers(): void {
+    if(headers_sent()) return;
+    header('X-Content-Type-Options: nosniff');
+    header('X-Frame-Options: DENY');
+    header('Referrer-Policy: no-referrer');
+    header('Permissions-Policy: camera=(self), microphone=(self), geolocation=(), payment=(), usb=()');
+    header("Content-Security-Policy: default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; manifest-src 'self'; font-src 'self'");
+    header('Cache-Control: private, no-store, max-age=0');
+    if((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS']!=='off')){
+        header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
+    }
+}
+
 function render(string $title, string $content, array $data = []): void {
+    send_security_headers();
     $seller = seller();
     $admin = admin();
     $flashes = pull_flashes();
