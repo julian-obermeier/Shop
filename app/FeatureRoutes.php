@@ -759,6 +759,7 @@ if (preg_match('#^/admin/auftrag/(\\d{8})/revision$#',$path,$m)&&$method==='POST
 if (preg_match('#^/admin/angebot/(\\d+)$#',$path,$m)&&$method==='GET') {
     require_admin();$st=db()->prepare("SELECT * FROM offers WHERE id=?");$st->execute([(int)$m[1]]);$o=$st->fetch();if(!$o)not_found();
     $rules=offer_evidence_rules($o);
+    $digitalRules=offer_digital_rules($o);
     $cats=db()->query("SELECT id,name FROM categories WHERE is_active=1 ORDER BY sort_order,name")->fetchAll();$op=db()->prepare("SELECT * FROM offer_options WHERE offer_id=? ORDER BY id");$op->execute([$o['id']]);$options=$op->fetchAll();
     $ocq=db()->prepare("SELECT oc.*,c.name category_name FROM offer_components oc JOIN categories c ON c.id=oc.category_id WHERE oc.offer_id=? ORDER BY oc.sort_order,oc.id");$ocq->execute([$o['id']]);$offerComponents=$ocq->fetchAll();
     $ss=db()->prepare("SELECT * FROM offer_shipping_steps WHERE offer_id=? ORDER BY sort_order,id");$ss->execute([$o['id']]);$shippingSteps=$ss->fetchAll();
@@ -769,6 +770,25 @@ if (preg_match('#^/admin/angebot/(\\d+)$#',$path,$m)&&$method==='GET') {
     $vers=db()->prepare("SELECT version_no,created_at FROM offer_versions WHERE offer_id=? ORDER BY version_no DESC");$vers->execute([$o['id']]);$versions=$vers->fetchAll();
     ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Angebot #<?=e($o['id'])?></div><h1><?=e($o['title'])?></h1><p class="meta">Aktuelle Version: V<?=e($o['current_version'])?></p></div><a class="btn secondary" href="<?=e(url('/admin/angebote'))?>">Zurück</a></div>
     <div class="grid two"><form class="panel" method="post"><?=csrf_field()?><h2>Angebot bearbeiten</h2><label>Titel<input name="title" value="<?=e($o['title'])?>" required></label><label>Kategorie<select name="category_id"><?php foreach($cats as $cat):?><option value="<?=$cat['id']?>" <?=$cat['id']==$o['category_id']?'selected':''?>><?=e($cat['name'])?></option><?php endforeach;?></select></label><div class="form-grid"><label>Vergütung (€)<input type="number" step=".01" min="0" name="compensation" value="<?=e($o['compensation'])?>" required></label><label>Dauer Tage<input type="number" min="1" name="duration_days" value="<?=e($o['duration_days']??'')?>"></label><label>Erfüllung<select name="fulfillment_type"><?php foreach(['days'=>'Tage','units'=>'Einheiten','one_time'=>'Einmalig','digital'=>'Digital','mixed'=>'Kombiniert'] as $k=>$v):?><option value="<?=$k?>" <?=$o['fulfillment_type']===$k?'selected':''?>><?=$v?></option><?php endforeach;?></select></label><label>Status<select name="status"><?php foreach(['draft'=>'Entwurf','active'=>'Aktiv','inactive'=>'Deaktiviert'] as $k=>$v):?><option value="<?=$k?>" <?=$o['status']===$k?'selected':''?>><?=$v?></option><?php endforeach;?></select></label></div><label>Beschreibung<textarea name="description" required><?=e($o['description'])?></textarea></label><h3>Nachweisplan</h3><div class="form-grid"><label>Vorab-Pflichtfotos<input type="number" min="1" max="50" name="precheck_required_count" value="<?=e($rules['precheck_required_count']??1)?>" required></label><label>Morgen<input type="number" min="0" max="20" name="morning_count" value="<?=e($rules['daily']['morning']??1)?>" required></label><label>Mittag<input type="number" min="0" max="20" name="midday_count" value="<?=e($rules['daily']['midday']??1)?>" required></label><label>Abend<input type="number" min="0" max="20" name="evening_count" value="<?=e($rules['daily']['evening']??1)?>" required></label></div>
+<h3>Digitale Abgaberegeln</h3>
+<p class="meta">Relevant für digitale und kombinierte Angebote. Erlaubte Formate können frei kombiniert und einzeln als Pflicht markiert werden.</p>
+<div class="form-grid">
+<label><input type="checkbox" style="width:auto" name="digital_allow_text" value="1" <?=$digitalRules['allowed']['text']?'checked':''?>> Text erlaubt</label>
+<label><input type="checkbox" style="width:auto" name="digital_require_text" value="1" <?=$digitalRules['required']['text']?'checked':''?>> Text verpflichtend</label>
+<label><input type="checkbox" style="width:auto" name="digital_allow_audio" value="1" <?=$digitalRules['allowed']['audio']?'checked':''?>> Audio erlaubt</label>
+<label><input type="checkbox" style="width:auto" name="digital_require_audio" value="1" <?=$digitalRules['required']['audio']?'checked':''?>> Audio verpflichtend</label>
+<label><input type="checkbox" style="width:auto" name="digital_allow_video" value="1" <?=$digitalRules['allowed']['video']?'checked':''?>> Video erlaubt</label>
+<label><input type="checkbox" style="width:auto" name="digital_require_video" value="1" <?=$digitalRules['required']['video']?'checked':''?>> Video verpflichtend</label>
+<label>Text Mindestzeichen<input type="number" min="0" name="digital_text_min_chars" value="<?=e($digitalRules['text']['min_chars'])?>"></label>
+<label>Text Maximalzeichen (0 = unbegrenzt)<input type="number" min="0" name="digital_text_max_chars" value="<?=e($digitalRules['text']['max_chars'])?>"></label>
+<label>Max. Größe je Audio/Video (MB)<input type="number" min="1" max="500" name="digital_max_file_mb" value="<?=e($digitalRules['media']['max_file_mb'])?>"></label>
+<label>Erstabgabe innerhalb (Stunden)<input type="number" min="1" name="digital_deadline_hours" value="<?=e($digitalRules['deadline']['hours_after_acceptance'])?>"></label>
+<label>Nachfrist Erstabgabe (Minuten)<input type="number" min="0" name="digital_grace_minutes" value="<?=e($digitalRules['deadline']['grace_minutes'])?>"></label>
+<label>Fristverstoß Erstabgabe<select name="digital_violation_effect"><option value="log_only" <?=$digitalRules['deadline']['violation_effect']==='log_only'?'selected':''?>>Nur dokumentieren</option><option value="extension_day" <?=$digitalRules['deadline']['violation_effect']==='extension_day'?'selected':''?>>Bestätigter Verstoß +1 Durchführungstag</option></select></label>
+<label>Revisionsfrist (Stunden)<input type="number" min="1" name="digital_revision_deadline_hours" value="<?=e($digitalRules['revision']['deadline_hours'])?>"></label>
+<label>Nachfrist Revision (Minuten)<input type="number" min="0" name="digital_revision_grace_minutes" value="<?=e($digitalRules['revision']['grace_minutes'])?>"></label>
+<label>Fristverstoß Revision<select name="digital_revision_violation_effect"><option value="log_only" <?=$digitalRules['revision']['violation_effect']==='log_only'?'selected':''?>>Nur dokumentieren</option><option value="extension_day" <?=$digitalRules['revision']['violation_effect']==='extension_day'?'selected':''?>>Bestätigter Verstoß +1 Durchführungstag</option></select></label>
+</div>
 <h3>Versandbedingungen</h3><div class="form-grid">
 <label>Empfängeradresse<select name="shipping_address_id"><option value="">Keine feste Adresse</option><?php foreach($shippingAddresses as $addr):?><option value="<?=$addr['id']?>" <?=((int)($o['shipping_address_id']??0)===(int)$addr['id'])?'selected':''?>><?=e($addr['label'].' · '.$addr['recipient_name'].' · '.$addr['postal_code'].' '.$addr['city'])?></option><?php endforeach;?></select></label>
 <label>Kostenmodell<select name="shipping_cost_mode"><option value="seller" <?=$o['shipping_cost_mode']==='seller'?'selected':''?>>Verkäuferin trägt Versand</option><option value="fixed" <?=$o['shipping_cost_mode']==='fixed'?'selected':''?>>Fester Versandzuschuss</option><option value="reimburse" <?=$o['shipping_cost_mode']==='reimburse'?'selected':''?>>Volle Erstattung gegen Nachweis</option></select></label>
@@ -834,15 +854,53 @@ if (preg_match('#^/admin/angebot/(\\d+)$#',$path,$m)&&$method==='POST') {
     $newVersion=(int)$o['current_version']+1;$days=post('duration_days')!==''?(int)post('duration_days'):null;$comp=max(0,(float)post('compensation'));
     $rules=['precheck_required_count'=>max(1,(int)post('precheck_required_count','1')),'daily'=>['morning'=>max(0,(int)post('morning_count','1')),'midday'=>max(0,(int)post('midday_count','1')),'evening'=>max(0,(int)post('evening_count','1'))]];
     $rulesJson=json_encode($rules,JSON_UNESCAPED_UNICODE);
+    $digitalRules=normalize_digital_rules([
+      'allowed'=>[
+        'text'=>isset($_POST['digital_allow_text']),
+        'audio'=>isset($_POST['digital_allow_audio']),
+        'video'=>isset($_POST['digital_allow_video']),
+      ],
+      'required'=>[
+        'text'=>isset($_POST['digital_require_text']),
+        'audio'=>isset($_POST['digital_require_audio']),
+        'video'=>isset($_POST['digital_require_video']),
+      ],
+      'text'=>[
+        'min_chars'=>max(0,(int)post('digital_text_min_chars','0')),
+        'max_chars'=>max(0,(int)post('digital_text_max_chars','0')),
+      ],
+      'media'=>['max_file_mb'=>max(1,(int)post('digital_max_file_mb','50'))],
+      'deadline'=>[
+        'hours_after_acceptance'=>max(1,(int)post('digital_deadline_hours','72')),
+        'grace_minutes'=>max(0,(int)post('digital_grace_minutes','60')),
+        'violation_effect'=>post('digital_violation_effect','log_only'),
+      ],
+      'revision'=>[
+        'deadline_hours'=>max(1,(int)post('digital_revision_deadline_hours','48')),
+        'grace_minutes'=>max(0,(int)post('digital_revision_grace_minutes','60')),
+        'violation_effect'=>post('digital_revision_violation_effect','log_only'),
+      ],
+    ]);
+    foreach(['text','audio','video'] as $format){
+      if($digitalRules['required'][$format] && !$digitalRules['allowed'][$format]){
+        flash('error','Ein verpflichtendes Digitalformat muss zugleich erlaubt sein.');
+        redirect('/admin/angebot/'.$o['id']);
+      }
+    }
+    if($digitalRules['text']['max_chars']>0 && $digitalRules['text']['max_chars']<$digitalRules['text']['min_chars']){
+      flash('error','Die maximale Textlänge darf nicht unter der Mindestlänge liegen.');
+      redirect('/admin/angebot/'.$o['id']);
+    }
+    $digitalRulesJson=json_encode($digitalRules,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
     $shippingAddressId=post('shipping_address_id')!==''?(int)post('shipping_address_id'):null;
     $shippingCostMode=in_array(post('shipping_cost_mode'),['seller','fixed','reimburse'],true)?post('shipping_cost_mode'):'seller';
     $shippingAllowance=$shippingCostMode==='fixed'?max(0,(float)post('shipping_allowance')):0.0;
     $preferredCarrier=post('preferred_carrier')?:null;
     $shippingRules=['instructions'=>post('shipping_instructions')?:null];
     $shippingRulesJson=json_encode($shippingRules,JSON_UNESCAPED_UNICODE);
-    $snap=['title'=>post('title'),'category_id'=>(int)post('category_id'),'description'=>post('description'),'compensation'=>$comp,'duration_days'=>$days,'fulfillment_type'=>post('fulfillment_type'),'status'=>post('status'),'evidence_rules'=>$rules,'shipping'=>['address_id'=>$shippingAddressId,'cost_mode'=>$shippingCostMode,'allowance'=>$shippingAllowance,'preferred_carrier'=>$preferredCarrier,'instructions'=>$shippingRules['instructions']],'components'=>offer_component_definitions($o)];
+    $snap=['title'=>post('title'),'category_id'=>(int)post('category_id'),'description'=>post('description'),'compensation'=>$comp,'duration_days'=>$days,'fulfillment_type'=>post('fulfillment_type'),'status'=>post('status'),'evidence_rules'=>$rules,'digital_rules'=>$digitalRules,'shipping'=>['address_id'=>$shippingAddressId,'cost_mode'=>$shippingCostMode,'allowance'=>$shippingAllowance,'preferred_carrier'=>$preferredCarrier,'instructions'=>$shippingRules['instructions']],'components'=>offer_component_definitions($o)];
     db()->beginTransaction();try{
-      db()->prepare("UPDATE offers SET category_id=?,title=?,description=?,compensation=?,duration_days=?,fulfillment_type=?,evidence_rules_json=?,shipping_rules_json=?,shipping_address_id=?,shipping_cost_mode=?,shipping_allowance=?,preferred_carrier=?,status=?,current_version=?,updated_at=NOW() WHERE id=?")->execute([$snap['category_id'],$snap['title'],$snap['description'],$comp,$days,$snap['fulfillment_type'],$rulesJson,$shippingRulesJson,$shippingAddressId,$shippingCostMode,$shippingAllowance,$preferredCarrier,$snap['status'],$newVersion,$o['id']]);
+      db()->prepare("UPDATE offers SET category_id=?,title=?,description=?,compensation=?,duration_days=?,fulfillment_type=?,evidence_rules_json=?,digital_rules_json=?,shipping_rules_json=?,shipping_address_id=?,shipping_cost_mode=?,shipping_allowance=?,preferred_carrier=?,status=?,current_version=?,updated_at=NOW() WHERE id=?")->execute([$snap['category_id'],$snap['title'],$snap['description'],$comp,$days,$snap['fulfillment_type'],$rulesJson,$digitalRulesJson,$shippingRulesJson,$shippingAddressId,$shippingCostMode,$shippingAllowance,$preferredCarrier,$snap['status'],$newVersion,$o['id']]);
       db()->prepare("INSERT INTO offer_versions(offer_id,version_no,snapshot_json) VALUES(?,?,?)")->execute([$o['id'],$newVersion,json_encode($snap,JSON_UNESCAPED_UNICODE)]);
       db()->commit();
     }catch(Throwable $e){db()->rollBack();throw $e;}
