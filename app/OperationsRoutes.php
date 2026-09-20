@@ -165,8 +165,25 @@ if ($path==='/admin/auszahlungen' && $method==='GET') {
     require_admin();
     $rows=db()->query("SELECT p.*,CONCAT(s.first_name,' ',s.last_name) seller_name,s.email FROM payout_requests p JOIN sellers s ON s.id=p.seller_id ORDER BY FIELD(p.status,'requested','review','released','paid','withdrawn','rejected'),p.created_at DESC")->fetchAll();
     ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Administration</div><h1>Auszahlungen</h1></div><a class="btn secondary" href="<?=e(url('/admin/einstellungen'))?>">Auszahlungseinstellungen</a></div>
-    <div class="table-wrap"><table><thead><tr><th>#</th><th>Verkäuferin</th><th>Betrag</th><th>Gebühr</th><th>Netto</th><th>Methode</th><th>Status</th><th>Aktion</th></tr></thead><tbody><?php foreach($rows as $r):?><tr><td><?=e($r['id'])?></td><td><?=e($r['seller_name'])?><br><span class="meta"><?=e($r['email'])?></span></td><td><?=money($r['amount'])?></td><td><?=money($r['fee'])?></td><td><?=money($r['net_amount'])?></td><td><?=e($r['method'])?></td><td><?=e($r['status'])?></td><td><?php if(!in_array($r['status'],['paid','withdrawn','rejected'],true)):?><form method="post" action="<?=e(url('/admin/auszahlung/'.$r['id'].'/bezahlt'))?>"><?=csrf_field()?><button class="btn">Als bezahlt markieren</button></form><?php endif;?></td></tr><?php endforeach;?></tbody></table></div>
+    <div class="table-wrap"><table><thead><tr><th>#</th><th>Verkäuferin</th><th>Betrag</th><th>Gebühr</th><th>Netto</th><th>Methode</th><th>Status</th><th>Aktion</th></tr></thead><tbody><?php foreach($rows as $r):?><tr><td><?=e($r['id'])?></td><td><?=e($r['seller_name'])?><br><span class="meta"><?=e($r['email'])?></span></td><td><?=money($r['amount'])?></td><td><?=money($r['fee'])?></td><td><?=money($r['net_amount'])?></td><td><?=e($r['method'])?></td><td><?=e($r['status'])?></td><td><div class="actions"><?php if($r['status']==='requested'):?><form method="post" action="<?=e(url('/admin/auszahlung/'.$r['id'].'/status/review'))?>"><?=csrf_field()?><button class="btn secondary">In Prüfung</button></form><form method="post" action="<?=e(url('/admin/auszahlung/'.$r['id'].'/status/rejected'))?>"><?=csrf_field()?><button class="btn danger">Ablehnen</button></form><?php elseif($r['status']==='review'):?><form method="post" action="<?=e(url('/admin/auszahlung/'.$r['id'].'/status/released'))?>"><?=csrf_field()?><button class="btn">Freigeben</button></form><form method="post" action="<?=e(url('/admin/auszahlung/'.$r['id'].'/status/rejected'))?>"><?=csrf_field()?><button class="btn danger">Ablehnen</button></form><?php elseif($r['status']==='released'):?><form method="post" action="<?=e(url('/admin/auszahlung/'.$r['id'].'/bezahlt'))?>"><?=csrf_field()?><button class="btn">Als bezahlt markieren</button></form><?php else:?>–<?php endif;?></div></td></tr><?php endforeach;?></tbody></table></div>
     <?php if(!$rows):?><div class="empty">Keine Auszahlungsanträge vorhanden.</div><?php endif;?><?php render('Auszahlungen',ob_get_clean());exit;
+}
+
+
+if (preg_match('#^/admin/auszahlung/(\d+)/status/(review|released|rejected)$#',$path,$m) && $method==='POST') {
+    require_admin();
+    $q=db()->prepare("SELECT * FROM payout_requests WHERE id=?");$q->execute([(int)$m[1]]);$r=$q->fetch();if(!$r)not_found();
+    $target=$m[2];
+
+    $valid=
+      ($r['status']==='requested' && in_array($target,['review','rejected'],true)) ||
+      ($r['status']==='review' && in_array($target,['released','rejected'],true));
+    if(!$valid){flash('error','Dieser Statuswechsel ist nicht zulässig.');redirect('/admin/auszahlungen');}
+
+    db()->prepare("UPDATE payout_requests SET status=?,updated_at=NOW() WHERE id=?")->execute([$target,$r['id']]);
+    $labels=['review'=>'in Prüfung','released'=>'freigegeben','rejected'=>'abgelehnt'];
+    notify_seller((int)$r['seller_id'],'payout.status','Auszahlungsstatus geändert','Dein Auszahlungsantrag #'.$r['id'].' ist jetzt '.$labels[$target].'.','/wallet',null,true);
+    flash('success','Auszahlungsstatus auf „'.$labels[$target].'“ gesetzt.');redirect('/admin/auszahlungen');
 }
 
 if (preg_match('#^/digitale-datei/(\d+)$#',$path,$m) && $method==='GET') {
