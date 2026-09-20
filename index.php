@@ -54,6 +54,7 @@ if(preg_match('#^/angebot/([a-z0-9-]+)$#',$path,$m)&&$method==='GET'){
    FROM offers o JOIN categories c ON c.id=o.category_id WHERE o.slug=? AND o.status='active' AND o.visibility='public'");
  $st->execute([$m[1]]);$o=$st->fetch();if(!$o)not_found();
  $op=db()->prepare("SELECT * FROM offer_options WHERE offer_id=? AND active=1 ORDER BY id");$op->execute([$o['id']]);$options=$op->fetchAll();
+ $components=offer_component_definitions($o);$componentExtra=offer_component_extra_total($o);
  $rules=offer_evidence_rules($o);
  $dailyCount=array_sum($rules['daily']);
  $regularPhotos=(int)$rules['precheck_required_count']+($o['duration_days']?($dailyCount*(int)$o['duration_days']):0);
@@ -64,17 +65,19 @@ if(preg_match('#^/angebot/([a-z0-9-]+)$#',$path,$m)&&$method==='GET'){
  $shippingLabel=$shipping['cost_mode']==='fixed'
    ? 'Fester Versandzuschuss: '.money($shipping['allowance'])
    : ($shipping['cost_mode']==='reimburse' ? 'Versandkosten werden gegen Nachweis erstattet.' : 'Versandkosten trägt die Verkäuferin.');
- $baseKnown=(float)$o['compensation']+(float)$planned['compensation']+($shipping['cost_mode']==='fixed'?(float)$shipping['allowance']:0.0);
+ $baseKnown=(float)$o['compensation']+$componentExtra+(float)$planned['compensation']+($shipping['cost_mode']==='fixed'?(float)$shipping['allowance']:0.0);
  $currentSeller=seller();$isFirstOrder=false;
  if($currentSeller){$fq=db()->prepare("SELECT COUNT(*) FROM orders WHERE seller_id=?");$fq->execute([$currentSeller['id']]);$isFirstOrder=(int)$fq->fetchColumn()===0;}
  ob_start();?><div class="eyebrow"><?=e($o['category_name'])?></div><h1><?=e($o['title'])?></h1>
  <div class="grid two"><section class="panel"><h2>Das erwartet dich</h2><p><?=nl2br(e($o['description']))?></p>
  <h3>Aufwand</h3><div class="timeline"><div><strong>Dauer:</strong> <?=$o['duration_days']?e($o['duration_days']).' Tage':'individuell / nicht tagegebunden'?></div><div><strong>Vorabnachweise:</strong> <?=e($rules['precheck_required_count'])?> Foto(s)</div><div><strong>Tägliche Regel-Nachweise:</strong> <?=e($dailyCount)?> Foto(s) pro Tag<?php if($o['duration_days']):?> · <?=e($dailyCount*(int)$o['duration_days'])?> insgesamt<?php endif;?></div><div><strong>Geplante Zusatzaufgaben:</strong> <?=e($planned['executions'])?> Ausführung(en)</div><div><strong>Versandschritte:</strong> <?=e(count($shipping['steps']??[]))?> · <?=e($shippingPhotos)?> bekannte Versandfoto(s)</div><div><strong>Bekannte Pflichtfotos:</strong> <?=e($knownPhotos)?><?php if(!$o['duration_days']):?> + variable Tagesnachweise<?php endif;?></div></div>
+ <?php if(count($components)>1):?><h3>Kombi-Bestandteile</h3><div class="timeline"><?php foreach($components as $component):?><div><strong><?=e($component['title'])?></strong> · <?=e($component['component_type']==='digital'?'digital':'physisch')?><?php if(!$component['is_primary']):?> · +<?=money($component['compensation'])?><?php else:?> · in Grundvergütung enthalten<?php endif;?><?php if($component['duration_days']):?> · <?=e($component['duration_days'])?> Tage<?php endif;?></div><?php endforeach;?></div><p class="meta">Während des aktiven Kombi-Auftrags sind alle enthaltenen Kategorien für weitere Aufträge blockiert.</p><?php endif;?>
  <p class="meta">Spontane Nachweise, Neuaufnahmen nach Beanstandungen oder bestätigte Verstöße können zusätzliche Nachweise bzw. zusätzliche Durchführungstage verursachen.</p>
  <?php if($planned['plans']):?><h3>Geplante Aufgaben</h3><div class="timeline"><?php foreach($planned['plans'] as $pt): $occ=count($pt['_occurrence_days']??[]);?><div><strong><?=e($pt['title'])?></strong> · <?=e($occ)?>× · <?=money((float)$pt['compensation']*$occ)?><?php if((int)$pt['required_photos']>0):?> · <?=e((int)$pt['required_photos']*$occ)?> Aufgabenfoto(s)<?php endif;?><br><span class="meta"><?=e($pt['description']??'')?></span></div><?php endforeach;?></div><?php endif;?>
  <h3>Versand</h3><p><?=e($shippingLabel)?><?php if($shipping['preferred_carrier']):?><br>Bevorzugter Versanddienstleister: <?=e($shipping['preferred_carrier'])?><?php endif;?><?php if($shipping['instructions']):?><br><?=nl2br(e($shipping['instructions']))?><?php endif;?></p><p class="meta">Die konkrete Empfängeradresse wird erst in der Versandphase angezeigt.</p>
  <p class="meta"><?=e($o['accepted_count'])?> echte Annahme(n) insgesamt · <?=e($o['active_count'])?> aktuell aktive Auftrag/Aufträge.</p></section>
  <aside class="panel"><div class="meta">Grundvergütung</div><div class="price"><?=money($o['compensation'])?></div>
+ <?php if($componentExtra>0):?><p>Kombi-Bestandteile: <strong>+<?=money($componentExtra)?></strong></p><?php endif;?>
  <?php if($planned['compensation']>0):?><p>Geplante Aufgaben: <strong>+<?=money($planned['compensation'])?></strong></p><?php endif;?>
  <?php if($shipping['cost_mode']==='fixed' && $shipping['allowance']>0):?><p>Versandzuschuss: <strong>+<?=money($shipping['allowance'])?></strong></p><?php endif;?>
  <p><strong>Bekannter Wert vor Optionen: <?=money($baseKnown)?></strong></p>
