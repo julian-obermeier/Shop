@@ -467,6 +467,23 @@ function offer_evidence_rules(array|int $offerOrOrderId): array {
     ];
 }
 
+function order_evidence_rules_for_day(int $orderId, int $dayNo): array {
+    $base=offer_evidence_rules($orderId);
+    try{
+        $q=db()->prepare("SELECT rules_json FROM order_evidence_plan_overrides WHERE order_id=? AND effective_day_no<=? ORDER BY effective_day_no DESC,id DESC LIMIT 1");
+        $q->execute([$orderId,max(1,$dayNo)]);
+        $raw=$q->fetchColumn();
+        if($raw){
+            $decoded=json_decode((string)$raw,true);
+            if(is_array($decoded)) return offer_evidence_rules(['evidence_rules'=>$decoded]);
+        }
+    }catch(PDOException){
+        // Backward-compatible before the migration has been applied.
+    }
+    return $base;
+}
+
+
 
 function normalize_digital_rules(?array $rules): array {
     $rules=is_array($rules)?$rules:[];
@@ -753,16 +770,16 @@ function schedule_order_days(int $orderId, ?DateTimeImmutable $startedAt = null)
     $exists->execute([$orderId, $runId]);
     if ((int)$exists->fetchColumn() > 0) return;
 
-    $rules = offer_evidence_rules($orderId);
     $defs = [
         'morning' => parse_window_setting('window_morning', '06:00-10:00'),
         'midday' => parse_window_setting('window_midday', '12:00-16:00'),
         'evening' => parse_window_setting('window_evening', '18:00-23:59'),
     ];
 
+    $dayOneRules = order_evidence_rules_for_day($orderId,1);
     $active = [];
     foreach ($defs as $key => $range) {
-        $count = (int)$rules['daily'][$key];
+        $count = (int)$dayOneRules['daily'][$key];
         if ($count > 0) $active[$key] = ['range' => $range, 'count' => $count];
     }
 
@@ -798,9 +815,15 @@ function schedule_order_days(int $orderId, ?DateTimeImmutable $startedAt = null)
         $date = $firstDate->modify('+'.($day - 1).' day');
         $dayInsert->execute([$orderId, $runId, $day, $date->format('Y-m-d')]);
 
+        $dayRules=order_evidence_rules_for_day($orderId,$day);
+        $dayActive=[];
+        foreach($defs as $key=>$range){
+            $count=(int)$dayRules['daily'][$key];
+            if($count>0) $dayActive[$key]=['range'=>$range,'count'=>$count];
+        }
         $use = ($day === 1 && $firstDate->format('Y-m-d') === $sameDate)
-            ? $futureSameDay
-            : $active;
+            ? array_intersect_key($dayActive,$futureSameDay)
+            : $dayActive;
 
         foreach ($use as $key => $def) {
             $range = $def['range'];
@@ -913,7 +936,7 @@ function append_order_day(int $orderId, string $dayType, ?string $sourceRef = nu
          VALUES(?,?,?,?,?,'planned',?)"
     )->execute([$orderId, $runId, $dayNo, $dayType, $date->format('Y-m-d'), $sourceRef]);
 
-    $rules = offer_evidence_rules($orderId);
+    $rules = order_evidence_rules_for_day($orderId,$dayNo);
     $defs = [
         'morning' => parse_window_setting('window_morning', '06:00-10:00'),
         'midday' => parse_window_setting('window_midday', '12:00-16:00'),
