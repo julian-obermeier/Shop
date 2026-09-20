@@ -25,6 +25,8 @@ jobs:
           test -f app/FeatureRoutes.php
           test -f database/schema.sql
           test -f install/index.php
+      - name: Static route check
+        run: php tests/static_route_check.php
 
   schema-smoke:
     runs-on: ubuntu-latest
