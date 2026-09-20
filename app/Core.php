@@ -556,3 +556,39 @@ function log_event(string $type, ?int $sellerId = null, ?int $orderId = null, ar
         $payload ? json_encode($payload, JSON_UNESCAPED_UNICODE) : null,
     ]);
 }
+
+
+function reject_if_archived_route(string $path, string $method): void {
+    if($method!=='POST') return;
+    $orderId=null;$orderNo=null;
+
+    if(preg_match('#/auftrag/(\d{8})(?:/|$)#',$path,$m)){
+        if(str_ends_with($path,'/wiederherstellen')) return;
+        $orderNo=$m[1];
+    }elseif(preg_match('#^/admin/nachweis/(\d+)/#',$path,$m)){
+        $q=db()->prepare('SELECT o.id,o.order_no,o.archived_at FROM evidences e JOIN orders o ON o.id=e.order_id WHERE e.id=?');$q->execute([(int)$m[1]]);$o=$q->fetch();
+        if($o && $o['archived_at']){flash('error','Der archivierte Auftrag ist schreibgeschützt.');redirect('/admin/auftrag/'.$o['order_no']);}
+        return;
+    }elseif(preg_match('#^/admin/verstoss/(\d+)/#',$path,$m)){
+        $q=db()->prepare('SELECT o.order_no,o.archived_at FROM violations v JOIN orders o ON o.id=v.order_id WHERE v.id=?');$q->execute([(int)$m[1]]);$o=$q->fetch();
+        if($o && $o['archived_at']){flash('error','Der archivierte Auftrag ist schreibgeschützt.');redirect('/admin/auftrag/'.$o['order_no']);}
+        return;
+    }elseif(preg_match('#^/admin/aufgabe/(\d+)/#',$path,$m)){
+        $q=db()->prepare('SELECT o.order_no,o.archived_at FROM order_tasks t JOIN orders o ON o.id=t.order_id WHERE t.id=?');$q->execute([(int)$m[1]]);$o=$q->fetch();
+        if($o && $o['archived_at']){flash('error','Der archivierte Auftrag ist schreibgeschützt.');redirect('/admin/auftrag/'.$o['order_no']);}
+        return;
+    }elseif(preg_match('#^/admin/spontan/(\d+)/#',$path,$m)){
+        $q=db()->prepare('SELECT o.order_no,o.archived_at FROM spontaneous_requests r JOIN orders o ON o.id=r.order_id WHERE r.id=?');$q->execute([(int)$m[1]]);$o=$q->fetch();
+        if($o && $o['archived_at']){flash('error','Der archivierte Auftrag ist schreibgeschützt.');redirect('/admin/auftrag/'.$o['order_no']);}
+        return;
+    }elseif(preg_match('#^/admin/beschaedigung/(\d+)/#',$path,$m)){
+        $q=db()->prepare('SELECT o.order_no,o.archived_at FROM damage_cases d JOIN orders o ON o.id=d.order_id WHERE d.id=?');$q->execute([(int)$m[1]]);$o=$q->fetch();
+        if($o && $o['archived_at']){flash('error','Der archivierte Auftrag ist schreibgeschützt.');redirect('/admin/auftrag/'.$o['order_no']);}
+        return;
+    }
+
+    if($orderNo!==null){
+        $q=db()->prepare('SELECT archived_at FROM orders WHERE order_no=?');$q->execute([$orderNo]);$archived=$q->fetchColumn();
+        if($archived){flash('error','Der archivierte Auftrag ist schreibgeschützt. Stelle ihn im Adminbereich zuerst wieder her.');redirect(str_starts_with($path,'/admin/')?'/admin/auftrag/'.$orderNo:'/auftrag/'.$orderNo);}
+    }
+}
