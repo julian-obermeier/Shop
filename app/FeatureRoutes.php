@@ -1217,12 +1217,13 @@ if (preg_match('#^/individuelle-angebote/(\d+)/(annehmen|ablehnen)$#',$path,$m) 
         flash('success','Individuelles Angebot abgelehnt.');redirect('/individuelle-angebote');
     }
     if(!$s['email_verified_at']){flash('error','Bitte bestätige zuerst deine E-Mail-Adresse.');redirect('/individuelle-angebote');}
-    $dupe=db()->prepare("SELECT COUNT(*) FROM orders x JOIN offers ox ON ox.id=x.offer_id WHERE x.seller_id=? AND ox.category_id=? AND x.status IN('precheck','running','shipping','review','payout')");
-    $dupe->execute([$s['id'],$a['category_id']]);if((int)$dupe->fetchColumn()>0){flash('error','In dieser Kategorie besteht bereits ein aktiver Auftrag.');redirect('/individuelle-angebote');}
+    $blockedCategories=offer_blocked_category_ids($a);
+    if(seller_has_category_conflict((int)$s['id'],$blockedCategories)){flash('error','Mindestens eine in diesem individuellen Angebot enthaltene Kategorie ist bereits durch einen aktiven Auftrag belegt.');redirect('/individuelle-angebote');}
 
     $shippingSnapshot=build_shipping_snapshot($a);
     $shippingAllowance=$shippingSnapshot['cost_mode']==='fixed' ? max(0,(float)$shippingSnapshot['allowance']) : 0.0;
-    $total=(float)$a['compensation']+$shippingAllowance;
+    $componentExtra=offer_component_extra_total($a);
+    $total=(float)$a['compensation']+$componentExtra+$shippingAllowance;
     $no=order_number();
     db()->beginTransaction();
     try{
@@ -1230,6 +1231,7 @@ if (preg_match('#^/individuelle-angebote/(\d+)/(annehmen|ablehnen)$#',$path,$m) 
           ->execute([$no,$s['id'],$a['offer_id'],$a['current_version'],$a['compensation'],$total,$a['duration_days'],json_encode($shippingSnapshot,JSON_UNESCAPED_UNICODE)]);
         $oid=(int)db()->lastInsertId();
         db()->prepare("INSERT INTO order_runs(order_id,run_no,status) VALUES(?,1,'precheck')")->execute([$oid]);
+        snapshot_order_components($oid,$a);
         db()->prepare("INSERT INTO wallet_entries(seller_id,order_id,entry_type,amount,description) VALUES(?,?,'reserved',?,'Individueller Auftragswert vorgemerkt')")->execute([$s['id'],$oid,$total]);
         if(in_array($a['fulfillment_type'],['digital','mixed'],true)){
             db()->prepare("INSERT INTO rights_acceptances(order_id,seller_id,terms_version,payload_json) VALUES(?,?,?,?)")
@@ -1237,7 +1239,7 @@ if (preg_match('#^/individuelle-angebote/(\d+)/(annehmen|ablehnen)$#',$path,$m) 
         }
         db()->prepare("UPDATE offer_assignments SET status='accepted',updated_at=NOW() WHERE id=?")->execute([$a['assignment_id']]);
         db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")->execute([$oid,'Individuelles Angebot wurde angenommen. Auftrag '.$no.' wurde angelegt.']);
-        log_event('private_offer.accepted',(int)$s['id'],$oid,['assignment_id'=>(int)$a['assignment_id'],'shipping_allowance'=>$shippingAllowance,'total'=>$total]);
+        log_event('private_offer.accepted',(int)$s['id'],$oid,['assignment_id'=>(int)$a['assignment_id'],'shipping_allowance'=>$shippingAllowance,'component_extra_compensation'=>$componentExtra,'blocked_category_ids'=>$blockedCategories,'total'=>$total]);
         db()->commit();
     }catch(Throwable $e){db()->rollBack();throw $e;}
     flash('success','Individuelles Angebot angenommen. Auftrag '.$no.' wurde erstellt. Gesamtwert: '.money($total).'.');redirect('/auftrag/'.$no);
