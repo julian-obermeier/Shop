@@ -244,10 +244,10 @@ if ($path==='/individuelle-angebote' && $method==='GET') {
 
 if (preg_match('#^/individuelle-angebote/(\d+)/annehmen$#',$path,$m) && $method==='POST') {
     $s=require_seller();if(!$s['email_verified_at']){flash('error','Bitte bestätige zuerst deine E-Mail-Adresse.');redirect('/individuelle-angebote');}
-    $q=db()->prepare("SELECT a.*,o.* FROM offer_assignments a JOIN offers o ON o.id=a.offer_id WHERE a.id=? AND a.seller_id=? AND a.status='assigned'");$q->execute([(int)$m[1],$s['id']]);$a=$q->fetch();if(!$a||strtotime($a['acceptance_deadline'])<time()){flash('error','Das Angebot ist nicht mehr verfügbar.');redirect('/individuelle-angebote');}
+    $q=db()->prepare("SELECT o.*,a.id assignment_id,a.acceptance_deadline,a.status assignment_status FROM offer_assignments a JOIN offers o ON o.id=a.offer_id WHERE a.id=? AND a.seller_id=? AND a.status='assigned'");$q->execute([(int)$m[1],$s['id']]);$a=$q->fetch();if(!$a||strtotime($a['acceptance_deadline'])<time()){flash('error','Das Angebot ist nicht mehr verfügbar.');redirect('/individuelle-angebote');}
     $dupe=db()->prepare("SELECT COUNT(*) FROM orders x JOIN offers ox ON ox.id=x.offer_id WHERE x.seller_id=? AND ox.category_id=? AND x.status IN('precheck','running','shipping','review','payout')");$dupe->execute([$s['id'],$a['category_id']]);if((int)$dupe->fetchColumn()>0){flash('error','In dieser Kategorie besteht bereits ein aktiver Auftrag.');redirect('/individuelle-angebote');}
     $no=v1_create_order_from_offer($a,$s,[]);
-    db()->prepare("UPDATE offer_assignments SET status='accepted',updated_at=NOW() WHERE id=?")->execute([$a['id']]);
+    db()->prepare("UPDATE offer_assignments SET status='accepted',updated_at=NOW() WHERE id=?")->execute([$a['assignment_id']]);
     flash('success','Individuelles Angebot angenommen. Auftrag '.$no.' wurde erstellt.');redirect('/auftrag/'.$no);
 }
 
@@ -255,4 +255,100 @@ if (preg_match('#^/individuelle-angebote/(\d+)/ablehnen$#',$path,$m) && $method=
     $s=require_seller();$reason=post('reason');if($reason===''){flash('error','Bitte Ablehnungsgrund angeben.');redirect('/individuelle-angebote');}
     db()->prepare("UPDATE offer_assignments SET status='declined',decline_reason=?,updated_at=NOW() WHERE id=? AND seller_id=? AND status='assigned'")->execute([$reason,(int)$m[1],$s['id']]);
     flash('success','Individuelles Angebot wurde abgelehnt.');redirect('/individuelle-angebote');
+}
+
+
+if (preg_match('#^/admin/verstoss/(\d+)/(bestaetigen|verwerfen)$#',$path,$m) && $method==='POST') {
+    require_admin();
+    $q=db()->prepare("SELECT v.*,o.order_no,o.seller_id FROM violations v JOIN orders o ON o.id=v.order_id WHERE v.id=?");
+    $q->execute([(int)$m[1]]);$v=$q->fetch();if(!$v)not_found();
+    if(!in_array($v['status'],['open','reviewed'],true)){flash('error','Dieser Verstoß ist bereits abschließend bearbeitet.');redirect('/admin/auftrag/'.$v['order_no']);}
+
+    if($m[2]==='bestaetigen'){
+        db()->beginTransaction();
+        try{
+            db()->prepare("UPDATE violations SET status='confirmed',reviewed_at=NOW() WHERE id=?")->execute([$v['id']]);
+            db()->prepare("UPDATE extra_days SET status='confirmed' WHERE source_type='violation' AND source_id=? AND status='provisional'")->execute([$v['id']]);
+            db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")->execute([$v['order_id'],'Verstoß bestätigt: '.$v['reason'].' · +1 zusätzlicher Durchführungstag.']);
+            db()->commit();
+        }catch(Throwable $e){db()->rollBack();throw $e;}
+        notify_seller((int)$v['seller_id'],'violation.confirmed','Verstoß bestätigt',$v['reason'].' · Der vorläufige Zusatztag ist jetzt verbindlich.','/auftrag/'.$v['order_no'],null,true);
+        flash('success','Verstoß bestätigt. Der provisorische Zusatztag ist jetzt verbindlich.');
+    }else{
+        db()->beginTransaction();
+        try{
+            db()->prepare("UPDATE violations SET status='discarded',reviewed_at=NOW() WHERE id=?")->execute([$v['id']]);
+            db()->prepare("UPDATE extra_days SET status='cancelled' WHERE source_type='violation' AND source_id=? AND status='provisional'")->execute([$v['id']]);
+            db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")->execute([$v['order_id'],'Möglicher Verstoß wurde verworfen: '.$v['reason'].'. Der provisorische Zusatztag entfällt.']);
+            db()->commit();
+        }catch(Throwable $e){db()->rollBack();throw $e;}
+        notify_seller((int)$v['seller_id'],'violation.discarded','Möglicher Verstoß verworfen',$v['reason'].' · Der provisorische Zusatztag wurde entfernt.','/auftrag/'.$v['order_no'],null,true);
+        flash('success','Verstoß verworfen. Provisorischer Zusatztag wurde entfernt.');
+    }
+    redirect('/admin/auftrag/'.$v['order_no']);
+}
+
+if (preg_match('#^/admin/aufgabe/(\d+)/(akzeptieren|ablehnen)$#',$path,$m) && $method==='POST') {
+    require_admin();
+    $q=db()->prepare("SELECT t.*,o.order_no,o.seller_id FROM order_tasks t JOIN orders o ON o.id=t.order_id WHERE t.id=?");$q->execute([(int)$m[1]]);$t=$q->fetch();if(!$t)not_found();
+    if($m[2]==='akzeptieren'){
+        db()->prepare("UPDATE order_tasks SET status='accepted' WHERE id=?")->execute([$t['id']]);
+        notify_seller((int)$t['seller_id'],'task.accepted','Zusatzaufgabe akzeptiert','Die Aufgabe „'.$t['title'].'“ wurde akzeptiert.','/auftrag/'.$t['order_no'],null,true);
+        flash('success','Aufgabe akzeptiert.');
+    }else{
+        db()->prepare("UPDATE order_tasks SET status='rejected' WHERE id=?")->execute([$t['id']]);
+        notify_seller((int)$t['seller_id'],'task.rejected','Zusatzaufgabe beanstandet','Die Aufgabe „'.$t['title'].'“ wurde beanstandet und kann erneut eingereicht werden.','/auftrag/'.$t['order_no'].'/aufgabe/'.$t['id'],null,true);
+        flash('success','Aufgabe zur erneuten Bearbeitung zurückgegeben.');
+    }
+    redirect('/admin/auftrag/'.$t['order_no']);
+}
+
+if (preg_match('#^/admin/spontan/(\d+)/abschliessen$#',$path,$m) && $method==='POST') {
+    require_admin();
+    $q=db()->prepare("SELECT r.*,o.order_no,o.seller_id FROM spontaneous_requests r JOIN orders o ON o.id=r.order_id WHERE r.id=?");$q->execute([(int)$m[1]]);$r=$q->fetch();if(!$r)not_found();
+    $q=db()->prepare("SELECT COUNT(*) FROM evidences WHERE source_type='spontaneous' AND source_id=? AND status='accepted'");$q->execute([$r['id']]);
+    if((int)$q->fetchColumn()<(int)$r['required_count']){flash('error','Noch nicht alle erforderlichen Bilder wurden akzeptiert.');redirect('/admin/auftrag/'.$r['order_no']);}
+    db()->prepare("UPDATE spontaneous_requests SET status='reviewed' WHERE id=?")->execute([$r['id']]);
+    notify_seller((int)$r['seller_id'],'spontaneous.reviewed','Spontaner Nachweis geprüft','Die spontane Nachweisanforderung wurde vollständig geprüft.','/auftrag/'.$r['order_no'],null,true);
+    flash('success','Spontane Nachweisanforderung abgeschlossen.');redirect('/admin/auftrag/'.$r['order_no']);
+}
+
+if ($path==='/admin/kalender' && $method==='GET') {
+    require_admin();
+    $from=trim((string)($_GET['from']??date('Y-m-01')));
+    $to=trim((string)($_GET['to']??date('Y-m-t')));
+    if(!preg_match('/^\d{4}-\d{2}-\d{2}$/',$from))$from=date('Y-m-01');
+    if(!preg_match('/^\d{4}-\d{2}-\d{2}$/',$to))$to=date('Y-m-t');
+    $events=[];
+
+    $q=db()->prepare("SELECT ew.starts_at event_at,'Nachweisfenster' event_type,o.order_no,f.title,ew.window_key details FROM evidence_windows ew JOIN orders o ON o.id=ew.order_id JOIN offers f ON f.id=o.offer_id WHERE DATE(ew.starts_at) BETWEEN ? AND ?");
+    $q->execute([$from,$to]);$events=array_merge($events,$q->fetchAll());
+
+    $q=db()->prepare("SELECT sr.due_at event_at,'Spontaner Nachweis' event_type,o.order_no,f.title,sr.instructions details FROM spontaneous_requests sr JOIN orders o ON o.id=sr.order_id JOIN offers f ON f.id=o.offer_id WHERE DATE(sr.due_at) BETWEEN ? AND ?");
+    $q->execute([$from,$to]);$events=array_merge($events,$q->fetchAll());
+
+    $q=db()->prepare("SELECT t.due_at event_at,'Zusatzaufgabe' event_type,o.order_no,f.title,t.title details FROM order_tasks t JOIN orders o ON o.id=t.order_id JOIN offers f ON f.id=o.offer_id WHERE t.due_at IS NOT NULL AND DATE(t.due_at) BETWEEN ? AND ?");
+    $q->execute([$from,$to]);$events=array_merge($events,$q->fetchAll());
+
+    $q=db()->prepare("SELECT r.due_at event_at,'Revision' event_type,o.order_no,f.title,CONCAT('Runde ',r.round_no) details FROM revision_rounds r JOIN orders o ON o.id=r.order_id JOIN offers f ON f.id=o.offer_id WHERE r.due_at IS NOT NULL AND DATE(r.due_at) BETWEEN ? AND ?");
+    $q->execute([$from,$to]);$events=array_merge($events,$q->fetchAll());
+
+    usort($events,fn($a,$b)=>strcmp((string)$a['event_at'],(string)$b['event_at']));
+    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Administration</div><h1>Kalender & Fristen</h1></div></div><form class="panel form-grid" method="get"><label>Von<input type="date" name="from" value="<?=e($from)?>"></label><label>Bis<input type="date" name="to" value="<?=e($to)?>"></label><button class="btn">Zeitraum anzeigen</button></form><br>
+    <div class="table-wrap"><table><thead><tr><th>Zeit</th><th>Typ</th><th>Auftrag</th><th>Details</th></tr></thead><tbody><?php foreach($events as $ev):?><tr><td><?=e(date('d.m.Y H:i',strtotime($ev['event_at'])))?></td><td><?=e($ev['event_type'])?></td><td><a href="<?=e(url('/admin/auftrag/'.$ev['order_no']))?>"><?=e($ev['order_no'].' · '.$ev['title'])?></a></td><td><?=e($ev['details'])?></td></tr><?php endforeach;?></tbody></table></div>
+    <?php render('Kalender',ob_get_clean());exit;
+}
+
+if ($path==='/admin/heute' && $method==='GET') {
+    require_admin();
+    $openViolations=db()->query("SELECT v.*,o.order_no,f.title FROM violations v JOIN orders o ON o.id=v.order_id JOIN offers f ON f.id=o.offer_id WHERE v.status IN('open','reviewed') ORDER BY v.created_at")->fetchAll();
+    $prechecks=db()->query("SELECT DISTINCT o.order_no,f.title,CONCAT(s.first_name,' ',s.last_name) seller_name FROM orders o JOIN offers f ON f.id=o.offer_id JOIN sellers s ON s.id=o.seller_id JOIN evidences e ON e.order_id=o.id WHERE o.status='precheck' AND e.evidence_type='precheck' AND e.status='submitted' ORDER BY o.created_at")->fetchAll();
+    $damage=db()->query("SELECT d.*,o.order_no,f.title FROM damage_cases d JOIN orders o ON o.id=d.order_id JOIN offers f ON f.id=o.offer_id WHERE d.status IN('reported','evidence_requested','review') ORDER BY d.created_at")->fetchAll();
+    $payouts=db()->query("SELECT p.*,CONCAT(s.first_name,' ',s.last_name) seller_name FROM payout_requests p JOIN sellers s ON s.id=p.seller_id WHERE p.status IN('requested','review','released') ORDER BY p.created_at")->fetchAll();
+    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Administration</div><h1>Heute – Arbeitsliste</h1></div><div class="actions"><a class="btn secondary" href="<?=e(url('/admin/kalender'))?>">Kalender</a><a class="btn secondary" href="<?=e(url('/admin/suche'))?>">Suche</a></div></div>
+    <div class="grid two"><section class="panel"><h2>Sofort bearbeiten · Vorabkontrollen</h2><?php foreach($prechecks as $x):?><div><a href="<?=e(url('/admin/auftrag/'.$x['order_no']))?>"><?=e($x['order_no'].' · '.$x['title'])?></a> · <?=e($x['seller_name'])?></div><?php endforeach;?><?php if(!$prechecks):?><p class="meta">Keine offenen Vorabkontrollen.</p><?php endif;?></section>
+    <section class="panel"><h2>Offene Verstöße</h2><?php foreach($openViolations as $x):?><div><a href="<?=e(url('/admin/auftrag/'.$x['order_no']))?>"><?=e($x['order_no'])?></a> · <?=e($x['reason'])?></div><?php endforeach;?><?php if(!$openViolations):?><p class="meta">Keine offenen Verstöße.</p><?php endif;?></section>
+    <section class="panel"><h2>Beschädigungen</h2><?php foreach($damage as $x):?><div><a href="<?=e(url('/admin/auftrag/'.$x['order_no']))?>"><?=e($x['order_no'].' · '.$x['title'])?></a> · <?=e($x['status'])?></div><?php endforeach;?><?php if(!$damage):?><p class="meta">Keine offenen Beschädigungsvorgänge.</p><?php endif;?></section>
+    <section class="panel"><h2>Auszahlungen</h2><?php foreach($payouts as $x):?><div><?=e($x['seller_name'])?> · <?=money($x['amount'])?> · <?=e($x['status'])?></div><?php endforeach;?><?php if(!$payouts):?><p class="meta">Keine offenen Auszahlungen.</p><?php endif;?></section></div>
+    <?php render('Admin Heute',ob_get_clean());exit;
 }
