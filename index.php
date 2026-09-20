@@ -31,23 +31,34 @@ if($path==='/angebote'&&$method==='GET'){
 }
 if(preg_match('#^/angebot/([a-z0-9-]+)$#',$path,$m)&&$method==='GET'){
  $st=db()->prepare("SELECT o.*,c.name category_name FROM offers o JOIN categories c ON c.id=o.category_id WHERE o.slug=? AND o.status='active'");$st->execute([$m[1]]);$o=$st->fetch();if(!$o)not_found();
- ob_start();?><div class="eyebrow"><?=e($o['category_name'])?></div><h1><?=e($o['title'])?></h1><div class="grid two"><section class="panel"><h2>Das erwartet dich</h2><p><?=nl2br(e($o['description']))?></p><h3>Erfüllung</h3><p><?= $o['duration_days'] ? e($o['duration_days']).' Tage' : 'Individueller Umfang gemäß Angebot' ?></p></section><aside class="panel"><div class="meta">Vergütung</div><div class="price"><?=money($o['compensation'])?></div><p class="meta">Vor Annahme werden dir Vergütung, Dauer und die hinterlegten Anforderungen verbindlich angezeigt.</p><?php if(seller()):?><form method="post" action="<?=e(url('/angebot/'.$o['slug'].'/annehmen'))?>"><?=csrf_field()?><button class="btn">Angebot annehmen</button></form><?php else:?><a class="btn" href="<?=e(url('/login'))?>">Einloggen & annehmen</a><?php endif;?></aside></div><?php render($o['title'],ob_get_clean());exit;
+ $op=db()->prepare("SELECT * FROM offer_options WHERE offer_id=? AND active=1 ORDER BY id");$op->execute([$o['id']]);$options=$op->fetchAll();
+ ob_start();?><div class="eyebrow"><?=e($o['category_name'])?></div><h1><?=e($o['title'])?></h1><div class="grid two"><section class="panel"><h2>Das erwartet dich</h2><p><?=nl2br(e($o['description']))?></p><h3>Erfüllung</h3><p><?= $o['duration_days'] ? e($o['duration_days']).' Tage' : 'Individueller Umfang gemäß Angebot' ?></p><?php if($options):?><h3>Zusatzoptionen</h3><p class="meta">Optionen werden bei Annahme ausgewählt und in der Auftragsbestätigung festgehalten.</p><?php endif;?></section><aside class="panel"><div class="meta">Grundvergütung</div><div class="price"><?=money($o['compensation'])?></div><p class="meta">Vor Annahme werden dir Vergütung, Dauer und die hinterlegten Anforderungen verbindlich angezeigt.</p><?php if(seller()):?><form method="post" action="<?=e(url('/angebot/'.$o['slug'].'/annehmen'))?>"><?=csrf_field()?><?php foreach($options as $opt):?><label style="display:flex;gap:10px;align-items:flex-start"><input style="width:auto;margin-top:5px" type="checkbox" name="option_ids[]" value="<?=e($opt['id'])?>"><span><?=e($opt['label'])?> <?php if((float)$opt['price']>0):?><strong>+<?=money($opt['price'])?></strong><?php else:?><strong>kostenlos</strong><?php endif;?></span></label><?php endforeach;?><button class="btn">Angebot verbindlich annehmen</button></form><?php else:?><a class="btn" href="<?=e(url('/login'))?>">Einloggen & annehmen</a><?php endif;?></aside></div><?php render($o['title'],ob_get_clean());exit;
 }
 if(preg_match('#^/angebot/([a-z0-9-]+)/annehmen$#',$path,$m)&&$method==='POST'){
  $s=require_seller(); if(!$s['email_verified_at']){flash('error','Bitte bestätige zuerst deine E-Mail-Adresse.');redirect('/dashboard');}
  $st=db()->prepare("SELECT * FROM offers WHERE slug=? AND status='active'");$st->execute([$m[1]]);$o=$st->fetch();if(!$o)not_found();
  $dupe=db()->prepare("SELECT COUNT(*) FROM orders x JOIN offers ox ON ox.id=x.offer_id WHERE x.seller_id=? AND ox.category_id=? AND x.status IN('precheck','running','shipping','review','payout')");
  $dupe->execute([$s['id'],$o['category_id']]); if((int)$dupe->fetchColumn()>0){flash('error','In dieser Kategorie besteht bereits ein aktiver Auftrag.');redirect('/angebote');}
- $no=order_number();
+ $requested=array_values(array_unique(array_map('intval',(array)($_POST['option_ids']??[]))));
+ $selected=[];$optionsTotal=0.0;
+ if($requested){
+   $placeholders=implode(',',array_fill(0,count($requested),'?'));
+   $args=array_merge([$o['id']],$requested);
+   $q=db()->prepare("SELECT * FROM offer_options WHERE offer_id=? AND active=1 AND id IN ($placeholders)");$q->execute($args);$selected=$q->fetchAll();
+   foreach($selected as $opt)$optionsTotal+=(float)$opt['price'];
+ }
+ $total=(float)$o['compensation']+$optionsTotal;$no=order_number();
  db()->beginTransaction(); try{
-   db()->prepare("INSERT INTO orders(order_no,seller_id,offer_id,offer_version,status,base_compensation,total_compensation,duration_days) VALUES(?,?,?,?, 'precheck',?,?,?)")->execute([$no,$s['id'],$o['id'],$o['current_version'],$o['compensation'],$o['compensation'],$o['duration_days']]);
+   db()->prepare("INSERT INTO orders(order_no,seller_id,offer_id,offer_version,status,base_compensation,total_compensation,duration_days) VALUES(?,?,?,?, 'precheck',?,?,?)")->execute([$no,$s['id'],$o['id'],$o['current_version'],$o['compensation'],$total,$o['duration_days']]);
    $oid=(int)db()->lastInsertId();
    db()->prepare("INSERT INTO order_runs(order_id,run_no,status) VALUES(?,1,'precheck')")->execute([$oid]);
-   db()->prepare("INSERT INTO wallet_entries(seller_id,order_id,entry_type,amount,description) VALUES(?,?,'reserved',?,'Auftragswert vorgemerkt')")->execute([$s['id'],$oid,$o['compensation']]);
-   db()->prepare("INSERT INTO system_events(seller_id,order_id,event_type,payload_json) VALUES(?,?,'order.accepted',?)")->execute([$s['id'],$oid,json_encode(['offer_version'=>$o['current_version']],JSON_UNESCAPED_UNICODE)]);
+   foreach($selected as $opt)db()->prepare("INSERT INTO order_options(order_id,offer_option_id,label_snapshot,price_snapshot) VALUES(?,?,?,?)")->execute([$oid,$opt['id'],$opt['label'],$opt['price']]);
+   db()->prepare("INSERT INTO wallet_entries(seller_id,order_id,entry_type,amount,description) VALUES(?,?,'reserved',?,'Auftragswert vorgemerkt')")->execute([$s['id'],$oid,$total]);
+   db()->prepare("INSERT INTO system_events(seller_id,order_id,event_type,payload_json) VALUES(?,?,'order.accepted',?)")->execute([$s['id'],$oid,json_encode(['offer_version'=>$o['current_version'],'option_ids'=>$requested,'total'=>$total],JSON_UNESCAPED_UNICODE)]);
+   if(in_array($o['fulfillment_type'],['digital','mixed'],true))db()->prepare("INSERT INTO rights_acceptances(order_id,seller_id,terms_version,payload_json) VALUES(?,?,?,?)")->execute([$oid,$s['id'],'v1',json_encode(['scope'=>'technical_processing_and_order_terms'],JSON_UNESCAPED_UNICODE)]);
    db()->commit();
  }catch(Throwable $e){db()->rollBack();throw $e;}
- flash('success','Auftrag '.$no.' wurde angenommen. Bitte Vorabkontrolle durchführen.');redirect('/auftrag/'.$no);
+ flash('success','Auftrag '.$no.' wurde angenommen. Gesamtwert: '.money($total).'. Bitte Vorabkontrolle bzw. Auftragsvorbereitung durchführen.');redirect('/auftrag/'.$no);
 }
 if($path==='/registrieren'&&$method==='GET'){
  ob_start();?><div class="grid two"><section><div class="eyebrow">Verkäuferinnenkonto</div><h1>Registrieren</h1><p>Nur für Volljährige ab 18 Jahren. Es gibt kein öffentliches Verkäuferinnenprofil.</p></section><form class="panel" method="post"><?=csrf_field()?><div class="form-grid"><label>Vorname<input name="first_name" required></label><label>Nachname<input name="last_name" required></label><label>Geburtsdatum<input type="date" name="birth_date" required></label><label>Telefon<input name="phone" required></label><label>Straße / Hausnummer<input name="street" required></label><label>PLZ<input name="postal_code" required></label><label>Ort<input name="city" required></label><label>E-Mail<input type="email" name="email" required></label></div><label>Passwort<input type="password" name="password" minlength="10" required></label><label><input type="checkbox" name="adult" value="1" required style="width:auto"> Ich bestätige, dass ich mindestens 18 Jahre alt bin und die Plattformregeln akzeptiere.</label><button class="btn">Konto erstellen</button></form></div><?php render('Registrieren',ob_get_clean());exit;
