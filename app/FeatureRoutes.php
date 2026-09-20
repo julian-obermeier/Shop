@@ -54,7 +54,7 @@ if ($path==='/wallet' && $method==='GET') {
     $st=db()->prepare("SELECT * FROM wallet_entries WHERE seller_id=? ORDER BY created_at DESC");$st->execute([$s['id']]);$entries=$st->fetchAll();
     $sum=db()->prepare("SELECT entry_type,SUM(amount) total FROM wallet_entries WHERE seller_id=? GROUP BY entry_type");$sum->execute([$s['id']]);$tot=[];foreach($sum->fetchAll() as $r)$tot[$r['entry_type']]=$r['total'];
     $req=db()->prepare("SELECT * FROM payout_requests WHERE seller_id=? ORDER BY created_at DESC");$req->execute([$s['id']]);$requests=$req->fetchAll();
-    $available=(float)($tot['available']??0)-(float)($tot['paid']??0);
+    $available=(float)($tot['available']??0)+(float)($tot['adjustment']??0)-(float)($tot['paid']??0);
     $p=db()->prepare("SELECT * FROM payout_profiles WHERE seller_id=?");$p->execute([$s['id']]);$profile=$p->fetch()?:[];
     $minimum=max(0,(float)setting_value('payout_min','10.00'));
     $bankEnabled=setting_value('payout_bank_enabled','1')==='1';
@@ -69,7 +69,7 @@ if ($path==='/wallet' && $method==='GET') {
     };
     ob_start();?>
     <div class="dashboard-head"><div><div class="eyebrow">Finanzen</div><h1>Wallet</h1></div><a class="btn secondary" href="<?=e(url('/profil'))?>">Auszahlungsdaten</a></div>
-    <div class="grid"><div class="card"><div class="meta">Vorgemerkt</div><div class="stat"><?=money($tot['reserved']??0)?></div></div><div class="card"><div class="meta">Verfügbar</div><div class="stat"><?=money(max(0,$available))?></div></div><div class="card"><div class="meta">Ausgezahlt</div><div class="stat"><?=money($tot['paid']??0)?></div></div></div>
+    <div class="grid"><div class="card"><div class="meta">Vorgemerkt</div><div class="stat"><?=money($tot['reserved']??0)?></div></div><div class="card"><div class="meta">Verfügbar</div><div class="stat"><?=money($available)?></div></div><div class="card"><div class="meta">Ausgezahlt</div><div class="stat"><?=money($tot['paid']??0)?></div></div></div>
     <h2>Auszahlung beantragen</h2>
     <form class="panel" method="post" action="<?=e(url('/wallet/auszahlung'))?>"><?=csrf_field()?>
       <div class="form-grid"><label>Betrag (€)<input type="number" name="amount" step=".01" min="<?=e((string)$minimum)?>" max="<?=e((string)max(0,$available))?>" required></label><label>Methode<select name="method"><?php if($bankEnabled):?><option value="bank">Banküberweisung · Gebühr <?=e($feeLabel('bank'))?></option><?php endif;?><?php if($paypalEnabled):?><option value="paypal">PayPal · Gebühr <?=e($feeLabel('paypal'))?></option><?php endif;?></select></label></div>
@@ -85,7 +85,7 @@ if ($path==='/wallet/auszahlung' && $method==='POST') {
     $open=db()->prepare("SELECT COUNT(*) FROM payout_requests WHERE seller_id=? AND status IN('requested','review','released')");$open->execute([$s['id']]);
     if((int)$open->fetchColumn()>0){flash('error','Es besteht bereits ein offener Auszahlungsantrag.');redirect('/wallet');}
 
-    $sum=db()->prepare("SELECT COALESCE(SUM(CASE WHEN entry_type='available' THEN amount WHEN entry_type='paid' THEN -amount ELSE 0 END),0) FROM wallet_entries WHERE seller_id=?");
+    $sum=db()->prepare("SELECT COALESCE(SUM(CASE WHEN entry_type='available' THEN amount WHEN entry_type='adjustment' THEN amount WHEN entry_type='paid' THEN -amount ELSE 0 END),0) FROM wallet_entries WHERE seller_id=?");
     $sum->execute([$s['id']]);$available=(float)$sum->fetchColumn();
     $amount=(float)post('amount');$method=post('method');
     $minimum=max(0,(float)setting_value('payout_min','10.00'));
@@ -263,6 +263,7 @@ if (preg_match('#^/admin/auftrag/(\d{8})/abschliessen$#',$path,$m)&&$method==='P
         try{
             db()->prepare("UPDATE orders SET status='completed',released_amount=total_compensation,completed_at=NOW(),updated_at=NOW() WHERE id=?")->execute([$o['id']]);
             db()->prepare("UPDATE wallet_entries SET entry_type='available',description='Auftrag vollständig freigegeben' WHERE order_id=? AND entry_type='reserved'")->execute([$o['id']]);
+            db()->prepare("UPDATE order_bonuses SET status='released',released_at=NOW() WHERE order_id=? AND status='reserved'")->execute([$o['id']]);
             db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system','Auftrag wurde vollständig akzeptiert. Die vollständige Vergütung ist im Wallet verfügbar.')")->execute([$o['id']]);
             db()->commit();
         }catch(Throwable $e){db()->rollBack();throw $e;}
@@ -274,6 +275,7 @@ if (preg_match('#^/admin/auftrag/(\d{8})/abschliessen$#',$path,$m)&&$method==='P
         try{
             db()->prepare("UPDATE orders SET status='completed',released_amount=?,completed_at=NOW(),rejection_reason=?,updated_at=NOW() WHERE id=?")->execute([$amount,$reason?:'Teilweise akzeptiert',$o['id']]);
             db()->prepare("UPDATE wallet_entries SET entry_type='cancelled',description='Durch Teilfreigabe ersetzt' WHERE order_id=? AND entry_type='reserved'")->execute([$o['id']]);
+            db()->prepare("UPDATE order_bonuses SET status='cancelled',cancelled_at=NOW() WHERE order_id=? AND status='reserved'")->execute([$o['id']]);
             if($amount>0) db()->prepare("INSERT INTO wallet_entries(seller_id,order_id,entry_type,amount,description) VALUES(?,?,'available',?,'Teilfreigabe Auftrag')")->execute([$o['seller_id'],$o['id'],$amount]);
             db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")->execute([$o['id'],'Auftrag teilweise akzeptiert. Freigegebener Betrag: '.money($amount).($reason!==''?' · '.$reason:'')]);
             db()->commit();
@@ -284,6 +286,7 @@ if (preg_match('#^/admin/auftrag/(\d{8})/abschliessen$#',$path,$m)&&$method==='P
         try{
             db()->prepare("UPDATE orders SET status='rejected',released_amount=0,rejection_reason=?,completed_at=NOW(),archived_at=NOW(),updated_at=NOW() WHERE id=?")->execute([$reason,$o['id']]);
             db()->prepare("UPDATE wallet_entries SET entry_type='cancelled',description='Auftrag endgültig abgelehnt' WHERE order_id=? AND entry_type='reserved'")->execute([$o['id']]);
+            db()->prepare("UPDATE order_bonuses SET status='cancelled',cancelled_at=NOW() WHERE order_id=? AND status='reserved'")->execute([$o['id']]);
             db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")->execute([$o['id'],'Auftrag endgültig abgelehnt.'.($reason!==''?' Grund: '.$reason:'')]);
             db()->commit();
         }catch(Throwable $e){db()->rollBack();throw $e;}
