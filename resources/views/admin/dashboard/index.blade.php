@@ -1,15 +1,24 @@
 @extends('layouts.app')
 @section('title','Administration')
 @section('content')
-<div class="page-head split"><div><span class="eyebrow">Administration</span><h1>Arbeitszentrale</h1><p>Offene Prüfungen, Aufträge, Nachrichten und Auszahlungen auf einen Blick.</p></div><a class="btn primary" href="{{ route('admin.offers.create') }}">+ Neues Angebot</a></div>
-<div class="admin-stats">
-<a href="{{ route('admin.orders.index') }}"><span>Aktive Aufträge</span><strong>{{ $stats['active_orders'] }}</strong></a>
-<a href="{{ route('admin.proofs.index') }}"><span>Nachweise</span><strong>{{ $stats['proofs_pending'] }}</strong></a>
-<a href="{{ route('admin.prechecks.index') }}"><span>Vorprüfungen</span><strong>{{ $stats['prechecks_pending'] }}</strong></a>
-<a href="{{ route('admin.messages.index') }}"><span>Nachrichten</span><strong>{{ $stats['messages_open'] }}</strong></a>
-<div><span>Auszahlungen offen</span><strong>{{ $stats['payouts_pending'] }}</strong></div>
-<div><span>Anbieterinnen</span><strong>{{ $stats['providers'] }}</strong></div>
-<a href="{{ route('admin.offers.index') }}"><span>Aktive Angebote</span><strong>{{ $stats['active_offers'] }}</strong></a>
+<div class="page-head split"><div><span class="eyebrow">Administration</span><h1>Heute-Arbeitsliste</h1><p>Operative Aufgaben nach Dringlichkeit – keine Analysekennzahlen, sondern direkt bearbeitbare Vorgänge.</p></div><a class="btn primary" href="{{ route('admin.offers.create') }}">+ Neues Angebot</a></div>
+<div class="admin-stats"><a href="{{ route('admin.orders.index') }}"><span>Aktive Aufträge</span><strong>{{ $stats['active_orders'] }}</strong></a><a href="{{ route('admin.prechecks.index') }}"><span>Vorabkontrollen</span><strong>{{ $stats['prechecks_pending'] }}</strong></a><a href="{{ route('admin.proofs.index') }}"><span>Nachweise offen</span><strong>{{ $stats['proofs_pending'] }}</strong></a><div><span>Verstöße offen</span><strong>{{ $stats['violations_open'] }}</strong></div><div><span>Beschädigungen offen</span><strong>{{ $stats['damage_open'] }}</strong></div><a href="{{ route('admin.payouts.index') }}"><span>Auszahlungen offen</span><strong>{{ $stats['payouts_pending'] }}</strong></a><a href="{{ route('admin.deadlines') }}"><span>Überfällig</span><strong>{{ $stats['overdue'] }}</strong></a></div>
+
+<div class="today-board">
+<section class="panel"><span class="eyebrow">Sofort bearbeiten</span><h2>Offene Entscheidungen</h2>
+@forelse($queues['prechecks'] as $p)<div class="operation-row"><div><strong>Vorabkontrolle #{{ $p->order->order_number }}</strong><small>{{ $p->order->user->first_name }} {{ $p->order->user->last_name }}</small></div><a class="btn secondary" href="{{ route('admin.prechecks.index') }}">Prüfen</a></div>@empty<p class="muted">Keine Vorabkontrollen offen.</p>@endforelse
+@foreach($queues['proofs'] as $p)<div class="operation-row"><div><strong>Nachweis #{{ $p->orderDay->order->order_number }}</strong><small>{{ $p->window_key }}</small></div><a class="btn secondary" href="{{ route('admin.proofs.index') }}">Prüfen</a></div>@endforeach
+@foreach($queues['violations'] as $v)<div class="operation-row"><div><strong>Verstoß #{{ $v->order_number }}</strong><small>{{ $v->reason }}</small></div><a class="btn secondary" href="{{ route('admin.orders.show',$v->order_id) }}">Entscheiden</a></div>@endforeach
+@foreach($queues['damage'] as $d)<div class="operation-row"><div><strong>Beschädigung #{{ $d->order_number }}</strong><small>{{ $d->reason }}</small></div><a class="btn secondary" href="{{ route('admin.orders.show',$d->order_id) }}">Öffnen</a></div>@endforeach
+@foreach($queues['digital'] as $d)<div class="operation-row"><div><strong>Digital #{{ $d->order_number }}</strong><small>{{ $d->title }} · {{ strtoupper($d->status) }}</small></div><a class="btn secondary" href="{{ route('admin.orders.show',$d->order_id) }}">Prüfen</a></div>@endforeach
+</section>
+
+<section class="panel"><span class="eyebrow">Überfällig</span><h2>Fristen überschritten</h2>@forelse($overdue->take(10) as $d)<div class="operation-row danger-row"><div><strong>{{ $d->type }}</strong><small>{{ $d->title }} · {{ \Carbon\Carbon::parse($d->due_at)->format('d.m.Y H:i') }}</small></div>@if($d->order_id)<a class="btn secondary" href="{{ route('admin.orders.show',$d->order_id) }}">Auftrag</a>@endif</div>@empty<p class="muted">Keine überfälligen Fristen.</p>@endforelse</section>
+
+<section class="panel"><span class="eyebrow">Heute fällig</span><h2>Rest des Tages</h2>@forelse($todayDue->take(10) as $d)<div class="operation-row"><div><strong>{{ $d->type }}</strong><small>{{ $d->title }} · {{ \Carbon\Carbon::parse($d->due_at)->format('H:i') }} Uhr</small></div>@if($d->order_id)<a class="btn secondary" href="{{ route('admin.orders.show',$d->order_id) }}">Auftrag</a>@endif</div>@empty<p class="muted">Keine weiteren zentralen Fristen heute.</p>@endforelse</section>
+
+<section class="panel"><span class="eyebrow">Wartet auf Verkäuferin</span><h2>Offene Einreichungen</h2>@foreach($queues['damage']->where('status','evidence_requested') as $d)<div class="operation-row"><div><strong>Beschädigungsnachweis #{{ $d->order_number }}</strong><small>Nachforderung offen</small></div><a class="btn secondary" href="{{ route('admin.orders.show',$d->order_id) }}">Öffnen</a></div>@endforeach @foreach($queues['digital']->where('status','revision_required') as $d)<div class="operation-row"><div><strong>Revision #{{ $d->order_number }}</strong><small>{{ $d->title }}</small></div><a class="btn secondary" href="{{ route('admin.orders.show',$d->order_id) }}">Öffnen</a></div>@endforeach</section>
+
+<section class="panel"><span class="eyebrow">Wartet auf Admin</span><h2>Finanzen</h2>@forelse($queues['payouts'] as $p)<div class="operation-row"><div><strong>{{ $p->payout_number }}</strong><small>{{ $p->user->first_name }} {{ $p->user->last_name }} · {{ number_format((float)$p->amount,2,',','.') }} € · {{ strtoupper($p->status) }}</small></div><a class="btn secondary" href="{{ route('admin.payouts.index') }}">Bearbeiten</a></div>@empty<p class="muted">Keine offenen Auszahlungen.</p>@endforelse</section>
 </div>
-<div class="section-head"><div><span class="eyebrow">Aktuell</span><h2>Neueste Aufträge</h2></div><a href="{{ route('admin.orders.index') }}">Alle Aufträge →</a></div><div class="table-card"><table><thead><tr><th>Auftrag</th><th>Anbieterin</th><th>Status</th><th>Vergütung</th><th></th></tr></thead><tbody>@foreach($orders as $order)<tr><td>#{{ $order->order_number }}</td><td>{{ $order->user->first_name }} {{ $order->user->last_name }}</td><td><span class="status {{ $order->status }}">{{ strtoupper(str_replace('_',' ',$order->status)) }}</span></td><td>{{ number_format($order->compensation_total,2,',','.') }} €</td><td><a href="{{ route('admin.orders.show',$order) }}">Prüfen →</a></td></tr>@endforeach</tbody></table></div>
 @endsection
