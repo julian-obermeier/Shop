@@ -16,7 +16,9 @@ function run_app_migrations(PDO $pdo, string $directory): array {
         $name=basename($file,'.sql');
         $q=$pdo->prepare('SELECT COUNT(*) FROM migrations WHERE migration=?');
         $q->execute([$name]);
-        if((int)$q->fetchColumn()>0){$result['skipped'][]=$name;continue;}
+        $alreadyApplied=(int)$q->fetchColumn()>0;
+        $q->closeCursor();
+        if($alreadyApplied){$result['skipped'][]=$name;continue;}
 
         $sql=file_get_contents($file);
         if($sql===false) throw new RuntimeException('Migration konnte nicht gelesen werden: '.$name);
@@ -24,7 +26,18 @@ function run_app_migrations(PDO $pdo, string $directory): array {
         $statements=array_values(array_filter(array_map('trim',preg_split('/;\s*(?:\r?\n|$)/',$sql) ?: [])));
         foreach($statements as $statement){
             try{
-                $pdo->exec($statement);
+                $stmt=$pdo->prepare($statement);
+                $stmt->execute();
+                // MySQL can expose additional result sets for some DDL statements.
+                // Drain/close them before issuing the next query to avoid SQLSTATE 2014.
+                try{
+                    do{
+                        while($stmt->fetch(PDO::FETCH_ASSOC)!==false){}
+                    }while($stmt->nextRowset());
+                }catch(PDOException){
+                    // DDL normally has no rows; closeCursor below is the important cleanup.
+                }
+                $stmt->closeCursor();
             }catch(PDOException $e){
                 $driverCode=(int)($e->errorInfo[1]??0);
                 if(in_array($driverCode,[1050,1060,1061,1068,1091,1826],true)){
@@ -34,7 +47,9 @@ function run_app_migrations(PDO $pdo, string $directory): array {
                 throw new RuntimeException('Migration '.$name.' fehlgeschlagen: '.$e->getMessage(),0,$e);
             }
         }
-        $pdo->prepare('INSERT INTO migrations(migration) VALUES(?)')->execute([$name]);
+        $mark=$pdo->prepare('INSERT INTO migrations(migration) VALUES(?)');
+        $mark->execute([$name]);
+        $mark->closeCursor();
         $result['applied'][]=$name;
     }
     return $result;
