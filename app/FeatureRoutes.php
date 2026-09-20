@@ -1271,7 +1271,7 @@ if ($path==='/admin/entscheidungen' && $method==='GET') {
     </div>
     <h2>Verstöße prüfen</h2>
     <div class="table-wrap"><table><thead><tr><th>Auftrag</th><th>Verkäuferin</th><th>Grund</th><th>Entscheidung</th></tr></thead><tbody>
-    <?php foreach($viol as $v):?><tr><td><a href="<?=e(url('/admin/auftrag/'.$v['order_no']))?>"><?=e($v['order_no'])?></a></td><td><?=e($v['seller_name'])?></td><td><?=e($v['reason']??$v['violation_type'])?></td><td><div class="actions"><form method="post" action="<?=e(url('/admin/verstoss/'.$v['id'].'/bestaetigen'))?>"><?=csrf_field()?><button class="btn danger">Bestätigen (+1 Tag)</button></form><form method="post" action="<?=e(url('/admin/verstoss/'.$v['id'].'/verwerfen'))?>"><?=csrf_field()?><button class="btn secondary">Verwerfen</button></form></div></td></tr><?php endforeach;?>
+    <?php foreach($viol as $v):?><tr><td><a href="<?=e(url('/admin/auftrag/'.$v['order_no']))?>"><?=e($v['order_no'])?></a></td><td><?=e($v['seller_name'])?></td><td><?=e($v['reason']??$v['violation_type'])?></td><td><div class="actions"><form method="post" action="<?=e(url('/admin/verstoss/'.$v['id'].'/bestaetigen'))?>"><?=csrf_field()?><button class="btn danger"><?=e(violation_confirm_label($v))?></button></form><form method="post" action="<?=e(url('/admin/verstoss/'.$v['id'].'/verwerfen'))?>"><?=csrf_field()?><button class="btn secondary">Verwerfen</button></form></div></td></tr><?php endforeach;?>
     <?php if(!$viol):?><tr><td colspan="4">Keine offenen Verstöße.</td></tr><?php endif;?></tbody></table></div>
     <h2>Vorabkontrollen</h2><div class="table-wrap"><table><tbody><?php foreach($pre as $x):?><tr><td><?=e($x['order_no'])?></td><td><?=e($x['seller_name'])?></td><td><?=e(date('d.m.Y H:i',strtotime($x['created_at'])))?></td><td><a href="<?=e(url('/admin/auftrag/'.$x['order_no']))?>">Prüfen</a></td></tr><?php endforeach;?></tbody></table></div>
     <h2>Beschädigungen</h2><div class="table-wrap"><table><tbody><?php foreach($damage as $d):?><tr><td><?=e($d['order_no'])?></td><td><?=e($d['seller_name'])?></td><td><?=e($d['reason'])?></td><td><a href="<?=e(url('/admin/auftrag/'.$d['order_no']))?>">Auftrag öffnen</a></td></tr><?php endforeach;?></tbody></table></div>
@@ -1751,7 +1751,7 @@ if (preg_match('#^/individuelle-angebote/(\d+)/(annehmen|ablehnen)$#',$path,$m) 
         snapshot_offer_task_plans((int)$a['offer_id'],$oid);
         if($pureDigital)instantiate_planned_order_tasks($oid);
         db()->prepare("INSERT INTO wallet_entries(seller_id,order_id,entry_type,amount,description) VALUES(?,?,'reserved',?,'Individueller Auftragswert vorgemerkt')")->execute([$s['id'],$oid,$total]);
-        if(in_array($a['fulfillment_type'],['digital','mixed'],true)){
+        if($hasDigital){
             db()->prepare("INSERT INTO rights_acceptances(order_id,seller_id,terms_version,payload_json) VALUES(?,?,?,?)")
               ->execute([$oid,$s['id'],'v1',json_encode(['scope'=>'technical_processing_and_order_terms','private_offer'=>true],JSON_UNESCAPED_UNICODE)]);
         }
