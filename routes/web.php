@@ -8,6 +8,7 @@ use App\Http\Controllers\Admin\GoodsInspectionController as AdminGoodsInspection
 use App\Http\Controllers\Admin\HealthController as AdminHealthController;
 use App\Http\Controllers\Admin\OfferController as AdminOfferController;
 use App\Http\Controllers\Admin\OrderController as AdminOrderController;
+use App\Http\Controllers\Admin\OrderOperationsController as AdminOrderOperationsController;
 use App\Http\Controllers\Admin\PayoutController as AdminPayoutController;
 use App\Http\Controllers\Admin\PrecheckController as AdminPrecheckController;
 use App\Http\Controllers\Admin\PrivacyController as AdminPrivacyController;
@@ -22,6 +23,7 @@ use App\Http\Controllers\AccountSecurityController;
 use App\Http\Controllers\CameraCaptureController;
 use App\Http\Controllers\ConversationController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\DamageController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\OfferController;
 use App\Http\Controllers\OrderController;
@@ -82,6 +84,7 @@ Route::middleware(['auth','active'])->group(function () {
     Route::post('/auftraege/{order}/vorabkontrolle/nachweis', [PrecheckController::class,'evidence'])->middleware('throttle:30,10')->name('orders.precheck.evidence');
     Route::post('/auftraege/{order}/vorabkontrolle/einreichen', [PrecheckController::class,'submit'])->name('orders.precheck.submit');
     Route::post('/auftraege/{order}/abschliessen', [OrderController::class,'complete'])->name('orders.complete');
+    Route::post('/auftraege/{order}/beschaedigung', [DamageController::class,'store'])->middleware('throttle:10,10')->name('orders.damage');
     Route::post('/auftraege/{order}/versand', [ShipmentController::class,'store'])->name('orders.shipment');
 
     Route::post('/auftragstage/{day}/nachweiscode', [ProofController::class,'challenge'])->middleware('throttle:20,10')->name('proofs.challenge');
@@ -123,6 +126,10 @@ Route::prefix('admin')->name('admin.')->middleware(['auth','active','admin'])->g
     Route::get('/auftraege/{order}', [AdminOrderController::class,'show'])->name('orders.show');
     Route::post('/auftraege/{order}/status', [AdminOrderController::class,'status'])->name('orders.status');
     Route::post('/auftraege/{order}/anforderungen', [AdminOrderController::class,'updateRequirements'])->name('orders.requirements');
+    Route::post('/auftraege/{order}/zusatztag', [AdminOrderOperationsController::class,'manualExtraDay'])->name('orders.extra-day');
+    Route::post('/auftraege/{order}/verstoesse/{violation}', [AdminOrderOperationsController::class,'violation'])->name('orders.violation');
+    Route::post('/auftraege/{order}/beschaedigungen/{damageCase}/entscheidung', [AdminOrderOperationsController::class,'damageDecision'])->name('orders.damage-decision');
+    Route::post('/auftraege/{order}/beschaedigungen/{damageCase}/nachweis', [AdminOrderOperationsController::class,'damageEvidenceRequest'])->name('orders.damage-evidence');
     Route::post('/auftraege/{order}/wareneingang', [AdminGoodsReceiptController::class,'store'])->name('orders.goods-receipt');
     Route::post('/auftraege/{order}/warenpruefung', [AdminGoodsInspectionController::class,'store'])->name('orders.goods-inspection');
 
