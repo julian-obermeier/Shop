@@ -85,6 +85,7 @@ CREATE TABLE IF NOT EXISTS offers (
  evidence_rules_json JSON NULL,
  shipping_rules_json JSON NULL,
  status ENUM('draft','active','inactive') NOT NULL DEFAULT 'draft',
+ visibility ENUM('public','private') NOT NULL DEFAULT 'public',
  current_version INT NOT NULL DEFAULT 1,
  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
  updated_at DATETIME NULL,
@@ -179,6 +180,8 @@ CREATE TABLE IF NOT EXISTS evidences (
  evidence_type ENUM('precheck','daily','spontaneous','task','damage','shipping','digital') NOT NULL,
  day_no INT NULL,
  window_key VARCHAR(50) NULL,
+ source_type VARCHAR(50) NULL,
+ source_id BIGINT UNSIGNED NULL,
  file_path VARCHAR(255) NOT NULL,
  mime_type VARCHAR(120) NOT NULL,
  file_size BIGINT UNSIGNED NOT NULL,
@@ -188,13 +191,15 @@ CREATE TABLE IF NOT EXISTS evidences (
  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
  reviewed_at DATETIME NULL,
  FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE,
- FOREIGN KEY(seller_id) REFERENCES sellers(id)
+ FOREIGN KEY(seller_id) REFERENCES sellers(id),
+ INDEX(source_type,source_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS violations (
  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
  order_id BIGINT UNSIGNED NOT NULL,
  violation_type VARCHAR(80) NOT NULL,
+ source_key VARCHAR(190) NULL UNIQUE,
  status ENUM('open','reviewed','confirmed','discarded') NOT NULL DEFAULT 'open',
  reason TEXT NULL,
  extension_days INT NOT NULL DEFAULT 1,
@@ -208,6 +213,7 @@ CREATE TABLE IF NOT EXISTS extra_days (
  order_id BIGINT UNSIGNED NOT NULL,
  source_type ENUM('violation','manual','damage') NOT NULL,
  source_id BIGINT UNSIGNED NULL,
+ status ENUM('provisional','confirmed','cancelled') NOT NULL DEFAULT 'confirmed',
  paid TINYINT(1) NOT NULL DEFAULT 0,
  amount DECIMAL(10,2) NOT NULL DEFAULT 0,
  reason TEXT NULL,
@@ -380,11 +386,42 @@ CREATE TABLE IF NOT EXISTS order_tasks (
  description TEXT NULL,
  due_at DATETIME NULL,
  fields_json JSON NULL,
+ submission_json JSON NULL,
  compensation DECIMAL(10,2) NOT NULL DEFAULT 0,
  violation_enabled TINYINT(1) NOT NULL DEFAULT 1,
  status ENUM('open','submitted','accepted','rejected') NOT NULL DEFAULT 'open',
+ submitted_at DATETIME NULL,
  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
  FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS task_library (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ title VARCHAR(190) NOT NULL,
+ description TEXT NULL,
+ fields_json JSON NULL,
+ default_compensation DECIMAL(10,2) NOT NULL DEFAULT 0,
+ violation_enabled TINYINT(1) NOT NULL DEFAULT 1,
+ active TINYINT(1) NOT NULL DEFAULT 1,
+ created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ updated_at DATETIME NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS offer_assignments (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ offer_id BIGINT UNSIGNED NOT NULL,
+ seller_id BIGINT UNSIGNED NOT NULL,
+ acceptance_deadline DATETIME NOT NULL,
+ status ENUM('assigned','accepted','declined','expired') NOT NULL DEFAULT 'assigned',
+ decline_reason TEXT NULL,
+ reminded_24h_at DATETIME NULL,
+ reminded_1h_at DATETIME NULL,
+ created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ updated_at DATETIME NULL,
+ UNIQUE(offer_id,seller_id),
+ FOREIGN KEY(offer_id) REFERENCES offers(id) ON DELETE CASCADE,
+ FOREIGN KEY(seller_id) REFERENCES sellers(id) ON DELETE CASCADE,
+ INDEX(seller_id,status,acceptance_deadline)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS shipments (
