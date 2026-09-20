@@ -230,6 +230,7 @@ CREATE TABLE IF NOT EXISTS order_options (
  offer_option_id BIGINT UNSIGNED NOT NULL,
  label_snapshot VARCHAR(190) NOT NULL,
  price_snapshot DECIMAL(10,2) NOT NULL DEFAULT 0,
+ requirements_snapshot_json JSON NULL,
  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
  UNIQUE(order_id,offer_option_id),
  FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE,
@@ -607,6 +608,7 @@ CREATE TABLE IF NOT EXISTS order_tasks (
  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
  order_id BIGINT UNSIGNED NOT NULL,
  source_spec_id BIGINT UNSIGNED NULL,
+ source_offer_option_id BIGINT UNSIGNED NULL,
  title VARCHAR(190) NOT NULL,
  description TEXT NULL,
  due_at DATETIME NULL,
@@ -621,7 +623,8 @@ CREATE TABLE IF NOT EXISTS order_tasks (
  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
  FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE,
  FOREIGN KEY(source_spec_id) REFERENCES order_task_specs(id) ON DELETE SET NULL,
- UNIQUE(order_id,source_spec_id,planned_day_no)
+ UNIQUE(order_id,source_spec_id,planned_day_no),
+ INDEX(order_id,source_offer_option_id,status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS offer_assignments (
