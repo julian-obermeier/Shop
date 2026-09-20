@@ -213,6 +213,9 @@ if(preg_match('#^/admin/auftrag/(\\d{8})$#',$path,$m)&&$method==='GET'){
  $vi=db()->prepare("SELECT * FROM violations WHERE order_id=? ORDER BY created_at DESC");$vi->execute([$o['id']]);$violations=$vi->fetchAll();
  $xd=db()->prepare("SELECT * FROM extra_days WHERE order_id=? ORDER BY created_at");$xd->execute([$o['id']]);$extraDays=$xd->fetchAll();
  $sh=db()->prepare("SELECT * FROM shipments WHERE order_id=?");$sh->execute([$o['id']]);$shipment=$sh->fetch();
+ $srq=db()->prepare("SELECT * FROM spontaneous_requests WHERE order_id=? ORDER BY created_at DESC");$srq->execute([$o['id']]);$spontaneousRequests=$srq->fetchAll();
+ $otq=db()->prepare("SELECT * FROM order_tasks WHERE order_id=? ORDER BY created_at DESC");$otq->execute([$o['id']]);$orderTasks=$otq->fetchAll();
+ $taskTemplates=db()->query("SELECT id,title,default_compensation FROM task_library WHERE active=1 ORDER BY title")->fetchAll();
  $preTotal=0;$preAccepted=0;foreach($evidences as $x){if($x['evidence_type']==='precheck'){$preTotal++;if($x['status']==='accepted')$preAccepted++;}}
  ob_start();?>
  <div class="dashboard-head"><div><div class="eyebrow">Auftrag <?=e($o['order_no'])?></div><h1><?=e($o['title'])?></h1><p class="meta"><?=e($o['seller_name'])?> · <?=e($o['email'])?></p></div><div><span class="badge"><?=e($o['status'])?></span><div class="price"><?=money($o['total_compensation'])?></div></div></div>
@@ -231,6 +234,25 @@ if(preg_match('#^/admin/auftrag/(\\d{8})$#',$path,$m)&&$method==='GET'){
    <?php if($shipment && $shipment['status']==='shipped'):?><form method="post" action="<?=e(url('/admin/auftrag/'.$o['order_no'].'/wareneingang'))?>"><?=csrf_field()?><button class="btn secondary">Wareneingang bestätigen</button></form><hr><?php endif;?>
    <h3>Revision anfordern</h3><form method="post" action="<?=e(url('/admin/auftrag/'.$o['order_no'].'/revision'))?>"><?=csrf_field()?><label>Änderungspunkte – eine Zeile je Punkt<textarea name="items" required></textarea></label><label>Frist (optional)<input type="datetime-local" name="due_at"></label><button class="btn secondary">Revision anfordern</button></form><hr>
    <h3>Abschlussentscheidung</h3><form method="post" action="<?=e(url('/admin/auftrag/'.$o['order_no'].'/abschliessen'))?>"><?=csrf_field()?><label>Entscheidung<select name="decision"><option value="accept">Vollständig akzeptieren</option><option value="partial">Teilweise akzeptieren</option><option value="reject">Endgültig ablehnen</option></select></label><label>Freigabebetrag bei Teilannahme (€)<input type="number" name="partial_amount" step=".01" min="0" max="<?=e($o['total_compensation'])?>"></label><label>Begründung / Mitteilung<textarea name="reason"></textarea></label><button class="btn">Abschluss speichern</button></form></section>
+ </div>
+ <div class="grid two" style="margin-top:18px">
+   <section class="panel"><h2>Spontaner Nachweis</h2>
+     <form method="post" action="<?=e(url('/admin/auftrag/'.$o['order_no'].'/spontan'))?>"><?=csrf_field()?>
+       <label>Anweisung<textarea name="instructions" required></textarea></label>
+       <div class="form-grid"><label>Anzahl Fotos<input type="number" min="1" max="20" name="required_count" value="1" required></label><label>Frist<input type="datetime-local" name="due_at" required></label></div>
+       <button class="btn">Anforderung senden</button>
+     </form>
+     <?php if($spontaneousRequests):?><h3>Bisherige Anforderungen</h3><div class="timeline"><?php foreach($spontaneousRequests as $r):?><div><strong><?=e($r['status'])?></strong> · <?=e($r['instructions'])?><br><span class="meta"><?=e(date('d.m.Y H:i',strtotime($r['due_at'])))?> · <?=e($r['required_count'])?> Foto(s)</span></div><?php endforeach;?></div><?php endif;?>
+   </section>
+   <section class="panel"><h2>Zusatzaufgabe</h2>
+     <form method="post" action="<?=e(url('/admin/auftrag/'.$o['order_no'].'/aufgabe'))?>"><?=csrf_field()?>
+       <label>Titel<input name="title" required></label><label>Beschreibung<textarea name="description"></textarea></label>
+       <div class="form-grid"><label>Antworttyp<select name="response_type"><option value="text">Freitext</option><option value="number">Zahl</option><option value="scale10">Skala 1–10</option><option value="boolean">Ja/Nein</option></select></label><label>Frist<input type="datetime-local" name="due_at"></label><label>Zusatzvergütung (€)<input type="number" step=".01" min="0" name="compensation" value="0"></label><label><input type="checkbox" style="width:auto" name="violation_enabled" value="1" checked> Nichterfüllung kann Verstoß auslösen</label></div>
+       <button class="btn">Aufgabe hinzufügen</button>
+     </form>
+     <?php if($taskTemplates):?><hr><form method="post" action="<?=e(url('/admin/auftrag/'.$o['order_no'].'/aufgabe-aus-vorlage'))?>"><?=csrf_field()?><label>Aus Aufgabenbibliothek<select name="template_id"><?php foreach($taskTemplates as $t):?><option value="<?=$t['id']?>"><?=e($t['title'])?> · <?=money($t['default_compensation'])?></option><?php endforeach;?></select></label><label>Frist<input type="datetime-local" name="due_at"></label><button class="btn secondary">Vorlage hinzufügen</button></form><?php endif;?>
+     <?php if($orderTasks):?><h3>Aufgaben</h3><div class="timeline"><?php foreach($orderTasks as $t):?><div><strong><?=e($t['title'])?></strong> · <?=e($t['status'])?> · <?=money($t['compensation'])?></div><?php endforeach;?></div><?php endif;?>
+   </section>
  </div>
  <?php if($damageCases):?><h2>Beschädigungsvorgänge</h2><div class="table-wrap"><table><thead><tr><th>Zeit</th><th>Grund</th><th>Status</th><th>Aktion</th></tr></thead><tbody><?php foreach($damageCases as $d):?><tr><td><?=e(date('d.m.Y H:i',strtotime($d['created_at'])))?></td><td><?=e($d['reason'])?></td><td><?=e($d['status'])?></td><td><?php if(in_array($d['status'],['reported','evidence_requested','review'],true)):?><div class="actions"><form method="post" action="<?=e(url('/admin/beschaedigung/'.$d['id'].'/anerkennen'))?>"><?=csrf_field()?><button class="btn">Anerkennen & neu starten</button></form><form method="post" action="<?=e(url('/admin/beschaedigung/'.$d['id'].'/ablehnen'))?>"><?=csrf_field()?><button class="btn danger">Ablehnen</button></form></div><?php endif;?></td></tr><?php endforeach;?></tbody></table></div><?php endif;?>
  <?php render('Auftrag '.$o['order_no'],ob_get_clean());exit;
