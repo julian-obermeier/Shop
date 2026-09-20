@@ -336,6 +336,53 @@ function parse_window_setting(string $key, string $fallback): array {
     return $parts;
 }
 
+function bump_offer_version(int $offerId, string $reason = 'configuration_changed'): int {
+    $pdo = db();
+    $q = $pdo->prepare("SELECT * FROM offers WHERE id=?");
+    $q->execute([$offerId]);
+    $offer = $q->fetch();
+    if (!$offer) throw new RuntimeException('Angebot nicht gefunden.');
+
+    $next = (int)$offer['current_version'] + 1;
+
+    $q = $pdo->prepare("SELECT id,label,price,requirements_json,active FROM offer_options WHERE offer_id=? ORDER BY id");
+    $q->execute([$offerId]);$options=$q->fetchAll();
+
+    $q = $pdo->prepare("SELECT id,sort_order,title,instructions,required_photos,requires_text,requires_checkbox,is_dispatch_step,deadline_hours,active FROM offer_shipping_steps WHERE offer_id=? ORDER BY sort_order,id");
+    $q->execute([$offerId]);$shippingSteps=$q->fetchAll();
+
+    $q = $pdo->prepare("SELECT id,sort_order,title,description,fields_json,required_photos,compensation,violation_enabled,schedule_type,day_no,start_day,interval_days,due_time,active FROM offer_task_plans WHERE offer_id=? ORDER BY sort_order,id");
+    $q->execute([$offerId]);$taskPlans=$q->fetchAll();
+
+    $snapshot=[
+        'reason'=>$reason,
+        'title'=>$offer['title'],
+        'category_id'=>(int)$offer['category_id'],
+        'description'=>$offer['description'],
+        'compensation'=>(float)$offer['compensation'],
+        'duration_days'=>$offer['duration_days']!==null?(int)$offer['duration_days']:null,
+        'fulfillment_type'=>$offer['fulfillment_type'],
+        'status'=>$offer['status'],
+        'visibility'=>$offer['visibility'],
+        'evidence_rules'=>json_decode($offer['evidence_rules_json']?:'{}',true)?:[],
+        'shipping'=>[
+            'address_id'=>$offer['shipping_address_id']!==null?(int)$offer['shipping_address_id']:null,
+            'cost_mode'=>$offer['shipping_cost_mode'],
+            'allowance'=>(float)$offer['shipping_allowance'],
+            'preferred_carrier'=>$offer['preferred_carrier'],
+            'rules'=>json_decode($offer['shipping_rules_json']?:'{}',true)?:[],
+            'steps'=>$shippingSteps,
+        ],
+        'options'=>$options,
+        'task_plans'=>$taskPlans,
+    ];
+
+    $pdo->prepare("UPDATE offers SET current_version=?,updated_at=NOW() WHERE id=?")->execute([$next,$offerId]);
+    $pdo->prepare("INSERT INTO offer_versions(offer_id,version_no,snapshot_json) VALUES(?,?,?)")
+        ->execute([$offerId,$next,json_encode($snapshot,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES)]);
+    return $next;
+}
+
 function task_plan_occurrence_days(array $plan, int $duration): array {
     $duration = max(1, $duration);
     if (($plan['schedule_type'] ?? 'day') === 'interval') {
