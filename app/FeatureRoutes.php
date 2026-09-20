@@ -71,14 +71,33 @@ if ($path==='/wallet' && $method==='GET') {
 }
 if ($path==='/wallet/auszahlung' && $method==='POST') {
     $s=require_seller();
-    $open=db()->prepare("SELECT COUNT(*) FROM payout_requests WHERE seller_id=? AND status IN('requested','review','released')");$open->execute([$s['id']]);if((int)$open->fetchColumn()>0){flash('error','Es besteht bereits ein offener Auszahlungsantrag.');redirect('/wallet');}
-    $sum=db()->prepare("SELECT COALESCE(SUM(CASE WHEN entry_type='available' THEN amount WHEN entry_type='paid' THEN -amount ELSE 0 END),0) FROM wallet_entries WHERE seller_id=?");$sum->execute([$s['id']]);$available=(float)$sum->fetchColumn();$amount=(float)post('amount');$method=post('method');
-    if($amount<=0||$amount>$available){flash('error','Der gewünschte Betrag ist nicht verfügbar.');redirect('/wallet');}
+    $open=db()->prepare("SELECT COUNT(*) FROM payout_requests WHERE seller_id=? AND status IN('requested','review','released')");$open->execute([$s['id']]);
+    if((int)$open->fetchColumn()>0){flash('error','Es besteht bereits ein offener Auszahlungsantrag.');redirect('/wallet');}
+
+    $sum=db()->prepare("SELECT COALESCE(SUM(CASE WHEN entry_type='available' THEN amount WHEN entry_type='paid' THEN -amount ELSE 0 END),0) FROM wallet_entries WHERE seller_id=?");
+    $sum->execute([$s['id']]);$available=(float)$sum->fetchColumn();
+    $amount=(float)post('amount');$method=post('method');
+    $minimum=max(0,(float)setting_value('payout_min','10.00'));
+    if($amount<$minimum||$amount>$available){flash('error','Der gewünschte Betrag ist nicht verfügbar oder unterschreitet die Mindestauszahlung von '.money($minimum).'.');redirect('/wallet');}
+
+    $enabled=$method==='bank' ? setting_value('payout_bank_enabled','1')==='1' : ($method==='paypal' ? setting_value('payout_paypal_enabled','1')==='1' : false);
+    if(!$enabled){flash('error','Diese Auszahlungsmethode ist aktuell deaktiviert.');redirect('/wallet');}
+
     $p=db()->prepare("SELECT * FROM payout_profiles WHERE seller_id=?");$p->execute([$s['id']]);$profile=$p->fetch();
     if(!$profile||($method==='bank'&&(!$profile['iban']||!$profile['account_holder']))||($method==='paypal'&&!$profile['paypal'])){flash('error','Bitte hinterlege zuerst vollständige Auszahlungsdaten.');redirect('/profil');}
-    $snap=json_encode($method==='bank'?['iban'=>$profile['iban'],'bic'=>$profile['bic'],'account_holder'=>$profile['account_holder']]:['paypal'=>$profile['paypal']],JSON_UNESCAPED_UNICODE);
-    db()->prepare("INSERT INTO payout_requests(seller_id,amount,fee,net_amount,method,payment_snapshot_json) VALUES(?,?,0,?,?,?)")->execute([$s['id'],$amount,$amount,$method,$snap]);
-    flash('success','Auszahlungsantrag wurde gestellt.');redirect('/wallet');
+
+    $feeType=(string)setting_value('payout_'.$method.'_fee_type','none');
+    $feeValue=max(0,(float)setting_value('payout_'.$method.'_fee_value','0'));
+    $fee=$feeType==='fixed' ? $feeValue : ($feeType==='percent' ? round($amount*$feeValue/100,2) : 0.0);
+    $fee=min($amount,$fee);$net=max(0,$amount-$fee);
+    if($net<=0){flash('error','Die konfigurierte Gebühr würde die Auszahlung vollständig aufzehren.');redirect('/wallet');}
+
+    $snap=json_encode($method==='bank'
+        ? ['iban'=>$profile['iban'],'bic'=>$profile['bic'],'account_holder'=>$profile['account_holder']]
+        : ['paypal'=>$profile['paypal']],JSON_UNESCAPED_UNICODE);
+    db()->prepare("INSERT INTO payout_requests(seller_id,amount,fee,net_amount,method,payment_snapshot_json) VALUES(?,?,?,?,?,?)")
+      ->execute([$s['id'],$amount,$fee,$net,$method,$snap]);
+    flash('success','Auszahlungsantrag wurde gestellt. Gebühr: '.money($fee).' · Netto: '.money($net));redirect('/wallet');
 }
 if (preg_match('#^/wallet/auszahlung/(\d+)/zurueckziehen$#',$path,$m)&&$method==='POST') {
     $s=require_seller();db()->prepare("UPDATE payout_requests SET status='withdrawn',updated_at=NOW() WHERE id=? AND seller_id=? AND status='requested'")->execute([(int)$m[1],$s['id']]);flash('success','Auszahlungsantrag zurückgezogen.');redirect('/wallet');
@@ -157,10 +176,46 @@ if (preg_match('#^/admin/auftrag/(\d{8})/abschliessen$#',$path,$m)&&$method==='P
 }
 if ($path==='/admin/einstellungen'&&$method==='GET') {
     require_admin();$rows=db()->query("SELECT * FROM settings ORDER BY setting_key")->fetchAll();$set=[];foreach($rows as $r)$set[$r['setting_key']]=$r['setting_value'];
-    ob_start();?><div class="eyebrow">Administration</div><h1>Systemeinstellungen</h1><form class="panel" method="post"><?=csrf_field()?><div class="form-grid"><label>Mindestauszahlung (€)<input type="number" step=".01" name="payout_min" value="<?=e($set['payout_min']??'10.00')?>"></label><label>Support-E-Mail<input type="email" name="support_email" value="<?=e($set['support_email']??app_config('mail.from',''))?>"></label><label>Morgenfenster<input name="window_morning" value="<?=e($set['window_morning']??'06:00-10:00')?>"></label><label>Mittagsfenster<input name="window_midday" value="<?=e($set['window_midday']??'12:00-16:00')?>"></label><label>Abendfenster<input name="window_evening" value="<?=e($set['window_evening']??'18:00-23:59')?>"></label><label>Grace Period Minuten<input type="number" name="grace_minutes" value="<?=e($set['grace_minutes']??'60')?>"></label></div><button class="btn">Speichern</button></form><?php render('Einstellungen',ob_get_clean());exit;
+    ob_start();?><div class="eyebrow">Administration</div><h1>Systemeinstellungen</h1>
+    <form class="panel" method="post"><?=csrf_field()?>
+      <h2>Auszahlungen</h2><div class="form-grid">
+        <label>Mindestauszahlung (€)<input type="number" step=".01" min="0" name="payout_min" value="<?=e($set['payout_min']??'10.00')?>"></label>
+        <label>Bearbeitungstage / Hinweis<input name="payout_processing_days" value="<?=e($set['payout_processing_days']??'Nach individueller Prüfung')?>"></label>
+        <label><input type="checkbox" style="width:auto" name="payout_bank_enabled" value="1" <?=($set['payout_bank_enabled']??'1')==='1'?'checked':''?>> Banküberweisung aktiv</label>
+        <label><input type="checkbox" style="width:auto" name="payout_paypal_enabled" value="1" <?=($set['payout_paypal_enabled']??'1')==='1'?'checked':''?>> PayPal aktiv</label>
+        <label>Bank-Gebühr Typ<select name="payout_bank_fee_type"><?php foreach(['none'=>'Keine','fixed'=>'Festbetrag','percent'=>'Prozent'] as $k=>$v):?><option value="<?=$k?>" <?=($set['payout_bank_fee_type']??'none')===$k?'selected':''?>><?=e($v)?></option><?php endforeach;?></select></label>
+        <label>Bank-Gebühr Wert<input type="number" step=".01" min="0" name="payout_bank_fee_value" value="<?=e($set['payout_bank_fee_value']??'0')?>"></label>
+        <label>PayPal-Gebühr Typ<select name="payout_paypal_fee_type"><?php foreach(['none'=>'Keine','fixed'=>'Festbetrag','percent'=>'Prozent'] as $k=>$v):?><option value="<?=$k?>" <?=($set['payout_paypal_fee_type']??'none')===$k?'selected':''?>><?=e($v)?></option><?php endforeach;?></select></label>
+        <label>PayPal-Gebühr Wert<input type="number" step=".01" min="0" name="payout_paypal_fee_value" value="<?=e($set['payout_paypal_fee_value']??'0')?>"></label>
+      </div>
+      <h2>Fristen & Kommunikation</h2><div class="form-grid">
+        <label>Support-E-Mail<input type="email" name="support_email" value="<?=e($set['support_email']??app_config('mail.from',''))?>"></label>
+        <label>Grace Period Minuten<input type="number" min="0" name="grace_minutes" value="<?=e($set['grace_minutes']??'60')?>"></label>
+        <label>Morgenfenster<input name="window_morning" value="<?=e($set['window_morning']??'06:00-10:00')?>"></label>
+        <label>Mittagsfenster<input name="window_midday" value="<?=e($set['window_midday']??'12:00-16:00')?>"></label>
+        <label>Abendfenster<input name="window_evening" value="<?=e($set['window_evening']??'18:00-23:59')?>"></label>
+      </div><button class="btn">Speichern</button>
+    </form><?php render('Einstellungen',ob_get_clean());exit;
 }
 if ($path==='/admin/einstellungen'&&$method==='POST') {
-    require_admin();foreach(['payout_min','support_email','window_morning','window_midday','window_evening','grace_minutes'] as $k){db()->prepare("INSERT INTO settings(setting_key,setting_value) VALUES(?,?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)")->execute([$k,post($k)]);}flash('success','Einstellungen gespeichert.');redirect('/admin/einstellungen');
+    require_admin();
+    $values=[
+      'payout_min'=>post('payout_min','10.00'),
+      'payout_processing_days'=>post('payout_processing_days'),
+      'payout_bank_enabled'=>isset($_POST['payout_bank_enabled'])?'1':'0',
+      'payout_paypal_enabled'=>isset($_POST['payout_paypal_enabled'])?'1':'0',
+      'payout_bank_fee_type'=>post('payout_bank_fee_type','none'),
+      'payout_bank_fee_value'=>post('payout_bank_fee_value','0'),
+      'payout_paypal_fee_type'=>post('payout_paypal_fee_type','none'),
+      'payout_paypal_fee_value'=>post('payout_paypal_fee_value','0'),
+      'support_email'=>post('support_email'),
+      'window_morning'=>post('window_morning','06:00-10:00'),
+      'window_midday'=>post('window_midday','12:00-16:00'),
+      'window_evening'=>post('window_evening','18:00-23:59'),
+      'grace_minutes'=>post('grace_minutes','60'),
+    ];
+    foreach($values as $k=>$v) db()->prepare("INSERT INTO settings(setting_key,setting_value) VALUES(?,?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)")->execute([$k,$v]);
+    flash('success','Einstellungen gespeichert.');redirect('/admin/einstellungen');
 }
 
 
