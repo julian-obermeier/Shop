@@ -369,6 +369,16 @@ if (preg_match('#^/admin/digital-version/(\d+)/pruefen$#',$path,$m) && $method==
     db()->prepare("UPDATE digital_versions SET status=?,review_note=?,reviewed_at=NOW() WHERE id=?")
       ->execute([$decision,$note?:null,$d['id']]);
 
+    if($decision==='accepted'){
+        db()->prepare("UPDATE order_components SET status='completed',updated_at=NOW() WHERE order_id=? AND component_type='digital' AND status<>'completed'")->execute([$d['order_id']]);
+    }elseif($decision==='revision_required'){
+        db()->prepare("UPDATE order_components SET status='execution',updated_at=NOW() WHERE order_id=? AND component_type='digital' AND status NOT IN('completed','rejected')")->execute([$d['order_id']]);
+    }elseif($decision==='partial'){
+        db()->prepare("UPDATE order_components SET status='review',updated_at=NOW() WHERE order_id=? AND component_type='digital' AND status NOT IN('completed','rejected')")->execute([$d['order_id']]);
+    }elseif($decision==='rejected'){
+        db()->prepare("UPDATE order_components SET status='rejected',updated_at=NOW() WHERE order_id=? AND component_type='digital' AND status<>'completed'")->execute([$d['order_id']]);
+    }
+
     $labels=['accepted'=>'akzeptiert','revision_required'=>'Revision erforderlich','partial'=>'teilweise akzeptiert','rejected'=>'abgelehnt'];
     db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")
       ->execute([$d['order_id'],'Digitale Version V'.$d['version_no'].' wurde geprüft: '.$labels[$decision].($note!==''?' · '.$note:'')]);
