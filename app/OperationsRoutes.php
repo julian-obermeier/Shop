@@ -195,10 +195,69 @@ if ($path==='/admin/auszahlungen' && $method==='GET') {
     require_admin();
     $rows=db()->query("SELECT p.*,CONCAT(s.first_name,' ',s.last_name) seller_name,s.email FROM payout_requests p JOIN sellers s ON s.id=p.seller_id ORDER BY FIELD(p.status,'requested','review','released','paid','withdrawn','rejected'),p.created_at DESC")->fetchAll();
     ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Administration</div><h1>Auszahlungen</h1></div><a class="btn secondary" href="<?=e(url('/admin/einstellungen'))?>">Auszahlungseinstellungen</a></div>
-    <div class="table-wrap"><table><thead><tr><th>#</th><th>Verkäuferin</th><th>Betrag</th><th>Gebühr</th><th>Netto</th><th>Methode</th><th>Bearbeitung</th><th>Status</th><th>Aktion</th></tr></thead><tbody><?php foreach($rows as $r):?><tr><td><?=e($r['id'])?></td><td><?=e($r['seller_name'])?><br><span class="meta"><?=e($r['email'])?></span></td><td><?=money($r['amount'])?></td><td><?=money($r['fee'])?></td><td><?=money($r['net_amount'])?></td><td><?=e($r['method'])?></td><td><?=e($r['scheduled_processing_date']?date('d.m.Y',strtotime($r['scheduled_processing_date'])):'–')?></td><td><?=e($r['status'])?></td><td><div class="actions"><?php if($r['status']==='requested'):?><form method="post" action="<?=e(url('/admin/auszahlung/'.$r['id'].'/status/review'))?>"><?=csrf_field()?><button class="btn secondary">In Prüfung</button></form><form method="post" action="<?=e(url('/admin/auszahlung/'.$r['id'].'/status/rejected'))?>"><?=csrf_field()?><button class="btn danger">Ablehnen</button></form><?php elseif($r['status']==='review'):?><form method="post" action="<?=e(url('/admin/auszahlung/'.$r['id'].'/status/released'))?>"><?=csrf_field()?><button class="btn">Freigeben</button></form><form method="post" action="<?=e(url('/admin/auszahlung/'.$r['id'].'/status/rejected'))?>"><?=csrf_field()?><button class="btn danger">Ablehnen</button></form><?php elseif($r['status']==='released'):?><form method="post" action="<?=e(url('/admin/auszahlung/'.$r['id'].'/bezahlt'))?>"><?=csrf_field()?><button class="btn">Als bezahlt markieren</button></form><?php else:?>–<?php endif;?></div></td></tr><?php endforeach;?></tbody></table></div>
+    <div class="table-wrap"><table><thead><tr><th>#</th><th>Verkäuferin</th><th>Betrag</th><th>Gebühr</th><th>Netto</th><th>Methode</th><th>Bearbeitung</th><th>Status</th><th>Aktion</th></tr></thead><tbody><?php foreach($rows as $r):?><tr><td><a href="<?=e(url('/admin/auszahlung/'.$r['id']))?>">#<?=e($r['id'])?></a></td><td><?=e($r['seller_name'])?><br><span class="meta"><?=e($r['email'])?></span></td><td><?=money($r['amount'])?></td><td><?=money($r['fee'])?></td><td><?=money($r['net_amount'])?></td><td><?=e($r['method'])?></td><td><?=e($r['scheduled_processing_date']?date('d.m.Y',strtotime($r['scheduled_processing_date'])):'–')?></td><td><?=e($r['status'])?></td><td><div class="actions"><?php if($r['status']==='requested'):?><form method="post" action="<?=e(url('/admin/auszahlung/'.$r['id'].'/status/review'))?>"><?=csrf_field()?><button class="btn secondary">In Prüfung</button></form><form method="post" action="<?=e(url('/admin/auszahlung/'.$r['id'].'/status/rejected'))?>"><?=csrf_field()?><button class="btn danger">Ablehnen</button></form><?php elseif($r['status']==='review'):?><form method="post" action="<?=e(url('/admin/auszahlung/'.$r['id'].'/status/released'))?>"><?=csrf_field()?><button class="btn">Freigeben</button></form><form method="post" action="<?=e(url('/admin/auszahlung/'.$r['id'].'/status/rejected'))?>"><?=csrf_field()?><button class="btn danger">Ablehnen</button></form><?php elseif($r['status']==='released'):?><form method="post" action="<?=e(url('/admin/auszahlung/'.$r['id'].'/bezahlt'))?>"><?=csrf_field()?><button class="btn">Als bezahlt markieren</button></form><?php else:?>–<?php endif;?></div></td></tr><?php endforeach;?></tbody></table></div>
     <?php if(!$rows):?><div class="empty">Keine Auszahlungsanträge vorhanden.</div><?php endif;?><?php render('Auszahlungen',ob_get_clean());exit;
 }
 
+
+
+if (preg_match('#^/admin/auszahlung/(\d+)$#',$path,$m) && $method==='GET') {
+    require_admin();
+    $q=db()->prepare("SELECT p.*,s.first_name,s.last_name,s.email,s.phone
+        FROM payout_requests p
+        JOIN sellers s ON s.id=p.seller_id
+        WHERE p.id=?");
+    $q->execute([(int)$m[1]]);$r=$q->fetch();if(!$r)not_found();
+
+    $snapshot=json_decode((string)$r['payment_snapshot_json'],true);
+    if(!is_array($snapshot))$snapshot=[];
+
+    ob_start();?>
+    <div class="dashboard-head">
+      <div><div class="eyebrow">Auszahlung #<?=e($r['id'])?></div><h1><?=e($r['first_name'].' '.$r['last_name'])?></h1><p class="meta"><?=e($r['email'])?> · <?=e($r['phone'])?></p></div>
+      <div class="actions"><a class="btn secondary" href="<?=e(url('/admin/verkaeuferin/'.$r['seller_id']))?>">Verkäuferinnenakte</a><a class="btn secondary" href="<?=e(url('/admin/auszahlungen'))?>">Alle Auszahlungen</a></div>
+    </div>
+
+    <div class="grid two">
+      <section class="panel"><h2>Auszahlungsdaten</h2>
+        <div class="form-grid">
+          <div><span class="meta">Beantragt</span><br><strong><?=money($r['amount'])?></strong></div>
+          <div><span class="meta">Gebühr</span><br><strong><?=money($r['fee'])?></strong></div>
+          <div><span class="meta">Netto</span><br><strong><?=money($r['net_amount'])?></strong></div>
+          <div><span class="meta">Methode</span><br><strong><?=e($r['method'])?></strong></div>
+          <div><span class="meta">Status</span><br><span class="badge"><?=e($r['status'])?></span></div>
+          <div><span class="meta">Geplanter Bearbeitungstag</span><br><strong><?=e($r['scheduled_processing_date']?date('d.m.Y',strtotime($r['scheduled_processing_date'])):'–')?></strong></div>
+          <div><span class="meta">Antrag</span><br><?=e(date('d.m.Y H:i',strtotime($r['created_at'])))?></div>
+          <div><span class="meta">Letzte Änderung</span><br><?=e($r['updated_at']?date('d.m.Y H:i',strtotime($r['updated_at'])):'–')?></div>
+        </div>
+      </section>
+
+      <section class="panel"><h2>Zahlungsdaten-Snapshot</h2>
+        <p class="meta">Diese Daten wurden bei Antragstellung unveränderlich gespeichert. Spätere Profiländerungen verändern diesen Antrag nicht.</p>
+        <?php if($r['method']==='bank'):?>
+          <p><span class="meta">Kontoinhaber</span><br><strong><?=e($snapshot['account_holder']??'–')?></strong></p>
+          <p><span class="meta">IBAN</span><br><strong><?=e($snapshot['iban']??'–')?></strong></p>
+          <p><span class="meta">BIC</span><br><?=e($snapshot['bic']??'–')?></p>
+        <?php elseif($r['method']==='paypal'):?>
+          <p><span class="meta">PayPal</span><br><strong><?=e($snapshot['paypal']??'–')?></strong></p>
+        <?php else:?><pre><?=e(json_encode($snapshot,JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE))?></pre><?php endif;?>
+      </section>
+    </div>
+
+    <section class="panel" style="margin-top:18px"><h2>Status bearbeiten</h2><div class="actions">
+      <?php if($r['status']==='requested'):?>
+        <form method="post" action="<?=e(url('/admin/auszahlung/'.$r['id'].'/status/review'))?>"><?=csrf_field()?><button class="btn secondary">In Prüfung setzen</button></form>
+        <form method="post" action="<?=e(url('/admin/auszahlung/'.$r['id'].'/status/rejected'))?>" data-confirm="Auszahlungsantrag wirklich ablehnen?"><?=csrf_field()?><button class="btn danger">Ablehnen</button></form>
+      <?php elseif($r['status']==='review'):?>
+        <form method="post" action="<?=e(url('/admin/auszahlung/'.$r['id'].'/status/released'))?>"><?=csrf_field()?><button class="btn">Freigeben</button></form>
+        <form method="post" action="<?=e(url('/admin/auszahlung/'.$r['id'].'/status/rejected'))?>" data-confirm="Auszahlungsantrag wirklich ablehnen?"><?=csrf_field()?><button class="btn danger">Ablehnen</button></form>
+      <?php elseif($r['status']==='released'):?>
+        <form method="post" action="<?=e(url('/admin/auszahlung/'.$r['id'].'/bezahlt'))?>" data-confirm="Bestätigen, dass die Auszahlung außerhalb der Plattform tatsächlich erfolgt ist?"><?=csrf_field()?><button class="btn">Als bezahlt markieren</button></form>
+      <?php else:?><p class="meta">Dieser Antrag ist abschließend bearbeitet.</p><?php endif;?>
+    </div></section>
+
+    <?php render('Auszahlung #'.$r['id'],ob_get_clean());exit;
+}
 
 if (preg_match('#^/admin/auszahlung/(\d+)/status/(review|released|rejected)$#',$path,$m) && $method==='POST') {
     require_admin();
