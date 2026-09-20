@@ -47,6 +47,28 @@ class MasterPromptCoreTest extends TestCase
         $this->assertDatabaseHas('orders',['id'=>$order->id]);
     }
 
+    public function test_admin_dashboard_loads_after_identity_verification_removal(): void
+    {
+        $admin=User::create([
+            'role'=>'admin',
+            'username'=>'dashboard.admin',
+            'first_name'=>'Admin',
+            'last_name'=>'Dashboard',
+            'birth_date'=>'1970-01-01',
+            'email'=>'dashboard-admin@example.test',
+            'password'=>Hash::make(str_repeat('X',16)),
+            'status'=>'active',
+        ]);
+        $admin->forceFill(['email_verified_at'=>now()])->save();
+
+        $this->actingAs($admin)
+            ->get(route('admin.dashboard'))
+            ->assertOk()
+            ->assertSee('Arbeitszentrale')
+            ->assertDontSee('Verifizierungen');
+    }
+
+
     public function test_admin_offer_deletion_requires_explicit_confirmation(): void
     {
         [, $category]=$this->providerAndCategory('delete-confirm-provider@example.test');
