@@ -34,15 +34,53 @@ if($path==='/angebote'&&$method==='GET'){
 if(preg_match('#^/angebot/([a-z0-9-]+)$#',$path,$m)&&$method==='GET'){
  $st=db()->prepare("SELECT o.*,c.name category_name FROM offers o JOIN categories c ON c.id=o.category_id WHERE o.slug=? AND o.status='active' AND o.visibility='public'");$st->execute([$m[1]]);$o=$st->fetch();if(!$o)not_found();
  $op=db()->prepare("SELECT * FROM offer_options WHERE offer_id=? AND active=1 ORDER BY id");$op->execute([$o['id']]);$options=$op->fetchAll();
+ $rules=offer_evidence_rules($o);
+ $taskSummary=offer_task_plan_summary((int)$o['id'],$o['duration_days']!==null?(int)$o['duration_days']:1);
+ $ssq=db()->prepare("SELECT * FROM offer_shipping_steps WHERE offer_id=? AND active=1 ORDER BY sort_order,id");$ssq->execute([$o['id']]);$publicShippingSteps=$ssq->fetchAll();
+ $duration=max(0,(int)($o['duration_days']??0));
+ $dailyPerDay=(int)$rules['daily']['morning']+(int)$rules['daily']['midday']+(int)$rules['daily']['evening'];
+ $dailyPhotos=$duration*$dailyPerDay;
+ $precheckPhotos=max(1,(int)$rules['precheck_required_count']);
+ $taskPhotos=(int)$taskSummary['required_photos'];
+ $shippingPhotos=array_sum(array_map(fn($x)=>(int)$x['required_photos'],$publicShippingSteps));
+ $plannedPhotos=$precheckPhotos+$dailyPhotos+$taskPhotos+$shippingPhotos;
  $shipping=build_shipping_snapshot($o);
  $shippingLabel=$shipping['cost_mode']==='fixed'
    ? 'Fester Versandzuschuss: '.money($shipping['allowance'])
    : ($shipping['cost_mode']==='reimburse' ? 'Versandkosten werden gegen Nachweis erstattet.' : 'Versandkosten trägt die Verkäuferin.');
- ob_start();?><div class="eyebrow"><?=e($o['category_name'])?></div><h1><?=e($o['title'])?></h1><div class="grid two"><section class="panel"><h2>Das erwartet dich</h2><p><?=nl2br(e($o['description']))?></p><h3>Erfüllung</h3><p><?= $o['duration_days'] ? e($o['duration_days']).' Tage' : 'Individueller Umfang gemäß Angebot' ?></p><?php if($options):?><h3>Zusatzoptionen</h3><p class="meta">Optionen werden bei Annahme ausgewählt und in der Auftragsbestätigung festgehalten.</p><?php endif;?>
-<h3>Versand</h3><p><?=e($shippingLabel)?><?php if($shipping['preferred_carrier']):?><br>Bevorzugter Versanddienstleister: <?=e($shipping['preferred_carrier'])?><?php endif;?><?php if($shipping['instructions']):?><br><?=nl2br(e($shipping['instructions']))?><?php endif;?></p><p class="meta">Die konkrete Empfängeradresse wird erst in der Versandphase angezeigt.</p></section><aside class="panel"><div class="meta">Grundvergütung</div><div class="price"><?=money($o['compensation'])?></div><p class="meta">Vor Annahme werden dir Vergütung, Dauer und die hinterlegten Anforderungen verbindlich angezeigt.</p><?php if(seller()):?><form method="post" action="<?=e(url('/angebot/'.$o['slug'].'/annehmen'))?>"><?=csrf_field()?><?php foreach($options as $opt):?><label style="display:flex;gap:10px;align-items:flex-start"><input style="width:auto;margin-top:5px" type="checkbox" name="option_ids[]" value="<?=e($opt['id'])?>"><span><?=e($opt['label'])?> <?php if((float)$opt['price']>0):?><strong>+<?=money($opt['price'])?></strong><?php else:?><strong>kostenlos</strong><?php endif;?></span></label><?php endforeach;?><button class="btn">Angebot verbindlich annehmen</button></form><?php else:?><a class="btn" href="<?=e(url('/login'))?>">Einloggen & annehmen</a><?php endif;?></aside></div><?php render($o['title'],ob_get_clean());exit;
+ $fixedShippingAllowance=$shipping['cost_mode']==='fixed'?max(0,(float)$shipping['allowance']):0.0;
+ $fixedBaseTotal=(float)$o['compensation']+(float)$taskSummary['compensation']+$fixedShippingAllowance;
+ ob_start();?><div class="eyebrow"><?=e($o['category_name'])?></div><h1><?=e($o['title'])?></h1>
+<div class="grid two">
+<section class="panel"><h2>Das erwartet dich</h2><p><?=nl2br(e($o['description']))?></p>
+<h3>Aufwand vor der Annahme</h3>
+<div class="timeline">
+  <div><strong>Durchführung</strong><br><span class="meta"><?= $duration?e($duration).' aufeinanderfolgende Tage':'Individueller / einmaliger Umfang' ?></span></div>
+  <div><strong>Vorabkontrolle</strong><br><span class="meta"><?=e($precheckPhotos)?> Pflichtfoto(s)</span></div>
+  <?php if($duration):?><div><strong>Regelmäßige Tagesnachweise</strong><br><span class="meta"><?=e($dailyPhotos)?> Foto(s) geplant · pro Tag morgens <?=e($rules['daily']['morning'])?>, mittags <?=e($rules['daily']['midday'])?>, abends <?=e($rules['daily']['evening'])?></span></div><?php endif;?>
+  <div><strong>Geplante Zusatzaufgaben</strong><br><span class="meta"><?=e($taskSummary['executions'])?> Ausführung(en) · <?=e($taskPhotos)?> Pflichtfoto(s) · Zusatzvergütung <?=money($taskSummary['compensation'])?></span></div>
+  <div><strong>Versand-/Endworkflow</strong><br><span class="meta"><?=e(count($publicShippingSteps))?> Schritt(e) · <?=e($shippingPhotos)?> Pflichtfoto(s)</span></div>
+  <div><strong>Planbare Pflichtfotos gesamt</strong><br><span class="meta"><?=e($plannedPhotos)?> Foto(s). Spontane Nachweise oder Neuaufnahmen können zusätzlich hinzukommen.</span></div>
+</div>
+<?php if($taskSummary['plans']):?><h3>Vorgeplante Aufgaben</h3><div class="timeline"><?php foreach($taskSummary['plans'] as $tp):?><div><strong><?=e($tp['title'])?></strong><br><span class="meta"><?php if($tp['schedule_type']==='interval'):?>ab Tag <?=e($tp['start_day'])?> alle <?=e($tp['interval_days'])?> Tage<?php else:?>an Tag <?=e($tp['day_no'])?><?php endif;?> · <?=e($tp['required_photos'])?> Foto(s) je Ausführung<?= $tp['compensation']>0?' · '.money($tp['compensation']).' je Ausführung':'' ?></span></div><?php endforeach;?></div><?php endif;?>
+<h3>Versand</h3><p><?=e($shippingLabel)?><?php if($shipping['preferred_carrier']):?><br>Bevorzugter Versanddienstleister: <?=e($shipping['preferred_carrier'])?><?php endif;?><?php if($shipping['instructions']):?><br><?=nl2br(e($shipping['instructions']))?><?php endif;?></p><p class="meta">Die konkrete Empfängeradresse wird erst in der Versandphase angezeigt.</p>
+<p class="meta">Bestätigte Verstöße können unbezahlte zusätzliche Durchführungstage auslösen. Spontane Nachweis- oder Zusatzaufgaben können während eines laufenden Auftrags hinzukommen.</p>
+</section>
+<aside class="panel"><div class="meta">Grundvergütung</div><div class="price"><?=money($o['compensation'])?></div>
+<?php if((float)$taskSummary['compensation']>0):?><p>Vorgeplante Aufgaben: <strong>+<?=money($taskSummary['compensation'])?></strong></p><?php endif;?>
+<?php if($fixedShippingAllowance>0):?><p>Fester Versandzuschuss: <strong>+<?=money($fixedShippingAllowance)?></strong></p><?php endif;?>
+<p><strong>Fester Wert vor gewählten Optionen: <?=money($fixedBaseTotal)?></strong></p>
+<?php if(seller()):?><form method="post" action="<?=e(url('/angebot/'.$o['slug'].'/annehmen'))?>"><?=csrf_field()?>
+<?php if($options):?><h3>Zusatzoptionen</h3><?php foreach($options as $opt):?><label style="display:flex;gap:10px;align-items:flex-start"><input style="width:auto;margin-top:5px" type="checkbox" name="option_ids[]" value="<?=e($opt['id'])?>"><span><?=e($opt['label'])?> <?php if((float)$opt['price']>0):?><strong>+<?=money($opt['price'])?></strong><?php else:?><strong>kostenlos</strong><?php endif;?></span></label><?php endforeach;?><?php endif;?>
+<hr><label style="display:flex;gap:10px;align-items:flex-start"><input type="checkbox" style="width:auto;margin-top:5px" name="confirm_summary" value="1" required><span>Ich habe Vergütung, Dauer, Nachweisfenster, geplante Aufgaben, Versandablauf und die mögliche Folge bestätigter Verstöße geprüft.</span></label>
+<label style="display:flex;gap:10px;align-items:flex-start"><input type="checkbox" style="width:auto;margin-top:5px" name="confirm_rules" value="1" required><span>Ich bestätige die Plattform-, Auftrags-, Dokumentations-, Versand- und Auszahlungsregeln für diesen Auftrag.</span></label>
+<button class="btn">Angebot verbindlich annehmen</button></form>
+<?php else:?><a class="btn" href="<?=e(url('/login'))?>">Einloggen & annehmen</a><?php endif;?></aside>
+</div><?php render($o['title'],ob_get_clean());exit;
 }
 if(preg_match('#^/angebot/([a-z0-9-]+)/annehmen$#',$path,$m)&&$method==='POST'){
  $s=require_seller(); if(!$s['email_verified_at']){flash('error','Bitte bestätige zuerst deine E-Mail-Adresse.');redirect('/dashboard');}
+ if(($_POST['confirm_summary']??'')!=='1'||($_POST['confirm_rules']??'')!=='1'){flash('error','Bitte bestätige vor Annahme die Auftragszusammenfassung und die geltenden Regeln.');redirect('/angebot/'.$m[1]);}
  $st=db()->prepare("SELECT * FROM offers WHERE slug=? AND status='active' AND visibility='public'");$st->execute([$m[1]]);$o=$st->fetch();if(!$o)not_found();
  $dupe=db()->prepare("SELECT COUNT(*) FROM orders x JOIN offers ox ON ox.id=x.offer_id WHERE x.seller_id=? AND ox.category_id=? AND x.status IN('precheck','running','shipping','review','payout')");
  $dupe->execute([$s['id'],$o['category_id']]); if((int)$dupe->fetchColumn()>0){flash('error','In dieser Kategorie besteht bereits ein aktiver Auftrag.');redirect('/angebote');}
@@ -56,14 +94,17 @@ if(preg_match('#^/angebot/([a-z0-9-]+)/annehmen$#',$path,$m)&&$method==='POST'){
  }
  $shippingSnapshot=build_shipping_snapshot($o);
  $shippingAllowance=$shippingSnapshot['cost_mode']==='fixed' ? max(0,(float)$shippingSnapshot['allowance']) : 0.0;
- $total=(float)$o['compensation']+$optionsTotal+$shippingAllowance;$no=order_number();
+ $taskSummary=offer_task_plan_summary((int)$o['id'],$o['duration_days']!==null?(int)$o['duration_days']:1);
+ $plannedTaskCompensation=(float)$taskSummary['compensation'];
+ $total=(float)$o['compensation']+$optionsTotal+$shippingAllowance+$plannedTaskCompensation;$no=order_number();
  db()->beginTransaction(); try{
    db()->prepare("INSERT INTO orders(order_no,seller_id,offer_id,offer_version,status,base_compensation,total_compensation,duration_days,shipping_snapshot_json) VALUES(?,?,?,?, 'precheck',?,?,?,?)")->execute([$no,$s['id'],$o['id'],$o['current_version'],$o['compensation'],$total,$o['duration_days'],json_encode($shippingSnapshot,JSON_UNESCAPED_UNICODE)]);
    $oid=(int)db()->lastInsertId();
+   snapshot_offer_task_plans((int)$o['id'],$oid);
    db()->prepare("INSERT INTO order_runs(order_id,run_no,status) VALUES(?,1,'precheck')")->execute([$oid]);
    foreach($selected as $opt)db()->prepare("INSERT INTO order_options(order_id,offer_option_id,label_snapshot,price_snapshot) VALUES(?,?,?,?)")->execute([$oid,$opt['id'],$opt['label'],$opt['price']]);
    db()->prepare("INSERT INTO wallet_entries(seller_id,order_id,entry_type,amount,description) VALUES(?,?,'reserved',?,'Auftragswert vorgemerkt')")->execute([$s['id'],$oid,$total]);
-   db()->prepare("INSERT INTO system_events(seller_id,order_id,event_type,payload_json) VALUES(?,?,'order.accepted',?)")->execute([$s['id'],$oid,json_encode(['offer_version'=>$o['current_version'],'option_ids'=>$requested,'shipping_allowance'=>$shippingAllowance,'total'=>$total],JSON_UNESCAPED_UNICODE)]);
+   db()->prepare("INSERT INTO system_events(seller_id,order_id,event_type,payload_json) VALUES(?,?,'order.accepted',?)")->execute([$s['id'],$oid,json_encode(['offer_version'=>$o['current_version'],'option_ids'=>$requested,'shipping_allowance'=>$shippingAllowance,'planned_task_compensation'=>$plannedTaskCompensation,'planned_task_executions'=>$taskSummary['executions'],'total'=>$total],JSON_UNESCAPED_UNICODE)]);
    if(in_array($o['fulfillment_type'],['digital','mixed'],true))db()->prepare("INSERT INTO rights_acceptances(order_id,seller_id,terms_version,payload_json) VALUES(?,?,?,?)")->execute([$oid,$s['id'],'v1',json_encode(['scope'=>'technical_processing_and_order_terms'],JSON_UNESCAPED_UNICODE)]);
    db()->commit();
  }catch(Throwable $e){db()->rollBack();throw $e;}
