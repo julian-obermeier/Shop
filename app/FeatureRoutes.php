@@ -262,7 +262,7 @@ if (preg_match('#^/auftrag/(\d{8})/tagesnachweis$#',$path,$m)&&$method==='POST')
     if($submitted>=(int)$w['required_count']){flash('error','Für dieses Zeitfenster wurden bereits alle Pflichtnachweise eingereicht.');redirect('/auftrag/'.$o['order_no']);}
 
     try{
-        $up=private_upload($_FILES['evidence']??[],'order-'.$o['id'].'/daily');
+        $up=private_image_upload($_FILES['evidence']??[],'order-'.$o['id'].'/daily');
         db()->prepare("INSERT INTO evidences(order_id,order_run_id,seller_id,evidence_type,day_no,window_key,source_type,source_id,file_path,mime_type,file_size,sha256,metadata_json,quality_flags_json) VALUES(?,?,?,'daily',?,?,'window',?,?,?,?,?,?,?)")
           ->execute([$o['id'],$runId,$s['id'],$w['day_no'],$w['window_key'],$w['id'],$up['path'],$up['mime'],$up['size'],$up['sha256'],upload_metadata_json($up),upload_quality_flags_json($up)]);
 
@@ -297,7 +297,7 @@ if (preg_match('#^/auftrag/(\d{8})/beschaedigung$#',$path,$m)&&$method==='POST')
     $caseId=(int)db()->lastInsertId();
 
     if(isset($_FILES['evidence'])&&($_FILES['evidence']['error']??UPLOAD_ERR_NO_FILE)===UPLOAD_ERR_OK){
-        $up=private_upload($_FILES['evidence'],'order-'.$o['id']);
+        $up=private_image_upload($_FILES['evidence'],'order-'.$o['id']);
         db()->prepare("INSERT INTO evidences(order_id,order_run_id,order_component_id,seller_id,evidence_type,source_type,source_id,file_path,mime_type,file_size,sha256,metadata_json,quality_flags_json) VALUES(?,?,?,?, 'damage','damage_case',?,?,?,?,?,?,?)")
           ->execute([$o['id'],current_run_id((int)$o['id']),$componentId,$s['id'],$caseId,$up['path'],$up['mime'],$up['size'],$up['sha256'],upload_metadata_json($up),upload_quality_flags_json($up)]);
     }
@@ -624,7 +624,7 @@ if ($path==='/admin/einstellungen'&&$method==='GET') {
       </div>
       <h2>Fristen & Kommunikation</h2><div class="form-grid">
         <label>Support-E-Mail<input type="email" name="support_email" value="<?=e($set['support_email']??app_config('mail.from',''))?>"></label>
-        <label>Grace Period Minuten<input type="number" min="0" name="grace_minutes" value="<?=e($set['grace_minutes']??'60')?>"></label>
+        <label>Grace Period Minuten<input type="number" min="0" max="60" name="grace_minutes" value="<?=e($set['grace_minutes']??'60')?>"></label>
         <label>Eskalation „bald fällig“ ab Restzeit (Min.)<input type="number" min="1" name="escalation_soon_minutes" value="<?=e($set['escalation_soon_minutes']??'1440')?>"></label>
         <label>Eskalation „kritisch“ ab Restzeit (Min.)<input type="number" min="1" name="escalation_critical_minutes" value="<?=e($set['escalation_critical_minutes']??'120')?>"></label>
         <label><input type="checkbox" style="width:auto" name="admin_escalation_email_enabled" value="1" <?=($set['admin_escalation_email_enabled']??'0')==='1'?'checked':''?>> Kritische/überfällige Fristen zusätzlich per E-Mail an das Admin-Konto senden</label>
@@ -670,7 +670,7 @@ if ($path==='/admin/einstellungen'&&$method==='POST') {
       'window_morning'=>post('window_morning','06:00-10:00'),
       'window_midday'=>post('window_midday','12:00-16:00'),
       'window_evening'=>post('window_evening','18:00-23:59'),
-      'grace_minutes'=>post('grace_minutes','60'),
+      'grace_minutes'=>(string)max(0,min(60,(int)post('grace_minutes','60'))),
       'escalation_soon_minutes'=>(string)$soon,
       'escalation_critical_minutes'=>(string)$critical,
       'admin_escalation_email_enabled'=>isset($_POST['admin_escalation_email_enabled'])?'1':'0',
@@ -755,7 +755,7 @@ if (preg_match('#^/auftrag/(\d{8})/versand-schritt/(\d+)$#',$path,$m)&&$method==
         for($i=1;$i<=(int)$step['required_photos'];$i++){
             $key='evidence_'.$i;
             if(!isset($_FILES[$key]) || ($_FILES[$key]['error']??UPLOAD_ERR_NO_FILE)!==UPLOAD_ERR_OK) throw new RuntimeException('Pflichtfoto '.$i.' fehlt.');
-            $up=private_upload($_FILES[$key],'order-'.$o['id'].'/shipping');
+            $up=private_image_upload($_FILES[$key],'order-'.$o['id'].'/shipping');
             db()->prepare("INSERT INTO evidences(order_id,order_run_id,seller_id,evidence_type,source_type,source_id,file_path,mime_type,file_size,sha256,metadata_json,quality_flags_json) VALUES(?,?,?,'shipping','shipping_step',?,?,?,?,?,?,?)")
               ->execute([$o['id'],current_run_id((int)$o['id']),$s['id'],$step['id'],$up['path'],$up['mime'],$up['size'],$up['sha256'],upload_metadata_json($up),upload_quality_flags_json($up)]);
             $uploadedIds[]=(int)db()->lastInsertId();
@@ -764,7 +764,7 @@ if (preg_match('#^/auftrag/(\d{8})/versand-schritt/(\d+)$#',$path,$m)&&$method==
         $tracking=post('tracking_number');$carrier=post('carrier');$dispatchProofId=null;
         if($step['is_dispatch_step']){
             if(isset($_FILES['dispatch_proof']) && ($_FILES['dispatch_proof']['error']??UPLOAD_ERR_NO_FILE)===UPLOAD_ERR_OK){
-                $up=private_upload($_FILES['dispatch_proof'],'order-'.$o['id'].'/shipping');
+                $up=private_image_upload($_FILES['dispatch_proof'],'order-'.$o['id'].'/shipping');
                 db()->prepare("INSERT INTO evidences(order_id,order_run_id,seller_id,evidence_type,source_type,source_id,file_path,mime_type,file_size,sha256,metadata_json,quality_flags_json) VALUES(?,?,?,'shipping','shipping_step',?,?,?,?,?,?,?)")
                   ->execute([$o['id'],current_run_id((int)$o['id']),$s['id'],$step['id'],$up['path'],$up['mime'],$up['size'],$up['sha256'],upload_metadata_json($up),upload_quality_flags_json($up)]);
                 $dispatchProofId=(int)db()->lastInsertId();
@@ -1549,7 +1549,7 @@ if (preg_match('#^/auftrag/(\d{8})/spontan/(\d+)$#',$path,$m) && $method==='POST
     $tz=new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'));
     if(new DateTimeImmutable('now',$tz)>new DateTimeImmutable($r['grace_ends_at'],$tz)){flash('error','Die Nachfrist ist abgelaufen.');redirect('/auftrag/'.$r['order_no'].'/spontan/'.$r['id']);}
     try{
-        $up=private_upload($_FILES['evidence']??[],'order-'.$r['order_id'].'/spontaneous');
+        $up=private_image_upload($_FILES['evidence']??[],'order-'.$r['order_id'].'/spontaneous');
         db()->prepare("INSERT INTO evidences(order_id,order_run_id,seller_id,evidence_type,source_type,source_id,file_path,mime_type,file_size,sha256,metadata_json,quality_flags_json) VALUES(?,?,?,'spontaneous','spontaneous',?,?,?,?,?,?,?)")
           ->execute([$r['order_id'],current_run_id((int)$r['order_id']),$s['id'],$r['id'],$up['path'],$up['mime'],$up['size'],$up['sha256'],upload_metadata_json($up),upload_quality_flags_json($up)]);
         $cnt=db()->prepare("SELECT COUNT(*) FROM evidences WHERE order_id=? AND evidence_type='spontaneous' AND source_type='spontaneous' AND source_id=? AND status IN('submitted','accepted')");
@@ -1794,7 +1794,7 @@ if (preg_match('#^/auftrag/(\d{8})/aufgabe/(\d+)/foto$#',$path,$m) && $method===
     $q=db()->prepare("SELECT COUNT(*) FROM evidences WHERE source_type='task' AND source_id=? AND status IN('submitted','accepted')");
     $q->execute([$t['id']]);if((int)$q->fetchColumn()>=$required){flash('error','Alle geforderten Pflichtfotos sind bereits vorhanden.');redirect('/auftrag/'.$t['order_no'].'/aufgabe/'.$t['id']);}
     try{
-      $up=private_upload($_FILES['evidence']??[],'order-'.$t['order_id'].'/tasks');
+      $up=private_image_upload($_FILES['evidence']??[],'order-'.$t['order_id'].'/tasks');
       $late=$t['due_at']&&strtotime($t['due_at'])<time()?1:0;
       db()->prepare("INSERT INTO evidences(order_id,order_run_id,seller_id,evidence_type,source_type,source_id,file_path,mime_type,file_size,sha256,metadata_json,quality_flags_json,is_late) VALUES(?,?,?,'task','task',?,?,?,?,?,?,?,?)")
         ->execute([$t['order_id'],current_run_id((int)$t['order_id']),$s['id'],$t['id'],$up['path'],$up['mime'],$up['size'],$up['sha256'],upload_metadata_json($up),upload_quality_flags_json($up),$late]);
