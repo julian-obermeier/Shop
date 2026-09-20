@@ -402,7 +402,7 @@ if (preg_match('#^/auftrag/(\d{8})/versand$#',$path,$m)&&$method==='GET') {
     <?php endforeach;?>
     </div>
 
-    <?php if($ship):?><section class="panel"><h2>Sendungsstatus</h2><p>Status: <strong><?=e($ship['status'])?></strong><br>Tracking: <?=e($ship['tracking_number']?:'–')?><?php if($ship['carrier']):?><br>Dienstleister: <?=e($ship['carrier'])?><?php endif;?></p><?php if($ship['proof_evidence_id']):?><a href="<?=e(url('/datei/'.$ship['proof_evidence_id']))?>" target="_blank">Versandnachweis ansehen</a><?php endif;?></section><?php endif;?>
+    <?php if($ship):?><section class="panel"><h2>Sendungsstatus</h2><p>Status: <strong><?=e($ship['status'])?></strong><br>Tracking: <?=e($ship['tracking_number']?:'–')?><?php if($ship['carrier']):?><br>Dienstleister: <?=e($ship['carrier'])?><?php endif;?><?php if($ship['claimed_shipping_cost']!==null):?><br>Beantragte Versandkosten: <?=money($ship['claimed_shipping_cost'])?><?php endif;?><?php if($ship['approved_reimbursement']!==null):?><br>Bestätigte Erstattung: <?=money($ship['approved_reimbursement'])?><?php elseif($ship['claimed_shipping_cost']!==null):?><br>Erstattung: in Prüfung<?php endif;?></p><?php if($ship['proof_evidence_id']):?><a href="<?=e(url('/datei/'.$ship['proof_evidence_id']))?>" target="_blank">Versandnachweis ansehen</a><?php endif;?></section><?php endif;?>
 
     <?php render('Versandworkflow',ob_get_clean());exit;
 }
