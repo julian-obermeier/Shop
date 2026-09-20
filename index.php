@@ -594,6 +594,7 @@ if(preg_match('#^/admin/nachweis/(\d+)/ablehnen$#',$path,$m)&&$method==='POST'){
 }
 require __DIR__.'/app/FeatureRoutes.php';
 require __DIR__.'/app/OperationsRoutes.php';
+require __DIR__.'/app/OrderChangeRoutes.php';
 
 if($path==='/so-funktioniert-es') legal_page('So funktioniert es','Vom Angebot bis zur Auszahlung – transparent und geführt.',['1. Registrieren'=>'Erstelle dein Verkäuferinnenkonto und bestätige deine E-Mail-Adresse.','2. Angebot auswählen'=>'Prüfe Vergütung, Dauer, Nachweise und Bedingungen vor der Annahme.','3. Vorabkontrolle'=>'Bei physischen Aufträgen wird der konkrete Artikel dokumentiert und vom Betreiber freigegeben.','4. Durchführung'=>'Dein Dashboard zeigt dir fällige Aufgaben und Nachweise.','5. Versand oder digitale Abgabe'=>'Je nach Auftrag folgt ein geführter Versand- oder Abgabeprozess.','6. Prüfung und Wallet'=>'Nach erfolgreichem Abschluss wird die freigegebene Vergütung verfügbar.']);
 if($path==='/faq') legal_page('FAQ','Die wichtigsten Antworten zur Plattform.',['Wer kann sich registrieren?'=>'Ausschließlich volljährige Verkäuferinnen ab 18 Jahren.','Ist mein Profil öffentlich?'=>'Nein. Es gibt keine öffentlichen Verkäuferinnenprofile.','Wann startet ein Auftrag?'=>'Bei physischen Aufträgen nach vollständiger Freigabe der Vorabkontrolle.','Wann wird die Vergütung verfügbar?'=>'Nach vollständigem Abschluss und der vorgesehenen Prüfung.','Darf ich Artikel anderer Personen verwenden?'=>'Nein. Aufträge werden ausschließlich persönlich mit eigenen Artikeln bzw. eigenen Inhalten erfüllt.']);
