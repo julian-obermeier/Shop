@@ -8,25 +8,239 @@ declare(strict_types=1);
 
 if ($path==='/admin/kalender' && $method==='GET') {
     require_admin();
-    $from=trim((string)($_GET['from']??date('Y-m-01')));
-    $to=trim((string)($_GET['to']??date('Y-m-t')));
-    if(!preg_match('/^\d{4}-\d{2}-\d{2}$/',$from)) $from=date('Y-m-01');
-    if(!preg_match('/^\d{4}-\d{2}-\d{2}$/',$to)) $to=date('Y-m-t');
+
+    $view=(string)($_GET['view']??'month');
+    if(!in_array($view,['day','week','month'],true)) $view='month';
+
+    $tz=new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'));
+    $rawDate=(string)($_GET['date']??date('Y-m-d'));
+    try{$focus=new DateTimeImmutable($rawDate.' 12:00:00',$tz);}catch(Throwable){$focus=new DateTimeImmutable('today',$tz);}
+
+    if($view==='day'){
+        $periodStart=$focus->setTime(0,0,0);
+        $periodEnd=$focus->setTime(23,59,59);
+        $prev=$focus->modify('-1 day');
+        $next=$focus->modify('+1 day');
+        $periodLabel=$focus->format('d.m.Y');
+    }elseif($view==='week'){
+        $periodStart=$focus->modify('monday this week')->setTime(0,0,0);
+        $periodEnd=$periodStart->modify('+6 days')->setTime(23,59,59);
+        $prev=$focus->modify('-7 days');
+        $next=$focus->modify('+7 days');
+        $periodLabel=$periodStart->format('d.m.Y').' – '.$periodEnd->format('d.m.Y');
+    }else{
+        $periodStart=$focus->modify('first day of this month')->setTime(0,0,0);
+        $periodEnd=$focus->modify('last day of this month')->setTime(23,59,59);
+        $prev=$focus->modify('-1 month');
+        $next=$focus->modify('+1 month');
+        $periodLabel=$focus->format('F Y');
+    }
+
+    $from=$periodStart->format('Y-m-d');
+    $to=$periodEnd->format('Y-m-d');
+
+    $sellerFilter=max(0,(int)($_GET['seller_id']??0));
+    $categoryFilter=max(0,(int)($_GET['category_id']??0));
+    $orderFilter=trim((string)($_GET['order']??''));
+    $typeFilter=trim((string)($_GET['type']??''));
+    $statusFilter=trim((string)($_GET['status']??''));
 
     $events=[];
-    $queries=[
-      ["SELECT ew.starts_at event_at,'Nachweisfenster' event_type,o.order_no,f.title,ew.window_key details FROM evidence_windows ew JOIN orders o ON o.id=ew.order_id JOIN offers f ON f.id=o.offer_id WHERE DATE(ew.starts_at) BETWEEN ? AND ?",[$from,$to]],
-      ["SELECT sr.due_at event_at,'Spontaner Nachweis' event_type,o.order_no,f.title,sr.instructions details FROM spontaneous_requests sr JOIN orders o ON o.id=sr.order_id JOIN offers f ON f.id=o.offer_id WHERE DATE(sr.due_at) BETWEEN ? AND ?",[$from,$to]],
-      ["SELECT t.due_at event_at,'Zusatzaufgabe' event_type,o.order_no,f.title,t.title details FROM order_tasks t JOIN orders o ON o.id=t.order_id JOIN offers f ON f.id=o.offer_id WHERE t.due_at IS NOT NULL AND DATE(t.due_at) BETWEEN ? AND ?",[$from,$to]],
-      ["SELECT r.due_at event_at,'Revision' event_type,o.order_no,f.title,CONCAT('Runde ',r.round_no) details FROM revision_rounds r JOIN orders o ON o.id=r.order_id JOIN offers f ON f.id=o.offer_id WHERE r.due_at IS NOT NULL AND DATE(r.due_at) BETWEEN ? AND ?",[$from,$to]],
-      ["SELECT a.acceptance_deadline event_at,'Einzelangebot' event_type,'' order_no,o.title,'Annahmefrist' details FROM offer_assignments a JOIN offers o ON o.id=a.offer_id WHERE DATE(a.acceptance_deadline) BETWEEN ? AND ?",[$from,$to]],
-    ];
-    foreach($queries as [$sql,$args]){$q=db()->prepare($sql);$q->execute($args);$events=array_merge($events,$q->fetchAll());}
-    usort($events,fn($a,$b)=>strcmp((string)$a['event_at'],(string)$b['event_at']));
+    $eventQueries=[
+      ["SELECT COALESCE(o.started_at,CONCAT(o.planned_start_date,' 00:00:00')) event_at,
+               'start' event_type,o.status event_status,o.order_no,o.id order_id,o.seller_id,
+               CONCAT(s.first_name,' ',s.last_name) seller_name,o.offer_id,f.category_id,c.name category_name,
+               f.title,CONCAT('Auftragsstart · ',IF(o.started_at IS NULL,'geplant','gestartet')) details,NULL source_id
+        FROM orders o
+        JOIN sellers s ON s.id=o.seller_id
+        JOIN offers f ON f.id=o.offer_id
+        JOIN categories c ON c.id=f.category_id
+        WHERE COALESCE(o.started_at,CONCAT(o.planned_start_date,' 00:00:00')) IS NOT NULL
+          AND DATE(COALESCE(o.started_at,CONCAT(o.planned_start_date,' 00:00:00'))) BETWEEN ? AND ?",[$from,$to]],
 
-    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Administration</div><h1>Kalender & Fristen</h1></div></div>
-    <form class="panel form-grid" method="get"><label>Von<input type="date" name="from" value="<?=e($from)?>"></label><label>Bis<input type="date" name="to" value="<?=e($to)?>"></label><button class="btn">Zeitraum anzeigen</button></form><br>
-    <div class="table-wrap"><table><thead><tr><th>Zeit</th><th>Typ</th><th>Auftrag</th><th>Details</th></tr></thead><tbody><?php foreach($events as $ev):?><tr><td><?=e(date('d.m.Y H:i',strtotime($ev['event_at'])))?></td><td><?=e($ev['event_type'])?></td><td><?php if($ev['order_no']):?><a href="<?=e(url('/admin/auftrag/'.$ev['order_no']))?>"><?=e($ev['order_no'].' · '.$ev['title'])?></a><?php else:?><?=e($ev['title'])?><?php endif;?></td><td><?=e($ev['details'])?></td></tr><?php endforeach;?></tbody></table></div>
+      ["SELECT ew.starts_at event_at,'evidence' event_type,ew.status event_status,o.order_no,o.id order_id,o.seller_id,
+               CONCAT(s.first_name,' ',s.last_name) seller_name,o.offer_id,f.category_id,c.name category_name,
+               f.title,CONCAT('Tag ',ew.day_no,' · ',ew.window_key,' · ',ew.required_count,' Foto(s)') details,ew.id source_id
+        FROM evidence_windows ew
+        JOIN orders o ON o.id=ew.order_id JOIN sellers s ON s.id=o.seller_id
+        JOIN offers f ON f.id=o.offer_id JOIN categories c ON c.id=f.category_id
+        WHERE DATE(ew.starts_at) BETWEEN ? AND ?",[$from,$to]],
+
+      ["SELECT sr.due_at event_at,'spontaneous' event_type,sr.status event_status,o.order_no,o.id order_id,o.seller_id,
+               CONCAT(s.first_name,' ',s.last_name) seller_name,o.offer_id,f.category_id,c.name category_name,
+               f.title,CONCAT(sr.required_count,' Foto(s) · ',sr.instructions) details,sr.id source_id
+        FROM spontaneous_requests sr
+        JOIN orders o ON o.id=sr.order_id JOIN sellers s ON s.id=o.seller_id
+        JOIN offers f ON f.id=o.offer_id JOIN categories c ON c.id=f.category_id
+        WHERE DATE(sr.due_at) BETWEEN ? AND ?",[$from,$to]],
+
+      ["SELECT t.due_at event_at,'task' event_type,t.status event_status,o.order_no,o.id order_id,o.seller_id,
+               CONCAT(s.first_name,' ',s.last_name) seller_name,o.offer_id,f.category_id,c.name category_name,
+               f.title,t.title details,t.id source_id
+        FROM order_tasks t
+        JOIN orders o ON o.id=t.order_id JOIN sellers s ON s.id=o.seller_id
+        JOIN offers f ON f.id=o.offer_id JOIN categories c ON c.id=f.category_id
+        WHERE t.due_at IS NOT NULL AND DATE(t.due_at) BETWEEN ? AND ?",[$from,$to]],
+
+      ["SELECT r.due_at event_at,'revision' event_type,r.status event_status,o.order_no,o.id order_id,o.seller_id,
+               CONCAT(s.first_name,' ',s.last_name) seller_name,o.offer_id,f.category_id,c.name category_name,
+               f.title,CONCAT('Revisionsrunde ',r.round_no) details,r.id source_id
+        FROM revision_rounds r
+        JOIN orders o ON o.id=r.order_id JOIN sellers s ON s.id=o.seller_id
+        JOIN offers f ON f.id=o.offer_id JOIN categories c ON c.id=f.category_id
+        WHERE r.due_at IS NOT NULL AND DATE(r.due_at) BETWEEN ? AND ?",[$from,$to]],
+
+      ["SELECT st.due_at event_at,'shipping_step' event_type,st.status event_status,o.order_no,o.id order_id,o.seller_id,
+               CONCAT(s.first_name,' ',s.last_name) seller_name,o.offer_id,f.category_id,c.name category_name,
+               f.title,st.title details,st.id source_id
+        FROM order_shipping_steps st
+        JOIN orders o ON o.id=st.order_id JOIN sellers s ON s.id=o.seller_id
+        JOIN offers f ON f.id=o.offer_id JOIN categories c ON c.id=f.category_id
+        WHERE st.due_at IS NOT NULL AND DATE(st.due_at) BETWEEN ? AND ?",[$from,$to]],
+
+      ["SELECT o.shipping_due_at event_at,'shipping_deadline' event_type,o.status event_status,o.order_no,o.id order_id,o.seller_id,
+               CONCAT(s.first_name,' ',s.last_name) seller_name,o.offer_id,f.category_id,c.name category_name,
+               f.title,'Gesamt-Versandfrist' details,NULL source_id
+        FROM orders o JOIN sellers s ON s.id=o.seller_id
+        JOIN offers f ON f.id=o.offer_id JOIN categories c ON c.id=f.category_id
+        WHERE o.shipping_due_at IS NOT NULL AND DATE(o.shipping_due_at) BETWEEN ? AND ?",[$from,$to]],
+
+      ["SELECT o.digital_due_at event_at,'digital_deadline' event_type,o.status event_status,o.order_no,o.id order_id,o.seller_id,
+               CONCAT(s.first_name,' ',s.last_name) seller_name,o.offer_id,f.category_id,c.name category_name,
+               f.title,'Digitale Erstabgabe' details,NULL source_id
+        FROM orders o JOIN sellers s ON s.id=o.seller_id
+        JOIN offers f ON f.id=o.offer_id JOIN categories c ON c.id=f.category_id
+        WHERE o.digital_due_at IS NOT NULL AND DATE(o.digital_due_at) BETWEEN ? AND ?",[$from,$to]],
+
+      ["SELECT CONCAT(p.scheduled_processing_date,' 00:00:00') event_at,'payout' event_type,p.status event_status,
+               '' order_no,NULL order_id,p.seller_id,CONCAT(s.first_name,' ',s.last_name) seller_name,
+               NULL offer_id,NULL category_id,NULL category_name,'Auszahlung' title,
+               CONCAT('Auszahlung #',p.id,' · ',FORMAT(p.net_amount,2,'de_DE'),' € · ',p.method) details,p.id source_id
+        FROM payout_requests p JOIN sellers s ON s.id=p.seller_id
+        WHERE p.scheduled_processing_date IS NOT NULL AND p.scheduled_processing_date BETWEEN ? AND ?",[$from,$to]],
+    ];
+
+    foreach($eventQueries as [$sql,$args]){
+        $q=db()->prepare($sql);$q->execute($args);
+        foreach($q->fetchAll() as $event) $events[]=$event;
+    }
+
+    $typeLabels=[
+      'start'=>'Start',
+      'evidence'=>'Nachweisfenster',
+      'spontaneous'=>'Spontaner Nachweis',
+      'task'=>'Zusatzaufgabe',
+      'revision'=>'Revision',
+      'shipping_step'=>'Versandschritt',
+      'shipping_deadline'=>'Versandfrist',
+      'digital_deadline'=>'Digitale Frist',
+      'payout'=>'Auszahlung',
+    ];
+
+    $availableStatuses=[];
+    foreach($events as $event){
+        $st=(string)($event['event_status']??'');
+        if($st!=='') $availableStatuses[$st]=$st;
+    }
+    ksort($availableStatuses);
+
+    $events=array_values(array_filter($events,function(array $event) use($sellerFilter,$categoryFilter,$orderFilter,$typeFilter,$statusFilter): bool {
+        if($sellerFilter>0 && (int)$event['seller_id']!==$sellerFilter) return false;
+        if($categoryFilter>0 && (int)($event['category_id']??0)!==$categoryFilter) return false;
+        if($typeFilter!=='' && (string)$event['event_type']!==$typeFilter) return false;
+        if($statusFilter!=='' && (string)$event['event_status']!==$statusFilter) return false;
+        if($orderFilter!==''){
+            $haystack=mb_strtolower((string)($event['order_no']??'').' '.(string)($event['title']??''));
+            if(!str_contains($haystack,mb_strtolower($orderFilter))) return false;
+        }
+        return true;
+    }));
+
+    usort($events,fn($a,$b)=>strcmp((string)$a['event_at'],(string)$b['event_at']));
+    $grouped=[];
+    foreach($events as $event) $grouped[date('Y-m-d',strtotime((string)$event['event_at']))][]=$event;
+
+    $sellers=db()->query("SELECT id,first_name,last_name FROM sellers ORDER BY first_name,last_name")->fetchAll();
+    $categories=db()->query("SELECT id,name FROM categories WHERE is_active=1 ORDER BY name")->fetchAll();
+
+    $baseParams=[
+      'view'=>$view,
+      'seller_id'=>$sellerFilter?:null,
+      'category_id'=>$categoryFilter?:null,
+      'order'=>$orderFilter?:null,
+      'type'=>$typeFilter?:null,
+      'status'=>$statusFilter?:null,
+    ];
+    $makeUrl=function(DateTimeImmutable $date,array $overrides=[]) use($baseParams): string {
+        $params=array_merge($baseParams,['date'=>$date->format('Y-m-d')],$overrides);
+        $params=array_filter($params,fn($v)=>$v!==null && $v!=='');
+        return url('/admin/kalender?'.http_build_query($params));
+    };
+
+    ob_start();?>
+    <div class="dashboard-head">
+      <div><div class="eyebrow">Administration</div><h1>Kalender & Fristen</h1><p class="meta"><?=e($periodLabel)?> · <?=count($events)?> Ereignis(se)</p></div>
+      <div class="actions">
+        <a class="btn secondary" href="<?=e($makeUrl($prev))?>">← Vorher</a>
+        <a class="btn secondary" href="<?=e($makeUrl(new DateTimeImmutable('today',$tz)))?>">Heute</a>
+        <a class="btn secondary" href="<?=e($makeUrl($next))?>">Weiter →</a>
+      </div>
+    </div>
+
+    <div class="actions" style="margin-bottom:16px">
+      <a class="btn <?=$view==='day'?'':'secondary'?>" href="<?=e($makeUrl($focus,['view'=>'day']))?>">Tag</a>
+      <a class="btn <?=$view==='week'?'':'secondary'?>" href="<?=e($makeUrl($focus,['view'=>'week']))?>">Woche</a>
+      <a class="btn <?=$view==='month'?'':'secondary'?>" href="<?=e($makeUrl($focus,['view'=>'month']))?>">Monat</a>
+    </div>
+
+    <form class="panel" method="get">
+      <input type="hidden" name="view" value="<?=e($view)?>">
+      <div class="form-grid">
+        <label>Bezugsdatum<input type="date" name="date" value="<?=e($focus->format('Y-m-d'))?>"></label>
+        <label>Verkäuferin<select name="seller_id"><option value="">Alle</option><?php foreach($sellers as $sellerRow):?><option value="<?=e($sellerRow['id'])?>" <?=$sellerFilter===(int)$sellerRow['id']?'selected':''?>><?=e($sellerRow['first_name'].' '.$sellerRow['last_name'])?></option><?php endforeach;?></select></label>
+        <label>Kategorie<select name="category_id"><option value="">Alle</option><?php foreach($categories as $categoryRow):?><option value="<?=e($categoryRow['id'])?>" <?=$categoryFilter===(int)$categoryRow['id']?'selected':''?>><?=e($categoryRow['name'])?></option><?php endforeach;?></select></label>
+        <label>Auftrag<input name="order" value="<?=e($orderFilter)?>" placeholder="Nummer oder Titel"></label>
+        <label>Ereignistyp<select name="type"><option value="">Alle</option><?php foreach($typeLabels as $key=>$label):?><option value="<?=e($key)?>" <?=$typeFilter===$key?'selected':''?>><?=e($label)?></option><?php endforeach;?></select></label>
+        <label>Status<select name="status"><option value="">Alle</option><?php foreach($availableStatuses as $status):?><option value="<?=e($status)?>" <?=$statusFilter===$status?'selected':''?>><?=e($status)?></option><?php endforeach;?></select></label>
+      </div>
+      <div class="actions"><button class="btn">Filter anwenden</button><a class="btn secondary" href="<?=e(url('/admin/kalender?view='.$view.'&date='.$focus->format('Y-m-d')))?>">Filter zurücksetzen</a></div>
+    </form>
+
+    <div style="margin-top:18px">
+    <?php
+      $cursor=$periodStart;
+      while($cursor <= $periodEnd):
+        $dateKey=$cursor->format('Y-m-d');
+        $dayEvents=$grouped[$dateKey]??[];
+        if($view==='month' && !$dayEvents){$cursor=$cursor->modify('+1 day');continue;}
+    ?>
+      <section class="panel" style="margin-bottom:12px">
+        <div class="dashboard-head"><div><strong><?=e($cursor->format('D, d.m.Y'))?></strong></div><span class="badge"><?=count($dayEvents)?> Termin(e)</span></div>
+        <?php if(!$dayEvents):?><p class="meta">Keine Termine.</p><?php else:?>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Zeit</th><th>Typ</th><th>Verkäuferin</th><th>Auftrag</th><th>Status</th><th>Details</th></tr></thead>
+          <tbody>
+          <?php foreach($dayEvents as $ev):
+            $eventLink=$ev['event_type']==='payout'
+              ? url('/admin/auszahlung/'.(int)$ev['source_id'])
+              : (!empty($ev['order_no'])?url('/admin/auftrag/'.$ev['order_no']):null);
+          ?>
+            <tr>
+              <td><?=e(date('H:i',strtotime($ev['event_at'])))?></td>
+              <td><?=e($typeLabels[$ev['event_type']]??$ev['event_type'])?></td>
+              <td><?=e($ev['seller_name'])?></td>
+              <td><?php if($eventLink):?><a href="<?=e($eventLink)?>"><?=e($ev['order_no']?:$ev['title'])?></a><?php else:?><?=e($ev['title'])?><?php endif;?><?php if($ev['category_name']):?><br><span class="meta"><?=e($ev['category_name'])?></span><?php endif;?></td>
+              <td><span class="badge"><?=e($ev['event_status']?:'–')?></span></td>
+              <td><?=e($ev['details'])?></td>
+            </tr>
+          <?php endforeach;?>
+          </tbody>
+        </table></div>
+        <?php endif;?>
+      </section>
+    <?php $cursor=$cursor->modify('+1 day'); endwhile; ?>
+    <?php if(!$events && $view==='month'):?><div class="empty">Im gewählten Monat gibt es mit diesen Filtern keine Termine.</div><?php endif;?>
+    </div>
     <?php render('Kalender',ob_get_clean());exit;
 }
 
