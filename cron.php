@@ -412,4 +412,32 @@ foreach($assignments as $a){
     }
 }
 
+
+/* Admin-Eskalation für kritische und überfällige Fristen. */
+if(setting_value('admin_escalation_email_enabled','0')==='1'){
+    foreach(collect_admin_deadlines() as $deadline){
+        $level=$deadline['escalation_level']??'normal';
+        if(!in_array($level,['critical','overdue'],true)) continue;
+
+        $due=(string)$deadline['due_at'];
+        $type=(string)($deadline['deadline_type']??'deadline');
+        $entity=(int)($deadline['entity_id']??0);
+        $orderNo=(string)($deadline['order_no']??'');
+        $label=(string)($deadline['deadline_label']??'Frist');
+        $details=(string)($deadline['details']??'');
+        $levelText=$level==='overdue'?'überfällig':'kritisch';
+        $link=$orderNo!==''?'/admin/auftrag/'.$orderNo.'/fristen':'/admin/einzelangebote';
+        $dedupe='admin-escalation-'.$type.'-'.$entity.'-'.$level.'-'.substr(hash('sha256',$due),0,12);
+
+        notify_admin(
+            'deadline.'.$level,
+            'Frist '.$levelText.($orderNo!==''?' · '.$orderNo:''),
+            $label.' ist '.$levelText.'. Fällig: '.date('d.m.Y H:i',strtotime($due)).($details!==''?' · '.$details:''),
+            $link,
+            $dedupe,
+            true
+        );
+    }
+}
+
 echo '['.date('c')."] cron ok\n";
