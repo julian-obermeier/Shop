@@ -122,11 +122,12 @@ if (preg_match('#^/datei/(\d+)$#',$path,$m)&&$method==='GET') {
 }
 if (preg_match('#^/auftrag/(\d{8})/chat$#',$path,$m)&&$method==='GET') {
     $s=require_seller();$st=db()->prepare("SELECT o.*,f.title FROM orders o JOIN offers f ON f.id=o.offer_id WHERE o.order_no=? AND o.seller_id=?");$st->execute([$m[1],$s['id']]);$o=$st->fetch();if(!$o)not_found();
-    $q=db()->prepare("SELECT * FROM chat_messages WHERE order_id=? ORDER BY created_at");$q->execute([$o['id']]);$messages=$q->fetchAll();$locked=in_array($o['status'],['archived'],true);
+    $q=db()->prepare("SELECT * FROM chat_messages WHERE order_id=? ORDER BY created_at");$q->execute([$o['id']]);$messages=$q->fetchAll();$locked=!empty($o['archived_at']);
     ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Auftrag <?=e($o['order_no'])?></div><h1>Auftragschat</h1></div><a class="btn secondary" href="<?=e(url('/auftrag/'.$o['order_no']))?>">Zum Auftrag</a></div><div class="timeline"><?php foreach($messages as $msg):?><div><strong><?=e($msg['sender_type']==='seller'?'Du':($msg['sender_type']==='admin'?'Admin':'System'))?></strong><div><?=nl2br(e($msg['message']))?></div><small class="meta"><?=e(date('d.m.Y H:i',strtotime($msg['created_at'])))?></small></div><?php endforeach;?></div><?php if(!$locked):?><form class="panel" method="post"><?=csrf_field()?><label>Nachricht<textarea name="message" required></textarea></label><button class="btn">Senden</button></form><?php endif;?><?php render('Auftragschat',ob_get_clean());exit;
 }
 if (preg_match('#^/auftrag/(\d{8})/chat$#',$path,$m)&&$method==='POST') {
     $s=require_seller();$st=db()->prepare("SELECT * FROM orders WHERE order_no=? AND seller_id=?");$st->execute([$m[1],$s['id']]);$o=$st->fetch();if(!$o)not_found();
+    if(!empty($o['archived_at'])){flash('error','Der archivierte Auftrag ist schreibgeschützt.');redirect('/auftrag/'.$o['order_no'].'/chat');}
     $msg=post('message');if($msg!=='')db()->prepare("INSERT INTO chat_messages(order_id,sender_type,sender_id,message) VALUES(?,'seller',?,?)")->execute([$o['id'],$s['id'],$msg]);redirect('/auftrag/'.$o['order_no'].'/chat');
 }
 if (preg_match('#^/auftrag/(\d{8})/tagesnachweis$#',$path,$m)&&$method==='POST') {
@@ -145,23 +146,31 @@ if ($path==='/admin/verkaeuferinnen'&&$method==='GET') {
     require_admin();$rows=db()->query("SELECT s.*,COUNT(o.id) orders_count FROM sellers s LEFT JOIN orders o ON o.seller_id=s.id WHERE s.deleted_at IS NULL GROUP BY s.id ORDER BY s.created_at DESC")->fetchAll();
     ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Administration</div><h1>Verkäuferinnen</h1></div></div><div class="table-wrap"><table><thead><tr><th>Name</th><th>E-Mail</th><th>Verifiziert</th><th>Aufträge</th><th></th></tr></thead><tbody><?php foreach($rows as $r):?><tr><td><?=e($r['first_name'].' '.$r['last_name'])?></td><td><?=e($r['email'])?></td><td><?=$r['email_verified_at']?'Ja':'Nein'?></td><td><?=e($r['orders_count'])?></td><td><a href="<?=e(url('/admin/verkaeuferin/'.$r['id']))?>">Akte</a></td></tr><?php endforeach;?></tbody></table></div><?php render('Verkäuferinnen',ob_get_clean());exit;
 }
-if (preg_match('#^/admin/verkaeuferin/(\d+)$#',$path,$m)&&$method==='GET') {
-    require_admin();$st=db()->prepare("SELECT * FROM sellers WHERE id=?");$st->execute([(int)$m[1]]);$s=$st->fetch();if(!$s)not_found();$o=db()->prepare("SELECT o.*,f.title FROM orders o JOIN offers f ON f.id=o.offer_id WHERE o.seller_id=? ORDER BY o.created_at DESC");$o->execute([$s['id']]);$orders=$o->fetchAll();
-    ob_start();?><div class="eyebrow">Verkäuferinnenakte</div><h1><?=e($s['first_name'].' '.$s['last_name'])?></h1><div class="grid two"><div class="card"><h2>Stammdaten</h2><p><?=e($s['email'])?><br><?=e($s['phone'])?><br><?=e($s['street'])?><br><?=e($s['postal_code'].' '.$s['city'])?><br>Geboren: <?=e(date('d.m.Y',strtotime($s['birth_date'])))?></p></div><div class="card"><h2>Status</h2><p>E-Mail: <?=$s['email_verified_at']?'bestätigt':'offen'?><br>Registriert: <?=e(date('d.m.Y H:i',strtotime($s['created_at'])))?></p></div></div><h2>Aufträge</h2><div class="table-wrap"><table><tbody><?php foreach($orders as $x):?><tr><td><?=e($x['order_no'])?></td><td><?=e($x['title'])?></td><td><?=e($x['status'])?></td><td><a href="<?=e(url('/admin/auftrag/'.$x['order_no']))?>">Öffnen</a></td></tr><?php endforeach;?></tbody></table></div><?php render('Verkäuferinnenakte',ob_get_clean());exit;
-}
-if ($path==='/admin/auszahlungen'&&$method==='GET') {
-    require_admin();$rows=db()->query("SELECT p.*,CONCAT(s.first_name,' ',s.last_name) seller_name,s.email FROM payout_requests p JOIN sellers s ON s.id=p.seller_id ORDER BY p.created_at DESC")->fetchAll();
-    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Administration</div><h1>Auszahlungen</h1></div></div><div class="table-wrap"><table><thead><tr><th>Verkäuferin</th><th>Betrag</th><th>Netto</th><th>Methode</th><th>Status</th><th>Aktion</th></tr></thead><tbody><?php foreach($rows as $r):?><tr><td><?=e($r['seller_name'])?></td><td><?=money($r['amount'])?></td><td><?=money($r['net_amount'])?></td><td><?=e($r['method'])?></td><td><?=e($r['status'])?></td><td><?php if(!in_array($r['status'],['paid','withdrawn','rejected'],true)):?><form method="post" action="<?=e(url('/admin/auszahlung/'.$r['id'].'/bezahlt'))?>"><?=csrf_field()?><button class="btn">Als bezahlt markieren</button></form><?php endif;?></td></tr><?php endforeach;?></tbody></table></div><?php render('Auszahlungen',ob_get_clean());exit;
-}
 if (preg_match('#^/admin/auszahlung/(\d+)/bezahlt$#',$path,$m)&&$method==='POST') {
-    require_admin();$st=db()->prepare("SELECT * FROM payout_requests WHERE id=?");$st->execute([(int)$m[1]]);$r=$st->fetch();if(!$r)not_found();if($r['status']!=='paid'){db()->beginTransaction();try{db()->prepare("UPDATE payout_requests SET status='paid',updated_at=NOW() WHERE id=?")->execute([$r['id']]);db()->prepare("INSERT INTO wallet_entries(seller_id,entry_type,amount,description) VALUES(?,'paid',?,'Auszahlung')")->execute([$r['seller_id'],$r['amount']]);db()->commit();}catch(Throwable $e){db()->rollBack();throw $e;}}flash('success','Auszahlung als bezahlt markiert.');redirect('/admin/auszahlungen');
+    require_admin();
+    $st=db()->prepare("SELECT * FROM payout_requests WHERE id=?");$st->execute([(int)$m[1]]);$r=$st->fetch();if(!$r)not_found();
+    if($r['status']!=='paid'){
+        db()->beginTransaction();
+        try{
+            db()->prepare("UPDATE payout_requests SET status='paid',updated_at=NOW() WHERE id=?")->execute([$r['id']]);
+            db()->prepare("INSERT INTO wallet_entries(seller_id,entry_type,amount,description) VALUES(?,'paid',?,'Auszahlung')")->execute([$r['seller_id'],$r['amount']]);
+            db()->commit();
+        }catch(Throwable $e){db()->rollBack();throw $e;}
+        $bal=db()->prepare("SELECT COALESCE(SUM(CASE WHEN entry_type='available' THEN amount WHEN entry_type='paid' THEN -amount ELSE 0 END),0) FROM wallet_entries WHERE seller_id=?");
+        $bal->execute([$r['seller_id']]);$remaining=(float)$bal->fetchColumn();
+        if($remaining<=0.00001){
+            db()->prepare("UPDATE orders SET archived_at=COALESCE(archived_at,NOW()),updated_at=NOW() WHERE seller_id=? AND status='completed' AND archived_at IS NULL")->execute([$r['seller_id']]);
+        }
+        notify_seller((int)$r['seller_id'],'payout.paid','Auszahlung abgeschlossen','Deine Auszahlung über '.money($r['net_amount']).' wurde als ausgezahlt markiert.','/wallet',null,true);
+    }
+    flash('success','Auszahlung als bezahlt markiert.');redirect('/admin/auszahlungen');
 }
 if (preg_match('#^/admin/auftrag/(\d{8})/chat$#',$path,$m)&&$method==='GET') {
-    require_admin();$st=db()->prepare("SELECT o.*,f.title FROM orders o JOIN offers f ON f.id=o.offer_id WHERE o.order_no=?");$st->execute([$m[1]]);$o=$st->fetch();if(!$o)not_found();$q=db()->prepare("SELECT * FROM chat_messages WHERE order_id=? ORDER BY created_at");$q->execute([$o['id']]);$messages=$q->fetchAll();
-    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Admin · <?=e($o['order_no'])?></div><h1>Auftragschat</h1></div><a class="btn secondary" href="<?=e(url('/admin/auftrag/'.$o['order_no']))?>">Zurück</a></div><div class="timeline"><?php foreach($messages as $msg):?><div><strong><?=e($msg['sender_type'])?></strong><div><?=nl2br(e($msg['message']))?></div><small class="meta"><?=e(date('d.m.Y H:i',strtotime($msg['created_at'])))?></small></div><?php endforeach;?></div><form class="panel" method="post"><?=csrf_field()?><textarea name="message" required></textarea><button class="btn">Senden</button></form><?php render('Admin Chat',ob_get_clean());exit;
+    require_admin();$st=db()->prepare("SELECT o.*,f.title FROM orders o JOIN offers f ON f.id=o.offer_id WHERE o.order_no=?");$st->execute([$m[1]]);$o=$st->fetch();if(!$o)not_found();$q=db()->prepare("SELECT * FROM chat_messages WHERE order_id=? ORDER BY created_at");$q->execute([$o['id']]);$messages=$q->fetchAll();$locked=!empty($o['archived_at']);
+    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Admin · <?=e($o['order_no'])?></div><h1>Auftragschat</h1></div><a class="btn secondary" href="<?=e(url('/admin/auftrag/'.$o['order_no']))?>">Zurück</a></div><div class="timeline"><?php foreach($messages as $msg):?><div><strong><?=e($msg['sender_type'])?></strong><div><?=nl2br(e($msg['message']))?></div><small class="meta"><?=e(date('d.m.Y H:i',strtotime($msg['created_at'])))?></small></div><?php endforeach;?></div><?php if(!$locked):?><form class="panel" method="post"><?=csrf_field()?><textarea name="message" required></textarea><button class="btn">Senden</button></form><?php else:?><div class="panel"><strong>Archiviert – Chat ist schreibgeschützt.</strong></div><?php endif;?><?php render('Admin Chat',ob_get_clean());exit;
 }
 if (preg_match('#^/admin/auftrag/(\d{8})/chat$#',$path,$m)&&$method==='POST') {
-    $a=require_admin();$st=db()->prepare("SELECT * FROM orders WHERE order_no=?");$st->execute([$m[1]]);$o=$st->fetch();if(!$o)not_found();$msg=post('message');if($msg!=='')db()->prepare("INSERT INTO chat_messages(order_id,sender_type,sender_id,message) VALUES(?,'admin',?,?)")->execute([$o['id'],$a['id'],$msg]);redirect('/admin/auftrag/'.$o['order_no'].'/chat');
+    $a=require_admin();$st=db()->prepare("SELECT * FROM orders WHERE order_no=?");$st->execute([$m[1]]);$o=$st->fetch();if(!$o)not_found();if(!empty($o['archived_at'])){flash('error','Der archivierte Auftrag ist schreibgeschützt.');redirect('/admin/auftrag/'.$o['order_no'].'/chat');}$msg=post('message');if($msg!=='')db()->prepare("INSERT INTO chat_messages(order_id,sender_type,sender_id,message) VALUES(?,'admin',?,?)")->execute([$o['id'],$a['id'],$msg]);redirect('/admin/auftrag/'.$o['order_no'].'/chat');
 }
 if (preg_match('#^/admin/auftrag/(\d{8})/zusatztag$#',$path,$m)&&$method==='POST') {
     require_admin();$st=db()->prepare("SELECT * FROM orders WHERE order_no=?");$st->execute([$m[1]]);$o=$st->fetch();if(!$o)not_found();$paid=($_POST['paid']??'')==='1';$amount=$paid?(float)post('amount'):0;
