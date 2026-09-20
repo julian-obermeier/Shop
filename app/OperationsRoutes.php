@@ -289,3 +289,85 @@ if (preg_match('#^/admin/digital-version/(\d+)/pruefen$#',$path,$m) && $method==
     notify_seller((int)$d['seller_id'],'digital.review','Digitale Version geprüft','Version V'.$d['version_no'].' wurde als „'.$labels[$decision].'“ bewertet.'.($note!==''?' '.$note:''),'/auftrag/'.$d['order_no'].'/digital',null,true);
     flash('success','Digitale Version wurde bewertet.');redirect('/admin/auftrag/'.$d['order_no']);
 }
+
+
+if (preg_match('#^/auftrag/(\d{8})/startdatum$#',$path,$m) && $method==='POST') {
+    $s=require_seller();
+    $q=db()->prepare("SELECT * FROM orders WHERE order_no=? AND seller_id=? AND status='precheck'");
+    $q->execute([$m[1],$s['id']]);$o=$q->fetch();if(!$o)not_found();
+    if(!empty($o['planned_start_date'])){flash('error','Ein Startdatum ist bereits festgelegt. Änderungen müssen beantragt werden.');redirect('/auftrag/'.$o['order_no']);}
+
+    $date=post('start_date');
+    $tz=new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'));
+    $min=(new DateTimeImmutable('today',$tz))->modify('+1 day');
+    try{$requested=new DateTimeImmutable($date.' 00:00:00',$tz);}catch(Throwable){$requested=false;}
+    if(!$requested || $requested<$min){flash('error','Das erste Startdatum muss frühestens morgen liegen.');redirect('/auftrag/'.$o['order_no']);}
+
+    db()->prepare("UPDATE orders SET planned_start_date=?,updated_at=NOW() WHERE id=?")->execute([$requested->format('Y-m-d'),$o['id']]);
+    db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")
+      ->execute([$o['id'],'Startdatum festgelegt: '.$requested->format('d.m.Y').'.']);
+    log_event('start_date.selected',(int)$s['id'],(int)$o['id'],['date'=>$requested->format('Y-m-d')]);
+    flash('success','Startdatum wurde auf '.$requested->format('d.m.Y').' festgelegt.');
+    redirect('/auftrag/'.$o['order_no']);
+}
+
+if (preg_match('#^/auftrag/(\d{8})/startdatum-aendern$#',$path,$m) && $method==='POST') {
+    $s=require_seller();
+    $q=db()->prepare("SELECT * FROM orders WHERE order_no=? AND seller_id=? AND status='precheck'");
+    $q->execute([$m[1],$s['id']]);$o=$q->fetch();if(!$o)not_found();
+    if(empty($o['planned_start_date'])){flash('error','Lege zuerst ein Startdatum fest.');redirect('/auftrag/'.$o['order_no']);}
+
+    $open=db()->prepare("SELECT COUNT(*) FROM order_start_date_requests WHERE order_id=? AND status='pending'");
+    $open->execute([$o['id']]);if((int)$open->fetchColumn()>0){flash('error','Es liegt bereits eine offene Startdatumsänderung vor.');redirect('/auftrag/'.$o['order_no']);}
+
+    $date=post('requested_date');$reason=post('reason');
+    $tz=new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'));
+    $min=(new DateTimeImmutable('today',$tz))->modify('+1 day');
+    try{$requested=new DateTimeImmutable($date.' 00:00:00',$tz);}catch(Throwable){$requested=false;}
+    if(!$requested || $requested<$min || $reason===''){flash('error','Bitte wähle ein zukünftiges Datum ab morgen und gib einen Grund an.');redirect('/auftrag/'.$o['order_no']);}
+    if($requested->format('Y-m-d')===$o['planned_start_date']){flash('error','Das gewünschte Datum entspricht bereits dem aktuellen Startdatum.');redirect('/auftrag/'.$o['order_no']);}
+
+    db()->prepare("INSERT INTO order_start_date_requests(order_id,requested_date,reason) VALUES(?,?,?)")
+      ->execute([$o['id'],$requested->format('Y-m-d'),$reason]);
+    db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")
+      ->execute([$o['id'],'Änderung des Startdatums auf '.$requested->format('d.m.Y').' beantragt.']);
+    log_event('start_date.change_requested',(int)$s['id'],(int)$o['id'],['requested_date'=>$requested->format('Y-m-d'),'reason'=>$reason]);
+    flash('success','Änderung des Startdatums wurde zur Freigabe eingereicht.');
+    redirect('/auftrag/'.$o['order_no']);
+}
+
+if (preg_match('#^/admin/startdatum/(\d+)/(genehmigen|ablehnen)$#',$path,$m) && $method==='POST') {
+    $a=require_admin();
+    $q=db()->prepare("SELECT r.*,o.order_no,o.seller_id,o.status,o.planned_start_date FROM order_start_date_requests r JOIN orders o ON o.id=r.order_id WHERE r.id=?");
+    $q->execute([(int)$m[1]]);$r=$q->fetch();if(!$r)not_found();
+    if($r['status']!=='pending'){flash('error','Diese Anfrage wurde bereits bearbeitet.');redirect('/admin/auftrag/'.$r['order_no']);}
+    if($r['status']==='running'){flash('error','Ein laufender Auftrag kann nicht mehr verschoben werden.');redirect('/admin/auftrag/'.$r['order_no']);}
+
+    $note=post('admin_note');
+    if($m[2]==='genehmigen'){
+        $tz=new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'));
+        $min=(new DateTimeImmutable('today',$tz))->modify('+1 day');
+        $requested=new DateTimeImmutable($r['requested_date'].' 00:00:00',$tz);
+        if($requested<$min){flash('error','Das beantragte Datum liegt inzwischen zu früh. Bitte eine neue Anfrage stellen lassen.');redirect('/admin/auftrag/'.$r['order_no']);}
+
+        db()->beginTransaction();
+        try{
+          db()->prepare("UPDATE order_start_date_requests SET status='approved',decided_at=NOW(),admin_note=? WHERE id=?")->execute([$note?:null,$r['id']]);
+          db()->prepare("UPDATE orders SET planned_start_date=?,updated_at=NOW() WHERE id=?")->execute([$r['requested_date'],$r['order_id']]);
+          db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")
+            ->execute([$r['order_id'],'Startdatumsänderung genehmigt. Neues Startdatum: '.date('d.m.Y',strtotime($r['requested_date'])).'.']);
+          log_event('start_date.change_approved',(int)$r['seller_id'],(int)$r['order_id'],['request_id'=>(int)$r['id'],'date'=>$r['requested_date'],'admin_id'=>(int)$a['id']]);
+          db()->commit();
+        }catch(Throwable $e){db()->rollBack();throw $e;}
+        notify_seller((int)$r['seller_id'],'start_date.approved','Startdatum geändert','Das neue Startdatum für Auftrag '.$r['order_no'].' ist der '.date('d.m.Y',strtotime($r['requested_date'])).'.','/auftrag/'.$r['order_no'],null,true);
+        flash('success','Startdatumsänderung genehmigt.');
+    }else{
+        db()->prepare("UPDATE order_start_date_requests SET status='rejected',decided_at=NOW(),admin_note=? WHERE id=?")->execute([$note?:null,$r['id']]);
+        db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")
+          ->execute([$r['order_id'],'Startdatumsänderung abgelehnt. Das bisherige Startdatum bleibt bestehen.']);
+        log_event('start_date.change_rejected',(int)$r['seller_id'],(int)$r['order_id'],['request_id'=>(int)$r['id'],'admin_id'=>(int)$a['id'],'note'=>$note]);
+        notify_seller((int)$r['seller_id'],'start_date.rejected','Startdatumsänderung abgelehnt','Das bisherige Startdatum für Auftrag '.$r['order_no'].' bleibt bestehen.','/auftrag/'.$r['order_no'],null,true);
+        flash('success','Startdatumsänderung abgelehnt.');
+    }
+    redirect('/admin/auftrag/'.$r['order_no']);
+}
