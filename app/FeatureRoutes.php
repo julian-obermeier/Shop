@@ -1955,10 +1955,10 @@ if (preg_match('#^/individuelle-angebote/(\d+)/(annehmen|ablehnen)$#',$path,$m) 
           ->execute([$oid,$s['id'],$a['current_version'],json_encode($confirmationPayload,JSON_UNESCAPED_UNICODE)]);
         db()->prepare("INSERT INTO order_runs(order_id,run_no,status,started_at) VALUES(?,1,?,?)")->execute([$oid,$pureDigital?'running':'precheck',$startedAt]);
         snapshot_order_components($oid,$a);
-        foreach($selectedOptions as $opt)db()->prepare("INSERT INTO order_options(order_id,offer_option_id,label_snapshot,price_snapshot) VALUES(?,?,?,?)")->execute([$oid,$opt['id'],$opt['label'],$opt['price']]);
+        foreach($selectedOptions as $opt)db()->prepare("INSERT INTO order_options(order_id,offer_option_id,label_snapshot,price_snapshot,requirements_snapshot_json) VALUES(?,?,?,?,?)")->execute([$oid,$opt['id'],$opt['label'],$opt['price'],$opt['requirements_json']??null]);
         if($pureDigital)db()->prepare("UPDATE order_components SET status='execution',updated_at=NOW() WHERE order_id=? AND component_type='digital'")->execute([$oid]);
         snapshot_offer_task_plans((int)$a['offer_id'],$oid);
-        if($pureDigital)instantiate_planned_order_tasks($oid);
+        if($pureDigital){instantiate_planned_order_tasks($oid);sync_option_requirement_tasks($oid);}
         db()->prepare("INSERT INTO wallet_entries(seller_id,order_id,entry_type,amount,description) VALUES(?,?,'reserved',?,'Individueller Auftragswert vorgemerkt')")->execute([$s['id'],$oid,$total]);
         if($hasDigital){
             db()->prepare("INSERT INTO rights_acceptances(order_id,seller_id,terms_version,payload_json) VALUES(?,?,?,?)")
@@ -2015,8 +2015,8 @@ if (preg_match('#^/auftrag/(\d{8})/optionen$#',$path,$m) && $method==='POST') {
     try{
         db()->prepare("DELETE FROM order_options WHERE order_id=?")->execute([$o['id']]);
         foreach($selected as $opt){
-            db()->prepare("INSERT INTO order_options(order_id,offer_option_id,label_snapshot,price_snapshot) VALUES(?,?,?,?)")
-              ->execute([$o['id'],$opt['id'],$opt['label'],$opt['price']]);
+            db()->prepare("INSERT INTO order_options(order_id,offer_option_id,label_snapshot,price_snapshot,requirements_snapshot_json) VALUES(?,?,?,?,?)")
+              ->execute([$o['id'],$opt['id'],$opt['label'],$opt['price'],$opt['requirements_json']??null]);
         }
         if(abs($delta)>0.0001){
             db()->prepare("UPDATE orders SET total_compensation=total_compensation+?,updated_at=NOW() WHERE id=?")->execute([$delta,$o['id']]);
