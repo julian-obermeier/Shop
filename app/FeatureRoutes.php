@@ -30,6 +30,8 @@ if ($path==='/profil' && $method==='GET') {
         <label>IBAN<input name="iban" value="<?=e($pay['iban']??'')?>"></label>
         <label>BIC (optional)<input name="bic" value="<?=e($pay['bic']??'')?>"></label>
         <label>PayPal E-Mail/Benutzerkennung<input name="paypal" value="<?=e($pay['paypal']??'')?>"></label>
+        <label>Bevorzugte Methode<select name="preferred_method"><option value="">Keine Vorgabe</option><option value="bank" <?=($pay['preferred_method']??'')==='bank'?'selected':''?>>Banküberweisung</option><option value="paypal" <?=($pay['preferred_method']??'')==='paypal'?'selected':''?>>PayPal</option></select></label>
+        <p class="meta">Die bevorzugte Methode wird bei neuen Auszahlungsanträgen vorausgewählt. Du kannst sie bei jedem Antrag ändern.</p>
         <button class="btn">Auszahlungsdaten speichern</button>
       </form>
     </div>
@@ -45,8 +47,9 @@ if ($path==='/profil' && $method==='POST') {
 }
 if ($path==='/profil/auszahlung' && $method==='POST') {
     $s=require_seller();
-    db()->prepare("INSERT INTO payout_profiles(seller_id,iban,bic,account_holder,paypal) VALUES(?,?,?,?,?) ON DUPLICATE KEY UPDATE iban=VALUES(iban),bic=VALUES(bic),account_holder=VALUES(account_holder),paypal=VALUES(paypal)")
-      ->execute([$s['id'],post('iban'),post('bic'),post('account_holder'),post('paypal')]);
+    $preferred=in_array(post('preferred_method'),['bank','paypal'],true)?post('preferred_method'):null;
+    db()->prepare("INSERT INTO payout_profiles(seller_id,iban,bic,account_holder,paypal,preferred_method) VALUES(?,?,?,?,?,?) ON DUPLICATE KEY UPDATE iban=VALUES(iban),bic=VALUES(bic),account_holder=VALUES(account_holder),paypal=VALUES(paypal),preferred_method=VALUES(preferred_method)")
+      ->execute([$s['id'],post('iban'),post('bic'),post('account_holder'),post('paypal'),$preferred]);
     flash('success','Auszahlungsdaten gespeichert. Bestehende Anträge behalten ihren bisherigen Snapshot.');redirect('/profil');
 }
 if ($path==='/wallet' && $method==='GET') {
@@ -144,7 +147,7 @@ if ($path==='/wallet' && $method==='GET') {
     <form class="panel" method="post" action="<?=e(url('/wallet/auszahlung'))?>" id="payout-request-form"><?=csrf_field()?>
       <div class="form-grid">
         <label>Betrag (€)<input id="payout-amount" type="number" name="amount" step=".01" min="<?=e((string)$minimum)?>" max="<?=e((string)max(0,$available))?>" required></label>
-        <label>Methode<select id="payout-method" name="method"><?php if($bankEnabled):?><option value="bank">Banküberweisung · Gebühr <?=e($feeLabel('bank'))?></option><?php endif;?><?php if($paypalEnabled):?><option value="paypal">PayPal · Gebühr <?=e($feeLabel('paypal'))?></option><?php endif;?></select></label>
+        <label>Methode<select id="payout-method" name="method"><?php if($bankEnabled):?><option value="bank" <?=($profile['preferred_method']??'')==='bank'?'selected':''?>>Banküberweisung · Gebühr <?=e($feeLabel('bank'))?></option><?php endif;?><?php if($paypalEnabled):?><option value="paypal" <?=($profile['preferred_method']??'')==='paypal'?'selected':''?>>PayPal · Gebühr <?=e($feeLabel('paypal'))?></option><?php endif;?></select></label>
       </div>
       <div class="card" id="payout-preview"><strong>Auszahlungsvorschau</strong><p class="meta">Betrag eingeben, um Gebühr, Nettobetrag und verbleibenden Wallet-Saldo zu sehen.</p></div>
       <p class="meta">Mindestauszahlung: <?=money($minimum)?> · Bearbeitungstage: <?=e($processingLabel)?><?php if($nextProcessing):?> · nächster vorgesehener Termin: <?=e($nextProcessing->format('d.m.Y'))?><?php endif;?>. Es ist nur ein offener Auszahlungsantrag gleichzeitig möglich. Zahlungsdaten und Bearbeitungstermin werden bei Antragstellung als Snapshot gespeichert.</p>
