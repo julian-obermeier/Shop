@@ -379,41 +379,64 @@ function create_order_schedule(int $orderId): void {
     schedule_order_days($orderId);
 }
 
-function try_start_order_after_precheck(int $orderId): bool {
-    $q = db()->prepare(
-        "SELECT o.status,o.seller_id,o.order_no,o.offer_id,f.evidence_rules_json
-         FROM orders o JOIN offers f ON f.id=o.offer_id WHERE o.id=?"
-    );
+function start_order_on_planned_date(int $orderId, ?DateTimeImmutable $now = null): bool {
+    $tz = new DateTimeZone((string)app_config('app.timezone', 'Europe/Berlin'));
+    $now = ($now ?? new DateTimeImmutable('now', $tz))->setTimezone($tz);
+
+    $q = db()->prepare("SELECT * FROM orders WHERE id=?");
     $q->execute([$orderId]);
     $order = $q->fetch();
-    if (!$order || $order['status'] !== 'precheck') return false;
-
-    $rules = offer_evidence_rules($order);
-    $required = (int)$rules['precheck_required_count'];
-    $q = db()->prepare(
-        "SELECT COUNT(*) total,
-                SUM(status='accepted') accepted_count,
-                SUM(status='submitted') pending_count,
-                SUM(status='rejected') rejected_count
-         FROM evidences WHERE order_id=? AND evidence_type='precheck'"
-    );
-    $q->execute([$orderId]);
-    $stats = $q->fetch() ?: [];
     if (
-        (int)($stats['total'] ?? 0) < $required ||
-        (int)($stats['accepted_count'] ?? 0) < $required ||
-        (int)($stats['pending_count'] ?? 0) > 0 ||
-        (int)($stats['rejected_count'] ?? 0) > 0
+        !$order ||
+        $order['status'] !== 'precheck' ||
+        empty($order['precheck_approved_at']) ||
+        empty($order['planned_start_date'])
     ) return false;
 
-    $started = new DateTimeImmutable('now', new DateTimeZone((string)app_config('app.timezone', 'Europe/Berlin')));
-    db()->prepare("UPDATE orders SET status='running',started_at=?,updated_at=NOW() WHERE id=? AND status='precheck'")
-        ->execute([$started->format('Y-m-d H:i:s'), $orderId]);
-    db()->prepare("UPDATE order_runs SET status='running',started_at=COALESCE(started_at,?) WHERE id=?")
-        ->execute([$started->format('Y-m-d H:i:s'), current_run_id($orderId)]);
-    schedule_order_days($orderId, $started);
-    schedule_existing_extra_days($orderId);
+    $planned = new DateTimeImmutable($order['planned_start_date'].' 00:00:00', $tz);
+    if ($planned > $now) return false;
+
+    $pdo = db();
+    $pdo->beginTransaction();
+    try {
+        $u = $pdo->prepare("UPDATE orders SET status='running',started_at=?,updated_at=NOW() WHERE id=? AND status='precheck' AND precheck_approved_at IS NOT NULL");
+        $u->execute([$planned->format('Y-m-d H:i:s'), $orderId]);
+        if ($u->rowCount() < 1) {
+            $pdo->rollBack();
+            return false;
+        }
+
+        $runId = current_run_id($orderId);
+        if ($runId) {
+            $pdo->prepare("UPDATE order_runs SET status='running',started_at=COALESCE(started_at,?) WHERE id=?")
+                ->execute([$planned->format('Y-m-d H:i:s'), $runId]);
+        }
+
+        schedule_order_days($orderId, $planned);
+        schedule_existing_extra_days($orderId);
+        $pdo->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")
+            ->execute([$orderId,'Der vereinbarte Starttag ist erreicht. Der Auftrag wurde automatisch gestartet.']);
+        log_event('order.started',(int)$order['seller_id'],$orderId,['planned_start_date'=>$order['planned_start_date'],'started_at'=>$planned->format(DATE_ATOM)]);
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+
+    notify_seller(
+        (int)$order['seller_id'],
+        'order.started',
+        'Auftrag gestartet',
+        'Auftrag '.$order['order_no'].' ist am vereinbarten Startdatum gestartet.',
+        '/auftrag/'.$order['order_no'],
+        'order-started-'.$orderId,
+        true
+    );
     return true;
+}
+
+function try_start_order_after_precheck(int $orderId): bool {
+    return start_order_on_planned_date($orderId);
 }
 
 function append_order_day(int $orderId, string $dayType, ?string $sourceRef = null): ?int {
