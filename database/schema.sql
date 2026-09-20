@@ -189,6 +189,8 @@ CREATE TABLE IF NOT EXISTS evidences (
  file_size BIGINT UNSIGNED NOT NULL,
  sha256 CHAR(64) NOT NULL,
  status ENUM('submitted','accepted','rejected') NOT NULL DEFAULT 'submitted',
+ reference_type VARCHAR(60) NULL,
+ reference_id BIGINT UNSIGNED NULL,
  rejection_reason TEXT NULL,
  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
  reviewed_at DATETIME NULL,
