@@ -43,6 +43,15 @@ function offer_component_definitions(array|int $offer): array {
     return $components;
 }
 
+function offer_is_pure_digital(array|int $offer): bool {
+    $components=offer_component_definitions($offer);
+    if(!$components) return false;
+    foreach($components as $component){
+        if(($component['component_type']??'physical')!=='digital') return false;
+    }
+    return true;
+}
+
 function offer_component_extra_total(array|int $offer): float {
     $total=0.0;
     foreach(offer_component_definitions($offer) as $component){
