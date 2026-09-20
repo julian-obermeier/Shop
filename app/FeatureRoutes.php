@@ -116,11 +116,21 @@ if (preg_match('#^/wallet/auszahlung/(\d+)/zurueckziehen$#',$path,$m)&&$method==
     $s=require_seller();db()->prepare("UPDATE payout_requests SET status='withdrawn',updated_at=NOW() WHERE id=? AND seller_id=? AND status='requested'")->execute([(int)$m[1],$s['id']]);flash('success','Auszahlungsantrag zurückgezogen.');redirect('/wallet');
 }
 if (preg_match('#^/datei/(\d+)$#',$path,$m)&&$method==='GET') {
-    $ev=db()->prepare("SELECT e.*,o.seller_id,o.status order_status FROM evidences e JOIN orders o ON o.id=e.order_id WHERE e.id=?");$ev->execute([(int)$m[1]]);$f=$ev->fetch();if(!$f)not_found();
-    $allow=false;if(admin())$allow=true;elseif(($s=seller())&&(int)$s['id']===(int)$f['seller_id']&&$f['order_status']!=='rejected')$allow=true;
+    $ev=db()->prepare("SELECT e.*,o.seller_id,o.status order_status FROM evidences e JOIN orders o ON o.id=e.order_id WHERE e.id=?");
+    $ev->execute([(int)$m[1]]);$file=$ev->fetch();if(!$file)not_found();
+
+    $allow=false;
+    if(admin()) $allow=true;
+    elseif(($s=seller()) && (int)$s['id']===(int)$file['seller_id'] && $file['order_status']!=='rejected') $allow=true;
     if(!$allow){http_response_code(403);exit('Zugriff verweigert.');}
-    $real=__DIR__.'/../storage/private/'.$f['file_path'];if(!is_file($real))not_found();
-    header('Content-Type: '.$f['mime_type']);header('Content-Length: '.filesize($real));header('X-Content-Type-Options: nosniff');header('Content-Disposition: inline; filename="nachweis-'.$f['id'].'"');readfile($real);exit;
+
+    $relative=ltrim((string)$file['file_path'],'/');
+    if($relative==='' || str_contains($relative,'..') || str_contains($relative,"\0")) not_found();
+    $real=__DIR__.'/../storage/private/'.$relative;
+    $mime=(string)($file['mime_type']?:'application/octet-stream');
+    $range=str_starts_with($mime,'audio/') || str_starts_with($mime,'video/');
+
+    stream_private_media($real,$mime,$range,'nachweis-'.$file['id']);
 }
 if (preg_match('#^/auftrag/(\d{8})/chat$#',$path,$m)&&$method==='GET') {
     $s=require_seller();$st=db()->prepare("SELECT o.*,f.title FROM orders o JOIN offers f ON f.id=o.offer_id WHERE o.order_no=? AND o.seller_id=?");$st->execute([$m[1],$s['id']]);$o=$st->fetch();if(!$o)not_found();
