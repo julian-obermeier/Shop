@@ -225,7 +225,7 @@ if (preg_match('#^/datei/(\d+)$#',$path,$m)&&$method==='GET') {
 
     $allow=false;
     if(admin()) $allow=true;
-    elseif(($s=seller()) && (int)$s['id']===(int)$file['seller_id'] && $file['order_status']!=='rejected') $allow=true;
+    elseif(($s=seller()) && (int)$s['id']===(int)$file['seller_id']) $allow=true;
     if(!$allow){http_response_code(403);exit('Zugriff verweigert.');}
 
     $relative=ltrim((string)$file['file_path'],'/');
