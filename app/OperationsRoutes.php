@@ -738,3 +738,86 @@ if (preg_match('#^/admin/versandadresse/(\d+)/umschalten$#',$path,$m) && $method
     db()->prepare("UPDATE shipping_addresses SET active=IF(active=1,0,1),updated_at=NOW() WHERE id=?")->execute([$row['id']]);
     flash('success','Versandadresse aktualisiert.');redirect('/admin/versandadressen');
 }
+
+
+if (preg_match('#^/admin/angebot/(\d+)/als-vorlage$#',$path,$m) && $method==='POST') {
+    require_admin();
+    $q=db()->prepare("SELECT * FROM offers WHERE id=?");$q->execute([(int)$m[1]]);$offer=$q->fetch();if(!$offer)not_found();
+    $name=post('template_name');if($name===''){flash('error','Bitte einen Namen für die Vorlage angeben.');redirect('/admin/angebot/'.$offer['id']);}
+
+    $q=db()->prepare("SELECT label,price,requirements_json,active FROM offer_options WHERE offer_id=? ORDER BY id");$q->execute([$offer['id']]);$options=$q->fetchAll();
+    $q=db()->prepare("SELECT sort_order,title,instructions,required_photos,requires_text,requires_checkbox,is_dispatch_step,deadline_hours,active FROM offer_shipping_steps WHERE offer_id=? ORDER BY sort_order,id");$q->execute([$offer['id']]);$steps=$q->fetchAll();
+
+    $snapshot=[
+      'offer'=>[
+        'category_id'=>(int)$offer['category_id'],
+        'title'=>$offer['title'],
+        'description'=>$offer['description'],
+        'compensation'=>(float)$offer['compensation'],
+        'duration_days'=>$offer['duration_days']!==null?(int)$offer['duration_days']:null,
+        'fulfillment_type'=>$offer['fulfillment_type'],
+        'evidence_rules_json'=>$offer['evidence_rules_json'],
+        'shipping_rules_json'=>$offer['shipping_rules_json'],
+        'shipping_address_id'=>$offer['shipping_address_id']!==null?(int)$offer['shipping_address_id']:null,
+        'shipping_cost_mode'=>$offer['shipping_cost_mode'],
+        'shipping_allowance'=>(float)$offer['shipping_allowance'],
+        'preferred_carrier'=>$offer['preferred_carrier'],
+      ],
+      'options'=>$options,
+      'shipping_steps'=>$steps,
+      'source_offer_id'=>(int)$offer['id'],
+      'created_at'=>date(DATE_ATOM),
+    ];
+
+    db()->prepare("INSERT INTO offer_templates(name,snapshot_json,active) VALUES(?,?,1)")
+      ->execute([$name,json_encode($snapshot,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES)]);
+    flash('success','Angebotsvorlage „'.$name.'“ gespeichert.');redirect('/admin/angebot/'.$offer['id']);
+}
+
+if ($path==='/admin/angebotsvorlagen' && $method==='GET') {
+    require_admin();
+    $rows=db()->query("SELECT * FROM offer_templates ORDER BY active DESC,name,id DESC")->fetchAll();
+    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Administration</div><h1>Angebotsvorlagen</h1><p class="meta">Vorlagen enthalten Angebotsdaten, Nachweisplan, Versandbedingungen, Zusatzoptionen und den konfigurierten Versand-/Endworkflow.</p></div><a class="btn secondary" href="<?=e(url('/admin/angebote'))?>">Angebote</a></div>
+    <div class="grid"><?php foreach($rows as $r):$snap=json_decode($r['snapshot_json'],true)?:[];$offer=$snap['offer']??[];?><article class="card"><span class="badge"><?=$r['active']?'AKTIV':'INAKTIV'?></span><h3><?=e($r['name'])?></h3><p class="meta">Basis: <?=e($offer['title']??'–')?> · <?=isset($offer['compensation'])?money($offer['compensation']):'–'?></p><div class="actions"><?php if($r['active']):?><form method="post" action="<?=e(url('/admin/angebotsvorlage/'.$r['id'].'/verwenden'))?>"><?=csrf_field()?><button class="btn">Als neuen Entwurf verwenden</button></form><?php endif;?><form method="post" action="<?=e(url('/admin/angebotsvorlage/'.$r['id'].'/umschalten'))?>"><?=csrf_field()?><button class="btn secondary"><?=$r['active']?'Deaktivieren':'Aktivieren'?></button></form></div></article><?php endforeach;?><?php if(!$rows):?><div class="empty">Noch keine Angebotsvorlagen vorhanden. Speichere eine Vorlage aus einem bestehenden Angebot.</div><?php endif;?></div>
+    <?php render('Angebotsvorlagen',ob_get_clean());exit;
+}
+
+if (preg_match('#^/admin/angebotsvorlage/(\d+)/verwenden$#',$path,$m) && $method==='POST') {
+    require_admin();
+    $q=db()->prepare("SELECT * FROM offer_templates WHERE id=? AND active=1");$q->execute([(int)$m[1]]);$tpl=$q->fetch();if(!$tpl)not_found();
+    $snap=json_decode($tpl['snapshot_json'],true)?:[];$o=$snap['offer']??[];
+    if(!$o){flash('error','Die Vorlage enthält keine gültigen Angebotsdaten.');redirect('/admin/angebotsvorlagen');}
+
+    $baseTitle=(string)($o['title']??$tpl['name']);$title=$baseTitle.' – Entwurf';
+    $slug=strtolower(trim(preg_replace('/[^a-z0-9]+/i','-',strtr($baseTitle,['ä'=>'ae','ö'=>'oe','ü'=>'ue','ß'=>'ss'])),'-')).'-'.substr(bin2hex(random_bytes(4)),0,8);
+
+    db()->beginTransaction();
+    try{
+      db()->prepare("INSERT INTO offers(category_id,title,slug,description,compensation,duration_days,fulfillment_type,evidence_rules_json,shipping_rules_json,shipping_address_id,shipping_cost_mode,shipping_allowance,preferred_carrier,status,visibility,current_version) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,'draft','public',1)")
+        ->execute([(int)$o['category_id'],$title,$slug,(string)$o['description'],(float)$o['compensation'],$o['duration_days']??null,(string)$o['fulfillment_type'],$o['evidence_rules_json']??null,$o['shipping_rules_json']??null,$o['shipping_address_id']??null,$o['shipping_cost_mode']??'seller',(float)($o['shipping_allowance']??0),$o['preferred_carrier']??null]);
+      $offerId=(int)db()->lastInsertId();
+
+      $versionSnapshot=$o;$versionSnapshot['title']=$title;$versionSnapshot['status']='draft';$versionSnapshot['template_id']=(int)$tpl['id'];
+      db()->prepare("INSERT INTO offer_versions(offer_id,version_no,snapshot_json) VALUES(?,1,?)")
+        ->execute([$offerId,json_encode($versionSnapshot,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES)]);
+
+      foreach((array)($snap['options']??[]) as $opt){
+        db()->prepare("INSERT INTO offer_options(offer_id,label,price,requirements_json,active) VALUES(?,?,?,?,?)")
+          ->execute([$offerId,$opt['label'],(float)$opt['price'],$opt['requirements_json']??null,(int)($opt['active']??1)]);
+      }
+      foreach((array)($snap['shipping_steps']??[]) as $step){
+        db()->prepare("INSERT INTO offer_shipping_steps(offer_id,sort_order,title,instructions,required_photos,requires_text,requires_checkbox,is_dispatch_step,deadline_hours,active) VALUES(?,?,?,?,?,?,?,?,?,?)")
+          ->execute([$offerId,(int)$step['sort_order'],$step['title'],$step['instructions']??null,(int)$step['required_photos'],(int)$step['requires_text'],(int)$step['requires_checkbox'],(int)$step['is_dispatch_step'],$step['deadline_hours']??null,(int)($step['active']??1)]);
+      }
+      db()->commit();
+    }catch(Throwable $e){db()->rollBack();throw $e;}
+
+    flash('success','Neuer Angebotsentwurf aus Vorlage erstellt.');redirect('/admin/angebot/'.$offerId);
+}
+
+if (preg_match('#^/admin/angebotsvorlage/(\d+)/umschalten$#',$path,$m) && $method==='POST') {
+    require_admin();
+    $q=db()->prepare("SELECT id FROM offer_templates WHERE id=?");$q->execute([(int)$m[1]]);if(!$q->fetchColumn())not_found();
+    db()->prepare("UPDATE offer_templates SET active=IF(active=1,0,1),updated_at=NOW() WHERE id=?")->execute([(int)$m[1]]);
+    flash('success','Vorlagenstatus geändert.');redirect('/admin/angebotsvorlagen');
+}
