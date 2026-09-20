@@ -429,6 +429,7 @@ CREATE TABLE IF NOT EXISTS payout_requests (
  net_amount DECIMAL(10,2) NOT NULL,
  method VARCHAR(40) NOT NULL,
  payment_snapshot_json JSON NOT NULL,
+ scheduled_processing_date DATE NULL,
  status ENUM('requested','review','released','paid','withdrawn','rejected') NOT NULL DEFAULT 'requested',
  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
  updated_at DATETIME NULL,
