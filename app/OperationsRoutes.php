@@ -508,3 +508,49 @@ if (preg_match('#^/admin/verkaeuferin/(\d+)/wallet-korrektur$#',$path,$m) && $me
     flash('success','Wallet korrigiert. Neuer verfügbarer Saldo: '.money($balance).'.');
     redirect('/admin/verkaeuferin/'.$s['id']);
 }
+
+
+if (preg_match('#^/auftrag/(\d{8})/retake/(\d+)$#',$path,$m) && $method==='GET') {
+    $s=require_seller();
+    $q=db()->prepare("SELECT r.*,o.order_no,o.status order_status,f.title,e.evidence_type,e.day_no,e.window_key,e.rejection_reason FROM evidence_retake_requests r JOIN orders o ON o.id=r.order_id JOIN offers f ON f.id=o.offer_id JOIN evidences e ON e.id=r.original_evidence_id WHERE r.id=? AND o.order_no=? AND r.seller_id=?");
+    $q->execute([(int)$m[2],$m[1],$s['id']]);$r=$q->fetch();if(!$r)not_found();
+
+    $replacement=null;
+    if($r['replacement_evidence_id']){
+      $q=db()->prepare("SELECT * FROM evidences WHERE id=?");$q->execute([$r['replacement_evidence_id']]);$replacement=$q->fetch()?:null;
+    }
+    $canUpload=$r['status']==='requested' && strtotime($r['grace_ends_at'])>=time() && empty($replacement);
+
+    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Neuaufnahme · Auftrag <?=e($r['order_no'])?></div><h1><?=e($r['title'])?></h1></div><a class="btn secondary" href="<?=e(url('/auftrag/'.$r['order_no']))?>">Zum Auftrag</a></div>
+    <div class="grid two"><section class="panel"><h2>Anforderung</h2><p><?=nl2br(e($r['instructions']))?></p><p class="meta">Ursprünglicher Nachweis: <?=e($r['evidence_type'])?><?= $r['day_no']?' · Tag '.e($r['day_no']):'' ?><?= $r['window_key']?' · '.e($r['window_key']):'' ?><br>Frist <?=e(date('d.m.Y H:i',strtotime($r['due_at'])))?> · Nachfrist bis <?=e(date('d.m.Y H:i',strtotime($r['grace_ends_at'])))?></p><p><span class="badge"><?=e($r['status'])?></span></p><?php if($r['rejection_reason']):?><p><strong>Beanstandungsgrund:</strong> <?=e($r['rejection_reason'])?></p><?php endif;?></section>
+    <section class="panel"><h2>Neuaufnahme einreichen</h2><?php if($canUpload):?><form method="post" enctype="multipart/form-data"><?=csrf_field()?><label>Live-Aufnahme<input data-camera-input type="file" name="evidence" required></label><button class="btn">Neuaufnahme einreichen</button></form><?php elseif($replacement):?><p>Die Neuaufnahme wurde eingereicht und wartet auf Prüfung.</p><p class="meta">Eingereicht <?=e(date('d.m.Y H:i',strtotime($replacement['created_at'])))?> · Status <?=e($replacement['status'])?></p><?php elseif($r['status']==='missed'):?><p class="meta">Die Frist einschließlich Nachfrist ist abgelaufen.</p><?php else:?><p class="meta">Für diese Anforderung ist aktuell kein weiterer Upload möglich.</p><?php endif;?></section></div>
+    <?php render('Neuaufnahme',ob_get_clean());exit;
+}
+
+if (preg_match('#^/auftrag/(\d{8})/retake/(\d+)$#',$path,$m) && $method==='POST') {
+    $s=require_seller();
+    $q=db()->prepare("SELECT r.*,o.order_no,o.status order_status,e.order_run_id,e.evidence_type,e.day_no,e.window_key FROM evidence_retake_requests r JOIN orders o ON o.id=r.order_id JOIN evidences e ON e.id=r.original_evidence_id WHERE r.id=? AND o.order_no=? AND r.seller_id=?");
+    $q->execute([(int)$m[2],$m[1],$s['id']]);$r=$q->fetch();if(!$r)not_found();
+    if($r['status']!=='requested' || strtotime($r['grace_ends_at'])<time()){flash('error','Diese Neuaufnahme kann nicht mehr eingereicht werden.');redirect('/auftrag/'.$r['order_no'].'/retake/'.$r['id']);}
+
+    $existing=db()->prepare("SELECT COUNT(*) FROM evidences WHERE source_type='retake' AND source_id=?");
+    $existing->execute([$r['id']]);if((int)$existing->fetchColumn()>0){flash('error','Für diese Neuaufnahme wurde bereits eine Datei eingereicht.');redirect('/auftrag/'.$r['order_no'].'/retake/'.$r['id']);}
+
+    try{
+      $up=private_upload($_FILES['evidence']??[],'order-'.$r['order_id'].'/retakes');
+      $late=strtotime($r['due_at'])<time()?1:0;
+      db()->beginTransaction();
+      db()->prepare("INSERT INTO evidences(order_id,order_run_id,seller_id,evidence_type,day_no,window_key,source_type,source_id,file_path,mime_type,file_size,sha256,is_late) VALUES(?,?,?,?,?,?,'retake',?,?,?,?,?,?)")
+        ->execute([$r['order_id'],$r['order_run_id'],$s['id'],$r['evidence_type'],$r['day_no'],$r['window_key'],$r['id'],$up['path'],$up['mime'],$up['size'],$up['sha256'],$late]);
+      $eid=(int)db()->lastInsertId();
+      db()->prepare("UPDATE evidence_retake_requests SET replacement_evidence_id=?,status='uploaded' WHERE id=?")->execute([$eid,$r['id']]);
+      db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system','Angeforderte Neuaufnahme wurde eingereicht und wartet auf Prüfung.')")->execute([$r['order_id']]);
+      db()->commit();
+      log_event('evidence.retake_submitted',(int)$s['id'],(int)$r['order_id'],['retake_id'=>(int)$r['id'],'evidence_id'=>$eid,'late'=>(bool)$late]);
+      flash('success','Neuaufnahme wurde sicher eingereicht.');
+    }catch(Throwable $e){
+      if(db()->inTransaction()) db()->rollBack();
+      flash('error',$e->getMessage());
+    }
+    redirect('/auftrag/'.$r['order_no'].'/retake/'.$r['id']);
+}
