@@ -815,6 +815,7 @@ if ($path==='/benachrichtigungen/alle-gelesen' && $method==='POST') {
 if ($path==='/email-bestaetigung-neu' && $method==='POST') {
     $s=require_seller();
     if($s['email_verified_at']){flash('success','Die E-Mail-Adresse ist bereits bestätigt.');redirect('/dashboard');}
+    if(!rate_limit_consume('email-verification-resend',$s['email'],5,3600,3600)){flash('error','Zu viele Bestätigungs-E-Mails angefordert. Bitte später erneut versuchen.');redirect('/dashboard');}
     db()->prepare("DELETE FROM email_verifications WHERE seller_id=?")->execute([$s['id']]);
     [$raw,$hash]=make_token();
     db()->prepare("INSERT INTO email_verifications(seller_id,token_hash,expires_at) VALUES(?,?,DATE_ADD(NOW(),INTERVAL 24 HOUR))")->execute([$s['id'],$hash]);
