@@ -479,3 +479,102 @@ if (preg_match('#^/admin/verkaeuferin/(\d+)/loeschen$#',$path,$m) && $method==='
     flash('success','Verkäuferinnenkonto wurde anonymisiert und deaktiviert. Historische Auftrags-, Zahlungs- und Nachweisdaten bleiben erhalten.');
     redirect('/admin/verkaeuferinnen');
 }
+
+
+if (preg_match('#^/admin/verkaeuferin/(\d+)/speichern$#',$path,$m) && $method==='POST') {
+    require_admin();
+    $q=db()->prepare("SELECT * FROM sellers WHERE id=?");$q->execute([(int)$m[1]]);$s=$q->fetch();if(!$s)not_found();
+
+    $new=[
+      'first_name'=>post('first_name'),
+      'last_name'=>post('last_name'),
+      'birth_date'=>post('birth_date'),
+      'street'=>post('street'),
+      'postal_code'=>post('postal_code'),
+      'city'=>post('city'),
+      'phone'=>post('phone'),
+      'email'=>strtolower(post('email')),
+    ];
+    if(!filter_var($new['email'],FILTER_VALIDATE_EMAIL)){flash('error','Ungültige E-Mail-Adresse.');redirect('/admin/verkaeuferin/'.$s['id']);}
+    $sensitiveChanged=($new['email']!==strtolower($s['email']) || $new['birth_date']!==$s['birth_date']);
+    if($sensitiveChanged && !isset($_POST['confirm_sensitive'])){flash('error','Änderungen an E-Mail oder Geburtsdatum müssen zusätzlich bestätigt werden.');redirect('/admin/verkaeuferin/'.$s['id']);}
+
+    $changes=[];
+    foreach($new as $k=>$v){ if((string)$s[$k]!== (string)$v) $changes[$k]=['old'=>$s[$k],'new'=>$v]; }
+
+    try{
+      db()->prepare("UPDATE sellers SET first_name=?,last_name=?,birth_date=?,street=?,postal_code=?,city=?,phone=?,email=?,email_verified_at=?,updated_at=NOW() WHERE id=?")
+        ->execute([$new['first_name'],$new['last_name'],$new['birth_date'],$new['street'],$new['postal_code'],$new['city'],$new['phone'],$new['email'],$new['email']!==strtolower($s['email'])?null:$s['email_verified_at'],$s['id']]);
+    }catch(PDOException $e){
+      if(($e->errorInfo[1]??null)===1062){flash('error','Diese E-Mail-Adresse wird bereits verwendet.');redirect('/admin/verkaeuferin/'.$s['id']);}
+      throw $e;
+    }
+
+    if($new['email']!==strtolower($s['email'])){
+      db()->prepare("DELETE FROM email_verifications WHERE seller_id=?")->execute([$s['id']]);
+      [$raw,$hash]=make_token();
+      db()->prepare("INSERT INTO email_verifications(seller_id,token_hash,expires_at) VALUES(?,?,DATE_ADD(NOW(),INTERVAL 24 HOUR))")->execute([$s['id'],$hash]);
+      send_app_mail($new['email'],'Neue E-Mail bestätigen','<p>Die E-Mail-Adresse deines Verkäuferinnenkontos wurde geändert. Bitte bestätige sie:</p><p><a href="'.e(url('/email-bestaetigen?token='.$raw)).'">E-Mail bestätigen</a></p>');
+    }
+
+    if($changes) log_event('seller.updated',(int)$s['id'],null,['changes'=>$changes,'admin_id'=>(int)require_admin()['id']]);
+    flash('success','Verkäuferinnendaten gespeichert.'.($new['email']!==strtolower($s['email'])?' Neue E-Mail muss bestätigt werden.':''));
+    redirect('/admin/verkaeuferin/'.$s['id']);
+}
+
+if (preg_match('#^/admin/verkaeuferin/(\d+)/loeschen$#',$path,$m) && $method==='POST') {
+    require_admin();
+    $q=db()->prepare("SELECT * FROM sellers WHERE id=? AND deleted_at IS NULL");$q->execute([(int)$m[1]]);$s=$q->fetch();if(!$s)not_found();
+    $active=db()->prepare("SELECT COUNT(*) FROM orders WHERE seller_id=? AND status IN('precheck','running','shipping','review','payout')");
+    $active->execute([$s['id']]);
+    if((int)$active->fetchColumn()>0){flash('error','Das Konto kann nicht anonymisiert werden, solange aktive Aufträge bestehen.');redirect('/admin/verkaeuferin/'.$s['id']);}
+
+    $anon='deleted-'.$s['id'].'-'.bin2hex(random_bytes(4)).'@invalid.local';
+    db()->beginTransaction();
+    try{
+      db()->prepare("UPDATE sellers SET first_name='Gelöscht',last_name='Konto',birth_date='1900-01-01',street='gelöscht',postal_code='00000',city='gelöscht',phone='gelöscht',email=?,password_hash=?,email_verified_at=NULL,deleted_at=NOW(),updated_at=NOW() WHERE id=?")
+        ->execute([$anon,password_hash(bin2hex(random_bytes(32)),PASSWORD_DEFAULT),$s['id']]);
+      db()->prepare("DELETE FROM email_verifications WHERE seller_id=?")->execute([$s['id']]);
+      db()->prepare("DELETE FROM password_resets WHERE seller_id=?")->execute([$s['id']]);
+      db()->prepare("UPDATE payout_profiles SET iban=NULL,bic=NULL,account_holder=NULL,paypal=NULL WHERE seller_id=?")->execute([$s['id']]);
+      log_event('seller.anonymized',(int)$s['id'],null,['former_email'=>$s['email']]);
+      db()->commit();
+    }catch(Throwable $e){db()->rollBack();throw $e;}
+
+    flash('success','Verkäuferinnenkonto wurde anonymisiert. Historische Auftrags-, Zahlungs- und Nachweisdaten bleiben erhalten.');
+    redirect('/admin/verkaeuferinnen');
+}
+
+if (preg_match('#^/digitale-datei/(\d+)$#',$path,$m) && $method==='GET') {
+    $q=db()->prepare("SELECT d.*,o.seller_id,o.order_no,o.archived_at FROM digital_versions d JOIN orders o ON o.id=d.order_id WHERE d.id=?");
+    $q->execute([(int)$m[1]]);$d=$q->fetch();if(!$d||!$d['file_path'])not_found();
+
+    $allow=false;
+    if(admin()) $allow=true;
+    elseif(($s=seller()) && (int)$s['id']===(int)$d['seller_id'] && empty($d['archived_at'])) $allow=true;
+    if(!$allow){http_response_code(403);exit('Zugriff verweigert.');}
+
+    $real=__DIR__.'/../storage/private/'.$d['file_path'];
+    if(!is_file($real))not_found();
+    header('Content-Type: '.($d['mime_type']?:'application/octet-stream'));
+    header('Content-Length: '.filesize($real));
+    header('X-Content-Type-Options: nosniff');
+    header('Content-Disposition: inline');
+    header('Cache-Control: private, no-store, max-age=0');
+    readfile($real);exit;
+}
+
+if (preg_match('#^/admin/revisionspunkt/(\d+)/(erledigt|unzureichend|erneut)$#',$path,$m) && $method==='POST') {
+    require_admin();
+    $q=db()->prepare("SELECT i.*,r.order_id,o.order_no FROM revision_items i JOIN revision_rounds r ON r.id=i.revision_round_id JOIN orders o ON o.id=r.order_id WHERE i.id=?");
+    $q->execute([(int)$m[1]]);$i=$q->fetch();if(!$i)not_found();
+
+    $status=$m[2]==='erledigt'?'done':($m[2]==='unzureichend'?'insufficient':'change_again');
+    db()->prepare("UPDATE revision_items SET status=? WHERE id=?")->execute([$status,$i['id']]);
+
+    $left=db()->prepare("SELECT COUNT(*) FROM revision_items WHERE revision_round_id=? AND status<>'done'");$left->execute([$i['revision_round_id']]);
+    if((int)$left->fetchColumn()===0) db()->prepare("UPDATE revision_rounds SET status='reviewed' WHERE id=?")->execute([$i['revision_round_id']]);
+
+    flash('success','Revisionspunkt aktualisiert.');
+    redirect('/admin/auftrag/'.$i['order_no']);
+}
