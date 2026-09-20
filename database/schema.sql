@@ -317,4 +317,97 @@ CREATE TABLE IF NOT EXISTS system_events (
  INDEX(order_id), INDEX(seller_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+
+CREATE TABLE IF NOT EXISTS order_days (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ order_id BIGINT UNSIGNED NOT NULL,
+ order_run_id BIGINT UNSIGNED NULL,
+ day_no INT NOT NULL,
+ day_type ENUM('regular','violation','manual','damage') NOT NULL DEFAULT 'regular',
+ calendar_date DATE NULL,
+ status ENUM('planned','active','completed','missed') NOT NULL DEFAULT 'planned',
+ source_ref VARCHAR(120) NULL,
+ created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ UNIQUE(order_id,order_run_id,day_no),
+ FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS evidence_windows (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ order_id BIGINT UNSIGNED NOT NULL,
+ day_no INT NOT NULL,
+ window_key ENUM('morning','midday','evening','custom') NOT NULL,
+ starts_at DATETIME NOT NULL,
+ ends_at DATETIME NOT NULL,
+ grace_ends_at DATETIME NULL,
+ required_count INT NOT NULL DEFAULT 1,
+ status ENUM('planned','open','submitted','missed','waived') NOT NULL DEFAULT 'planned',
+ created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE,
+ INDEX(order_id,day_no,status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS spontaneous_requests (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ order_id BIGINT UNSIGNED NOT NULL,
+ instructions TEXT NOT NULL,
+ required_count INT NOT NULL DEFAULT 1,
+ due_at DATETIME NOT NULL,
+ grace_ends_at DATETIME NULL,
+ status ENUM('requested','seen','confirmed','uploaded','reviewed','missed') NOT NULL DEFAULT 'requested',
+ created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS order_tasks (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ order_id BIGINT UNSIGNED NOT NULL,
+ title VARCHAR(190) NOT NULL,
+ description TEXT NULL,
+ due_at DATETIME NULL,
+ fields_json JSON NULL,
+ compensation DECIMAL(10,2) NOT NULL DEFAULT 0,
+ violation_enabled TINYINT(1) NOT NULL DEFAULT 1,
+ status ENUM('open','submitted','accepted','rejected') NOT NULL DEFAULT 'open',
+ created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS shipments (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ order_id BIGINT UNSIGNED NOT NULL UNIQUE,
+ tracking_number VARCHAR(190) NULL,
+ carrier VARCHAR(120) NULL,
+ proof_evidence_id BIGINT UNSIGNED NULL,
+ status ENUM('preparing','shipped','received','review') NOT NULL DEFAULT 'preparing',
+ shipped_at DATETIME NULL,
+ received_at DATETIME NULL,
+ created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS rights_acceptances (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ order_id BIGINT UNSIGNED NOT NULL,
+ seller_id BIGINT UNSIGNED NOT NULL,
+ terms_version VARCHAR(80) NOT NULL,
+ accepted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ payload_json JSON NULL,
+ FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE,
+ FOREIGN KEY(seller_id) REFERENCES sellers(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS notifications (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ seller_id BIGINT UNSIGNED NULL,
+ admin_id BIGINT UNSIGNED NULL,
+ notification_type VARCHAR(100) NOT NULL,
+ title VARCHAR(190) NOT NULL,
+ body TEXT NULL,
+ link VARCHAR(255) NULL,
+ read_at DATETIME NULL,
+ created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ INDEX(seller_id,read_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 SET FOREIGN_KEY_CHECKS=1;
