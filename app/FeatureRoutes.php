@@ -1624,21 +1624,101 @@ if ($path==='/heute' && $method==='GET') {
 }
 
 if ($path==='/admin/suche' && $method==='GET') {
-    require_admin();$q=trim((string)($_GET['q']??''));$sellers=$orders=$offers=$shipments=$payouts=[];
+    require_admin();
+    $q=trim((string)($_GET['q']??''));
+    $sellers=$orders=$offers=$shipments=$payouts=[];
+
     if($q!==''){
         $like='%'.$q.'%';
-        $st=db()->prepare("SELECT id,first_name,last_name,email,phone FROM sellers WHERE deleted_at IS NULL AND (first_name LIKE ? OR last_name LIKE ? OR email LIKE ? OR phone LIKE ?) LIMIT 25");$st->execute([$like,$like,$like,$like]);$sellers=$st->fetchAll();
-        $st=db()->prepare("SELECT o.order_no,o.status,f.title,CONCAT(s.first_name,' ',s.last_name) seller_name FROM orders o JOIN offers f ON f.id=o.offer_id JOIN sellers s ON s.id=o.seller_id WHERE o.order_no LIKE ? OR f.title LIKE ? LIMIT 25");$st->execute([$like,$like]);$orders=$st->fetchAll();
-        $st=db()->prepare("SELECT id,title,status,compensation FROM offers WHERE title LIKE ? OR description LIKE ? LIMIT 25");$st->execute([$like,$like]);$offers=$st->fetchAll();
-        $st=db()->prepare("SELECT sh.*,o.order_no FROM shipments sh JOIN orders o ON o.id=sh.order_id WHERE sh.tracking_number LIKE ? LIMIT 25");$st->execute([$like]);$shipments=$st->fetchAll();
-        if(is_numeric(str_replace(',','.',$q))){$amount=(float)str_replace(',','.',$q);$st=db()->prepare("SELECT p.*,CONCAT(s.first_name,' ',s.last_name) seller_name FROM payout_requests p JOIN sellers s ON s.id=p.seller_id WHERE p.amount=? LIMIT 25");$st->execute([$amount]);$payouts=$st->fetchAll();}
+
+        $st=db()->prepare("SELECT id,first_name,last_name,email,phone FROM sellers
+            WHERE deleted_at IS NULL
+              AND (first_name LIKE ? OR last_name LIKE ? OR CONCAT(first_name,' ',last_name) LIKE ? OR email LIKE ? OR phone LIKE ?)
+            LIMIT 25");
+        $st->execute([$like,$like,$like,$like,$like]);
+        $sellers=$st->fetchAll();
+
+        $st=db()->prepare("SELECT o.order_no,o.status,f.title,CONCAT(s.first_name,' ',s.last_name) seller_name
+            FROM orders o
+            JOIN offers f ON f.id=o.offer_id
+            JOIN sellers s ON s.id=o.seller_id
+            WHERE o.order_no LIKE ? OR f.title LIKE ? OR s.email LIKE ? OR CONCAT(s.first_name,' ',s.last_name) LIKE ?
+            LIMIT 25");
+        $st->execute([$like,$like,$like,$like]);
+        $orders=$st->fetchAll();
+
+        $st=db()->prepare("SELECT id,title,status,compensation FROM offers
+            WHERE title LIKE ? OR description LIKE ?
+            LIMIT 25");
+        $st->execute([$like,$like]);
+        $offers=$st->fetchAll();
+
+        $st=db()->prepare("SELECT sh.*,o.order_no,CONCAT(s.first_name,' ',s.last_name) seller_name
+            FROM shipments sh
+            JOIN orders o ON o.id=sh.order_id
+            JOIN sellers s ON s.id=o.seller_id
+            WHERE sh.tracking_number LIKE ? OR sh.carrier LIKE ? OR o.order_no LIKE ?
+            LIMIT 25");
+        $st->execute([$like,$like,$like]);
+        $shipments=$st->fetchAll();
+
+        $numeric=str_replace(',','.',$q);
+        $isNumeric=is_numeric($numeric);
+        $amount=$isNumeric?(float)$numeric:null;
+        $id=(ctype_digit($q)?(int)$q:0);
+
+        $sql="SELECT p.*,CONCAT(s.first_name,' ',s.last_name) seller_name,s.email seller_email
+              FROM payout_requests p
+              JOIN sellers s ON s.id=p.seller_id
+              WHERE (CAST(p.id AS CHAR) LIKE ?
+                     OR p.status LIKE ?
+                     OR p.method LIKE ?
+                     OR s.email LIKE ?
+                     OR s.first_name LIKE ?
+                     OR s.last_name LIKE ?
+                     OR CONCAT(s.first_name,' ',s.last_name) LIKE ?";
+        $args=[$like,$like,$like,$like,$like,$like,$like];
+        if($isNumeric){
+            $sql.=" OR p.amount=? OR p.net_amount=? OR p.fee=?";
+            $args[]=$amount;$args[]=$amount;$args[]=$amount;
+        }
+        if($id>0){
+            $sql.=" OR p.id=?";
+            $args[]=$id;
+        }
+        $sql.=") ORDER BY p.created_at DESC LIMIT 25";
+        $st=db()->prepare($sql);
+        $st->execute($args);
+        $payouts=$st->fetchAll();
     }
-    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Administration</div><h1>Globale Suche</h1></div></div><form class="panel" method="get"><label>Suche nach Name, E-Mail, Telefon, Auftrag, Angebot oder Tracking<input name="q" value="<?=e($q)?>" autofocus></label><button class="btn">Suchen</button></form>
-    <?php if($q!==''):?><h2>Verkäuferinnen</h2><div class="table-wrap"><table><tbody><?php foreach($sellers as $x):?><tr><td><?=e($x['first_name'].' '.$x['last_name'])?></td><td><?=e($x['email'])?></td><td><?=e($x['phone'])?></td><td><a href="<?=e(url('/admin/verkaeuferin/'.$x['id']))?>">Akte</a></td></tr><?php endforeach;?></tbody></table></div>
-    <h2>Aufträge</h2><div class="table-wrap"><table><tbody><?php foreach($orders as $x):?><tr><td><?=e($x['order_no'])?></td><td><?=e($x['seller_name'])?></td><td><?=e($x['title'])?></td><td><?=e($x['status'])?></td><td><a href="<?=e(url('/admin/auftrag/'.$x['order_no']))?>">Öffnen</a></td></tr><?php endforeach;?></tbody></table></div>
-    <h2>Angebote</h2><div class="table-wrap"><table><tbody><?php foreach($offers as $x):?><tr><td><?=e($x['title'])?></td><td><?=e($x['status'])?></td><td><?=money($x['compensation'])?></td><td><a href="<?=e(url('/admin/angebot/'.$x['id']))?>">Bearbeiten</a></td></tr><?php endforeach;?></tbody></table></div>
-    <?php if($shipments):?><h2>Tracking</h2><div class="table-wrap"><table><tbody><?php foreach($shipments as $x):?><tr><td><?=e($x['tracking_number'])?></td><td><?=e($x['order_no'])?></td><td><a href="<?=e(url('/admin/auftrag/'.$x['order_no']))?>">Auftrag</a></td></tr><?php endforeach;?></tbody></table></div><?php endif;?>
-    <?php endif;?><?php render('Globale Suche',ob_get_clean());exit;
+
+    ob_start();?>
+    <div class="dashboard-head"><div><div class="eyebrow">Administration</div><h1>Globale Suche</h1></div></div>
+    <form class="panel" method="get">
+      <label>Suche nach Name, E-Mail, Telefon, Auftrag, Angebot, Tracking oder Auszahlung
+        <input name="q" value="<?=e($q)?>" autofocus>
+      </label>
+      <button class="btn">Suchen</button>
+    </form>
+
+    <?php if($q!==''):?>
+      <h2>Verkäuferinnen <span class="badge"><?=count($sellers)?></span></h2>
+      <?php if($sellers):?><div class="table-wrap"><table><tbody><?php foreach($sellers as $x):?><tr><td><?=e($x['first_name'].' '.$x['last_name'])?></td><td><?=e($x['email'])?></td><td><?=e($x['phone'])?></td><td><a href="<?=e(url('/admin/verkaeuferin/'.$x['id']))?>">Akte öffnen</a></td></tr><?php endforeach;?></tbody></table></div><?php else:?><div class="empty">Keine Verkäuferin gefunden.</div><?php endif;?>
+
+      <h2>Aufträge <span class="badge"><?=count($orders)?></span></h2>
+      <?php if($orders):?><div class="table-wrap"><table><tbody><?php foreach($orders as $x):?><tr><td><?=e($x['order_no'])?></td><td><?=e($x['seller_name'])?></td><td><?=e($x['title'])?></td><td><?=e($x['status'])?></td><td><a href="<?=e(url('/admin/auftrag/'.$x['order_no']))?>">Auftrag öffnen</a></td></tr><?php endforeach;?></tbody></table></div><?php else:?><div class="empty">Kein Auftrag gefunden.</div><?php endif;?>
+
+      <h2>Angebote <span class="badge"><?=count($offers)?></span></h2>
+      <?php if($offers):?><div class="table-wrap"><table><tbody><?php foreach($offers as $x):?><tr><td><?=e($x['title'])?></td><td><?=e($x['status'])?></td><td><?=money($x['compensation'])?></td><td><a href="<?=e(url('/admin/angebot/'.$x['id']))?>">Angebot bearbeiten</a></td></tr><?php endforeach;?></tbody></table></div><?php else:?><div class="empty">Kein Angebot gefunden.</div><?php endif;?>
+
+      <h2>Tracking / Sendungen <span class="badge"><?=count($shipments)?></span></h2>
+      <?php if($shipments):?><div class="table-wrap"><table><thead><tr><th>Tracking</th><th>Dienstleister</th><th>Auftrag</th><th>Verkäuferin</th><th></th></tr></thead><tbody><?php foreach($shipments as $x):?><tr><td><?=e($x['tracking_number']?:'–')?></td><td><?=e($x['carrier']?:'–')?></td><td><?=e($x['order_no'])?></td><td><?=e($x['seller_name'])?></td><td><a href="<?=e(url('/admin/auftrag/'.$x['order_no']))?>">Versand/Auftrag öffnen</a></td></tr><?php endforeach;?></tbody></table></div><?php else:?><div class="empty">Keine Sendung gefunden.</div><?php endif;?>
+
+      <h2>Auszahlungen <span class="badge"><?=count($payouts)?></span></h2>
+      <?php if($payouts):?><div class="table-wrap"><table><thead><tr><th>#</th><th>Verkäuferin</th><th>Betrag</th><th>Netto</th><th>Methode</th><th>Status</th><th></th></tr></thead><tbody><?php foreach($payouts as $x):?><tr><td><?=e($x['id'])?></td><td><?=e($x['seller_name'])?><br><span class="meta"><?=e($x['seller_email'])?></span></td><td><?=money($x['amount'])?></td><td><?=money($x['net_amount'])?></td><td><?=e($x['method'])?></td><td><?=e($x['status'])?></td><td><a href="<?=e(url('/admin/auszahlung/'.$x['id']))?>">Auszahlung öffnen</a></td></tr><?php endforeach;?></tbody></table></div><?php else:?><div class="empty">Keine Auszahlung gefunden.</div><?php endif;?>
+    <?php endif;?>
+
+    <?php render('Globale Suche',ob_get_clean());exit;
 }
 
 if ($path==='/admin/aufgabenbibliothek' && $method==='GET') {
