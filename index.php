@@ -181,7 +181,7 @@ if(preg_match('#^/angebot/([a-z0-9-]+)/annehmen$#',$path,$m)&&$method==='POST'){
    db()->prepare("INSERT INTO order_runs(order_id,run_no,status,started_at) VALUES(?,1,?,?)")->execute([$oid,$pureDigital?'running':'precheck',$startedAt]);
    snapshot_order_components($oid,$o);
    if($pureDigital)db()->prepare("UPDATE order_components SET status='execution',updated_at=NOW() WHERE order_id=? AND component_type='digital'")->execute([$oid]);
-   foreach($selected as $opt)db()->prepare("INSERT INTO order_options(order_id,offer_option_id,label_snapshot,price_snapshot) VALUES(?,?,?,?)")->execute([$oid,$opt['id'],$opt['label'],$opt['price']]);
+   foreach($selected as $opt)db()->prepare("INSERT INTO order_options(order_id,offer_option_id,label_snapshot,price_snapshot,requirements_snapshot_json) VALUES(?,?,?,?,?)")->execute([$oid,$opt['id'],$opt['label'],$opt['price'],$opt['requirements_json']??null]);
    if($pureDigital){instantiate_planned_order_tasks($oid);sync_option_requirement_tasks($oid);}
    db()->prepare("INSERT INTO wallet_entries(seller_id,order_id,entry_type,amount,description) VALUES(?,?,'reserved',?,'Auftragswert vorgemerkt')")->execute([$s['id'],$oid,$total]);
    db()->prepare("INSERT INTO system_events(seller_id,order_id,event_type,payload_json) VALUES(?,?,'order.accepted',?)")->execute([$s['id'],$oid,json_encode(['offer_version'=>$o['current_version'],'option_ids'=>$requested,'shipping_allowance'=>$shippingAllowance,'component_extra_compensation'=>$componentExtra,'blocked_category_ids'=>$blockedCategories,'planned_task_compensation'=>$plannedTaskCompensation,'planned_task_executions'=>$taskSummary['executions'],'digital_due_at'=>$digitalDueAt,'pure_digital'=>$pureDigital,'total'=>$total],JSON_UNESCAPED_UNICODE)]);
