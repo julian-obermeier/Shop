@@ -474,7 +474,7 @@ function schedule_extra_day(int $extraDayId, ?int $runId = null): void {
     $q = db()->prepare('SELECT * FROM extra_days WHERE id=?');
     $q->execute([$extraDayId]);
     $extra = $q->fetch();
-    if (!$extra || ($extra['status'] ?? 'confirmed') === 'removed') return;
+    if (!$extra || ($extra['status'] ?? 'confirmed') !== 'confirmed') return;
 
     $orderId = (int)$extra['order_id'];
     $runId = $runId ?: current_run_id($orderId);
@@ -495,7 +495,7 @@ function schedule_existing_extra_days(int $orderId): void {
     if (!$runId) return;
 
     try {
-        $q = db()->prepare("SELECT id FROM extra_days WHERE order_id=? AND status<>'removed' ORDER BY created_at,id");
+        $q = db()->prepare("SELECT id FROM extra_days WHERE order_id=? AND status='confirmed' ORDER BY created_at,id");
         $q->execute([$orderId]);
     } catch (PDOException) {
         $q = db()->prepare('SELECT id FROM extra_days WHERE order_id=? ORDER BY created_at,id');
