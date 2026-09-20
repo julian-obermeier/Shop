@@ -149,21 +149,58 @@ if ($path==='/admin/verkaeuferinnen'&&$method==='GET') {
 if (preg_match('#^/admin/auszahlung/(\d+)/bezahlt$#',$path,$m)&&$method==='POST') {
     require_admin();
     $st=db()->prepare("SELECT * FROM payout_requests WHERE id=?");$st->execute([(int)$m[1]]);$r=$st->fetch();if(!$r)not_found();
+
     if($r['status']!=='paid'){
         db()->beginTransaction();
         try{
             db()->prepare("UPDATE payout_requests SET status='paid',updated_at=NOW() WHERE id=?")->execute([$r['id']]);
-            db()->prepare("INSERT INTO wallet_entries(seller_id,entry_type,amount,description) VALUES(?,'paid',?,'Auszahlung')")->execute([$r['seller_id'],$r['amount']]);
+
+            $remaining=(float)$r['amount'];
+            $entries=db()->prepare("
+                SELECT we.order_id,we.amount,
+                       COALESCE((SELECT SUM(p.amount) FROM wallet_entries p WHERE p.order_id=we.order_id AND p.entry_type='paid'),0) paid_for_order
+                FROM wallet_entries we
+                JOIN orders o ON o.id=we.order_id
+                WHERE we.seller_id=? AND we.entry_type='available' AND we.order_id IS NOT NULL
+                ORDER BY we.created_at,we.id
+            ");
+            $entries->execute([$r['seller_id']]);
+
+            foreach($entries->fetchAll() as $entry){
+                if($remaining<=0) break;
+                $unpaid=max(0,(float)$entry['amount']-(float)$entry['paid_for_order']);
+                if($unpaid<=0) continue;
+                $allocate=min($remaining,$unpaid);
+                db()->prepare("INSERT INTO wallet_entries(seller_id,order_id,entry_type,amount,description) VALUES(?,?,'paid',?,'Auszahlung #".$r['id']."')")
+                    ->execute([$r['seller_id'],$entry['order_id'],$allocate]);
+                $remaining-=$allocate;
+            }
+            if($remaining>0.0001){
+                db()->prepare("INSERT INTO wallet_entries(seller_id,entry_type,amount,description) VALUES(?,'paid',?,'Auszahlung #".$r['id']." – nicht auftragsbezogen')")
+                    ->execute([$r['seller_id'],$remaining]);
+            }
+
+            $orders=db()->prepare("
+                SELECT o.id,o.order_no,
+                       COALESCE((SELECT SUM(w.amount) FROM wallet_entries w WHERE w.order_id=o.id AND w.entry_type='available'),0) available_amount,
+                       COALESCE((SELECT SUM(w.amount) FROM wallet_entries w WHERE w.order_id=o.id AND w.entry_type='paid'),0) paid_amount
+                FROM orders o
+                WHERE o.seller_id=? AND o.status='completed' AND o.archived_at IS NULL
+            ");
+            $orders->execute([$r['seller_id']]);
+            foreach($orders->fetchAll() as $o){
+                $target=(float)$o['available_amount'];
+                if($target>0 && (float)$o['paid_amount']+0.0001 >= $target){
+                    db()->prepare("UPDATE orders SET archived_at=NOW(),updated_at=NOW() WHERE id=?")->execute([$o['id']]);
+                    db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system','Auftrag vollständig ausgezahlt und automatisch archiviert.')")->execute([$o['id']]);
+                }
+            }
             db()->commit();
         }catch(Throwable $e){db()->rollBack();throw $e;}
-        $bal=db()->prepare("SELECT COALESCE(SUM(CASE WHEN entry_type='available' THEN amount WHEN entry_type='paid' THEN -amount ELSE 0 END),0) FROM wallet_entries WHERE seller_id=?");
-        $bal->execute([$r['seller_id']]);$remaining=(float)$bal->fetchColumn();
-        if($remaining<=0.00001){
-            db()->prepare("UPDATE orders SET archived_at=COALESCE(archived_at,NOW()),updated_at=NOW() WHERE seller_id=? AND status='completed' AND archived_at IS NULL")->execute([$r['seller_id']]);
-        }
-        notify_seller((int)$r['seller_id'],'payout.paid','Auszahlung abgeschlossen','Deine Auszahlung über '.money($r['net_amount']).' wurde als ausgezahlt markiert.','/wallet',null,true);
+        notify_seller((int)$r['seller_id'],'payout.paid','Auszahlung durchgeführt','Deine Auszahlung über '.money($r['net_amount']).' wurde als ausgezahlt markiert.','/wallet',null,true);
     }
-    flash('success','Auszahlung als bezahlt markiert.');redirect('/admin/auszahlungen');
+    flash('success','Auszahlung als bezahlt markiert. Vollständig ausgezahlte Aufträge wurden automatisch archiviert.');
+    redirect('/admin/auszahlungen');
 }
 if (preg_match('#^/admin/auftrag/(\d{8})/chat$#',$path,$m)&&$method==='GET') {
     require_admin();$st=db()->prepare("SELECT o.*,f.title FROM orders o JOIN offers f ON f.id=o.offer_id WHERE o.order_no=?");$st->execute([$m[1]]);$o=$st->fetch();if(!$o)not_found();$q=db()->prepare("SELECT * FROM chat_messages WHERE order_id=? ORDER BY created_at");$q->execute([$o['id']]);$messages=$q->fetchAll();$locked=!empty($o['archived_at']);
