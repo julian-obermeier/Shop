@@ -638,3 +638,65 @@ if ($path==='/admin/systemausfaelle' && $method==='POST') {
     flash('success','Systemausfall dokumentiert. '.count($activeOrders).' aktive Aufträge wurden berücksichtigt.');
     redirect('/admin/systemausfaelle');
 }
+
+
+if ($path==='/admin/ausfaelle' && $method==='GET') {
+    require_admin();
+    $rows=db()->query("SELECT o.*,COUNT(i.id) impact_count FROM system_outages o LEFT JOIN outage_impacts i ON i.outage_id=o.id GROUP BY o.id ORDER BY o.starts_at DESC LIMIT 100")->fetchAll();
+    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Administration</div><h1>Technische Systemausfälle</h1><p class="meta">Hier werden ausschließlich tatsächlich eingetretene Plattformausfälle dokumentiert. Betroffene Fristen werden einmalig um die Ausfalldauer verlängert.</p></div></div>
+    <form class="panel" method="post"><?=csrf_field()?><h2>Bestätigten Ausfall erfassen</h2>
+      <div class="form-grid"><label>Beginn<input type="datetime-local" name="starts_at" required></label><label>Ende<input type="datetime-local" name="ends_at" required></label></div>
+      <label>Technischer Grund<textarea name="reason" required placeholder="z. B. Webserver-Störung / Datenbankausfall"></textarea></label>
+      <button class="btn">Ausfall erfassen und Fristen korrigieren</button>
+    </form>
+    <h2>Historie</h2><div class="table-wrap"><table><thead><tr><th>Zeitraum</th><th>Dauer</th><th>Grund</th><th>Betroffene Fristen</th><th>Angewendet</th></tr></thead><tbody>
+    <?php foreach($rows as $r): $secs=max(0,strtotime($r['ends_at'])-strtotime($r['starts_at']));?><tr><td><?=e(date('d.m.Y H:i',strtotime($r['starts_at'])))?><br>bis <?=e(date('d.m.Y H:i',strtotime($r['ends_at'])))?></td><td><?=e((string)round($secs/60))?> Min.</td><td><?=e($r['reason'])?></td><td><?=e($r['impact_count'])?></td><td><?=e($r['applied_at']?date('d.m.Y H:i',strtotime($r['applied_at'])):'offen')?></td></tr><?php endforeach;?>
+    </tbody></table></div><?php if(!$rows):?><div class="empty">Noch keine technischen Ausfälle dokumentiert.</div><?php endif;?>
+    <?php render('Systemausfälle',ob_get_clean());exit;
+}
+
+if ($path==='/admin/ausfaelle' && $method==='POST') {
+    require_admin();
+    $tz=new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'));
+    try{
+        $start=new DateTimeImmutable(post('starts_at'),$tz);
+        $end=new DateTimeImmutable(post('ends_at'),$tz);
+        $now=new DateTimeImmutable('now',$tz);
+    }catch(Throwable){
+        flash('error','Beginn oder Ende ist ungültig.');redirect('/admin/ausfaelle');
+    }
+    if($end<=$start){flash('error','Das Ende muss nach dem Beginn liegen.');redirect('/admin/ausfaelle');}
+    if($end>$now){flash('error','Nur tatsächlich beendete technische Ausfälle können bestätigt werden.');redirect('/admin/ausfaelle');}
+    if(trim(post('reason'))===''){flash('error','Bitte einen technischen Grund angeben.');redirect('/admin/ausfaelle');}
+
+    db()->prepare("INSERT INTO system_outages(starts_at,ends_at,reason,status) VALUES(?,?,?,'ended')")
+        ->execute([$start->format('Y-m-d H:i:s'),$end->format('Y-m-d H:i:s'),post('reason')]);
+    $id=(int)db()->lastInsertId();
+    try{
+        $result=apply_system_outage($id);
+        flash('success','Systemausfall berücksichtigt: '.$result['entities'].' Frist(en) in '.$result['orders'].' Auftrag/Aufträgen wurden um '.round($result['seconds']/60).' Minuten verschoben.');
+    }catch(Throwable $e){
+        flash('error','Der Ausfall wurde gespeichert, konnte aber nicht vollständig angewendet werden: '.$e->getMessage());
+    }
+    redirect('/admin/ausfaelle');
+}
+
+if (preg_match('#^/auftrag/(\d{8})/zwischenstaende$#',$path,$m) && $method==='GET') {
+    $s=require_seller();
+    $q=db()->prepare("SELECT o.*,f.title FROM orders o JOIN offers f ON f.id=o.offer_id WHERE o.order_no=? AND o.seller_id=?");
+    $q->execute([$m[1],$s['id']]);$o=$q->fetch();if(!$o)not_found();
+    $q=db()->prepare("SELECT * FROM order_interim_summaries WHERE order_id=? ORDER BY completed_days DESC");$q->execute([$o['id']]);$rows=$q->fetchAll();
+    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Auftrag <?=e($o['order_no'])?></div><h1>Zwischenstände</h1><p class="meta"><?=e($o['title'])?></p></div><a class="btn secondary" href="<?=e(url('/auftrag/'.$o['order_no']))?>">Zum Auftrag</a></div>
+    <div class="timeline"><?php foreach($rows as $r): $x=json_decode($r['snapshot_json'],true)?:[];?><div><strong>Nach <?=e($r['completed_days'])?> abgeschlossenen Tagen</strong><div class="meta"><?=e(date('d.m.Y H:i',strtotime($r['created_at'])))?></div><p>Planfortschritt: <?=e($x['completed_days']??0)?> / <?=e($x['total_scheduled_days']??0)?> Tage · bestätigte Verstöße: <?=e($x['confirmed_violations']??0)?> · Zusatztage: <?=e($x['extra_days']??0)?> · offene Zusatzaufgaben: <?=e($x['open_tasks']??0)?> · offene spontane Nachweise: <?=e($x['open_spontaneous']??0)?></p><p><strong>Aktueller Auftragswert: <?=money($x['current_order_value']??0)?></strong></p></div><?php endforeach;?><?php if(!$rows):?><div class="empty">Für diesen Auftrag wurde noch kein automatischer Zwischenstand erzeugt.</div><?php endif;?></div>
+    <?php render('Zwischenstände',ob_get_clean());exit;
+}
+
+if (preg_match('#^/admin/auftrag/(\d{8})/zwischenstaende$#',$path,$m) && $method==='GET') {
+    require_admin();
+    $q=db()->prepare("SELECT o.*,f.title,CONCAT(s.first_name,' ',s.last_name) seller_name FROM orders o JOIN offers f ON f.id=o.offer_id JOIN sellers s ON s.id=o.seller_id WHERE o.order_no=?");
+    $q->execute([$m[1]]);$o=$q->fetch();if(!$o)not_found();
+    $q=db()->prepare("SELECT * FROM order_interim_summaries WHERE order_id=? ORDER BY completed_days DESC");$q->execute([$o['id']]);$rows=$q->fetchAll();
+    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Administration · <?=e($o['order_no'])?></div><h1>Zwischenstände</h1><p class="meta"><?=e($o['seller_name'].' · '.$o['title'])?></p></div><a class="btn secondary" href="<?=e(url('/admin/auftrag/'.$o['order_no']))?>">Zum Auftrag</a></div>
+    <div class="timeline"><?php foreach($rows as $r): $x=json_decode($r['snapshot_json'],true)?:[];?><div><strong>Nach <?=e($r['completed_days'])?> abgeschlossenen Tagen</strong><div class="meta"><?=e(date('d.m.Y H:i',strtotime($r['created_at'])))?></div><pre style="white-space:pre-wrap"><?=e(json_encode($x,JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE))?></pre></div><?php endforeach;?><?php if(!$rows):?><div class="empty">Noch keine Zwischenstände erzeugt.</div><?php endif;?></div>
+    <?php render('Zwischenstände',ob_get_clean());exit;
+}
