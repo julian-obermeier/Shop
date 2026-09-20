@@ -546,12 +546,12 @@ if (preg_match('#^/admin/verkaeuferin/(\d+)/loeschen$#',$path,$m) && $method==='
 }
 
 if (preg_match('#^/digitale-datei/(\d+)$#',$path,$m) && $method==='GET') {
-    $q=db()->prepare("SELECT d.*,o.seller_id,o.order_no,o.archived_at FROM digital_versions d JOIN orders o ON o.id=d.order_id WHERE d.id=?");
+    $q=db()->prepare("SELECT d.*,o.seller_id,o.order_no,o.status,o.archived_at,s.deleted_at seller_deleted_at FROM digital_versions d JOIN orders o ON o.id=d.order_id JOIN sellers s ON s.id=o.seller_id WHERE d.id=?");
     $q->execute([(int)$m[1]]);$d=$q->fetch();if(!$d||!$d['file_path'])not_found();
 
     $allow=false;
     if(admin()) $allow=true;
-    elseif(($s=seller()) && (int)$s['id']===(int)$d['seller_id'] && empty($d['archived_at'])) $allow=true;
+    elseif(($s=seller()) && (int)$s['id']===(int)$d['seller_id'] && $d['status']!=='rejected' && empty($d['seller_deleted_at'])) $allow=true;
     if(!$allow){http_response_code(403);exit('Zugriff verweigert.');}
 
     $real=__DIR__.'/../storage/private/'.$d['file_path'];
@@ -560,6 +560,21 @@ if (preg_match('#^/digitale-datei/(\d+)$#',$path,$m) && $method==='GET') {
     header('Content-Length: '.filesize($real));
     header('X-Content-Type-Options: nosniff');
     header('Content-Disposition: inline');
+    header('Cache-Control: private, no-store, max-age=0');
+    readfile($real);exit;
+}
+
+if (preg_match('#^/admin/digitale-datei/(\d+)/download$#',$path,$m) && $method==='GET') {
+    require_admin();
+    $q=db()->prepare("SELECT d.*,o.order_no FROM digital_versions d JOIN orders o ON o.id=d.order_id WHERE d.id=?");
+    $q->execute([(int)$m[1]]);$d=$q->fetch();if(!$d||!$d['file_path'])not_found();
+    $real=__DIR__.'/../storage/private/'.$d['file_path'];if(!is_file($real))not_found();
+    $ext=pathinfo($real,PATHINFO_EXTENSION);
+    $filename='auftrag-'.$d['order_no'].'-version-'.$d['version_no'].($ext?'.'.$ext:'');
+    header('Content-Type: '.($d['mime_type']?:'application/octet-stream'));
+    header('Content-Length: '.filesize($real));
+    header('X-Content-Type-Options: nosniff');
+    header('Content-Disposition: attachment; filename="'.preg_replace('/[^A-Za-z0-9._-]/','_',$filename).'"');
     header('Cache-Control: private, no-store, max-age=0');
     readfile($real);exit;
 }
