@@ -1,0 +1,1 @@
+ALTER TABLE extra_days ADD COLUMN status ENUM('provisional','confirmed','cancelled') NOT NULL DEFAULT 'confirmed' AFTER source_id;
