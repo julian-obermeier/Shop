@@ -643,6 +643,8 @@ if (preg_match('#^/admin/angebot/(\\d+)$#',$path,$m)&&$method==='GET') {
       <button class="btn secondary">Versandschritt hinzufügen</button>
     </form>
     <div class="timeline" style="margin-top:14px"><?php foreach($shippingSteps as $s):?><div><strong><?=e($s['sort_order'].' · '.$s['title'])?></strong> · <?=e($s['required_photos'])?> Foto(s)<?=$s['is_dispatch_step']?' · Versandnachweis':''?><form method="post" action="<?=e(url('/admin/versandschritt/'.$s['id'].'/loeschen'))?>" style="margin-top:6px"><?=csrf_field()?><button class="btn secondary">Entfernen</button></form></div><?php endforeach;?><?php if(!$shippingSteps):?><div class="meta">Keine eigene Vorlage hinterlegt – es wird beim Auftrag der Standardworkflow verwendet.</div><?php endif;?></div>
+    <hr><h3>Als Angebotsvorlage speichern</h3><form method="post" action="<?=e(url('/admin/angebot/'.$o['id'].'/als-vorlage'))?>"><?=csrf_field()?><label>Vorlagenname<input name="template_name" value="<?=e($o['title'])?>" required></label><button class="btn secondary">Vorlage speichern</button></form>
+    <p class="meta"><a href="<?=e(url('/admin/angebotsvorlagen'))?>">Gespeicherte Angebotsvorlagen verwalten</a></p>
     <h3>Versionshistorie</h3><?php foreach($versions as $v):?><div class="meta">V<?=e($v['version_no'])?> · <?=e(date('d.m.Y H:i',strtotime($v['created_at'])))?></div><?php endforeach;?></section></div>
     <?php render('Angebot bearbeiten',ob_get_clean());exit;
 }
