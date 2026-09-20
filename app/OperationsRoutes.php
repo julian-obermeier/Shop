@@ -195,3 +195,57 @@ if (preg_match('#^/admin/revisionspunkt/(\d+)/(erledigt|unzureichend|erneut)$#',
 
     flash('success','Revisionspunkt aktualisiert.');redirect('/admin/auftrag/'.$i['order_no']);
 }
+
+
+if (preg_match('#^/admin/kategorie/(\d+)$#',$path,$m) && $method==='GET') {
+    require_admin();
+    $q=db()->prepare("SELECT * FROM categories WHERE id=?");$q->execute([(int)$m[1]]);$cat=$q->fetch();if(!$cat)not_found();
+    $q=db()->prepare("SELECT * FROM category_fields WHERE category_id=? ORDER BY sort_order,id");$q->execute([$cat['id']]);$fields=$q->fetchAll();
+
+    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Kategorie</div><h1><?=e($cat['name'])?></h1></div><a class="btn secondary" href="<?=e(url('/admin/kategorien'))?>">Zur Übersicht</a></div>
+    <div class="grid two">
+      <form class="panel" method="post" action="<?=e(url('/admin/kategorie/'.$cat['id'].'/speichern'))?>"><?=csrf_field()?><h2>Kategorie bearbeiten</h2>
+        <label>Name<input name="name" value="<?=e($cat['name'])?>" required></label>
+        <label>Sortierung<input type="number" name="sort_order" value="<?=e($cat['sort_order'])?>"></label>
+        <label><input type="checkbox" name="is_active" value="1" style="width:auto" <?=$cat['is_active']?'checked':''?>> Aktiv</label>
+        <button class="btn">Kategorie speichern</button>
+      </form>
+      <form class="panel" method="post" action="<?=e(url('/admin/kategorie/'.$cat['id'].'/feld'))?>"><?=csrf_field()?><h2>Neues Zusatzfeld</h2>
+        <div class="form-grid"><label>Bezeichnung<input name="label" required></label><label>Feldschlüssel<input name="field_key" placeholder="z. B. groesse"></label>
+        <label>Typ<select name="field_type"><option value="text">Text</option><option value="number">Zahl</option><option value="select">Auswahl</option><option value="multiselect">Mehrfachauswahl</option><option value="boolean">Ja/Nein</option><option value="date">Datum</option></select></label><label>Sortierung<input type="number" name="sort_order" value="0"></label></div>
+        <label>Optionen bei Auswahlfeldern – eine Zeile je Option<textarea name="options"></textarea></label>
+        <label><input type="checkbox" name="required" value="1" style="width:auto"> Pflichtfeld</label>
+        <button class="btn">Feld hinzufügen</button>
+      </form>
+    </div>
+    <h2>Kategoriefelder</h2><div class="table-wrap"><table><thead><tr><th>Bezeichnung</th><th>Schlüssel</th><th>Typ</th><th>Pflicht</th><th>Status</th><th></th></tr></thead><tbody><?php foreach($fields as $fld):?><tr><td><?=e($fld['label'])?></td><td><?=e($fld['field_key'])?></td><td><?=e($fld['field_type'])?></td><td><?=$fld['required']?'Ja':'Nein'?></td><td><?=$fld['is_active']?'Aktiv':'Inaktiv'?></td><td><form method="post" action="<?=e(url('/admin/kategoriefeld/'.$fld['id'].'/umschalten'))?>"><?=csrf_field()?><button class="btn secondary"><?=$fld['is_active']?'Deaktivieren':'Aktivieren'?></button></form></td></tr><?php endforeach;?></tbody></table></div>
+    <?php render('Kategorie '.$cat['name'],ob_get_clean());exit;
+}
+
+if (preg_match('#^/admin/kategorie/(\d+)/speichern$#',$path,$m) && $method==='POST') {
+    require_admin();$q=db()->prepare("SELECT * FROM categories WHERE id=?");$q->execute([(int)$m[1]]);$cat=$q->fetch();if(!$cat)not_found();
+    db()->prepare("UPDATE categories SET name=?,sort_order=?,is_active=? WHERE id=?")->execute([post('name'),(int)post('sort_order','0'),isset($_POST['is_active'])?1:0,$cat['id']]);
+    flash('success','Kategorie gespeichert.');redirect('/admin/kategorie/'.$cat['id']);
+}
+
+if (preg_match('#^/admin/kategorie/(\d+)/feld$#',$path,$m) && $method==='POST') {
+    require_admin();$q=db()->prepare("SELECT id FROM categories WHERE id=?");$q->execute([(int)$m[1]]);if(!$q->fetchColumn())not_found();
+    $label=post('label');$key=post('field_key');
+    if($key===''){$key=strtolower(trim(preg_replace('/[^a-z0-9]+/i','-',strtr($label,['ä'=>'ae','ö'=>'oe','ü'=>'ue','ß'=>'ss'])),'-'));$key=str_replace('-','_',$key);}
+    if(!preg_match('/^[a-z0-9_]{2,100}$/',$key)){flash('error','Der Feldschlüssel darf nur Kleinbuchstaben, Zahlen und Unterstriche enthalten.');redirect('/admin/kategorie/'.$m[1]);}
+    $opts=array_values(array_filter(array_map('trim',preg_split('/\r?\n/',post('options')))));
+    try{
+      db()->prepare("INSERT INTO category_fields(category_id,field_key,label,field_type,options_json,required,is_active,sort_order) VALUES(?,?,?,?,?,?,1,?)")
+        ->execute([(int)$m[1],$key,$label,post('field_type','text'),$opts?json_encode($opts,JSON_UNESCAPED_UNICODE):null,isset($_POST['required'])?1:0,(int)post('sort_order','0')]);
+    }catch(PDOException $e){
+      if(($e->errorInfo[1]??null)===1062){flash('error','Dieser Feldschlüssel existiert bereits.');redirect('/admin/kategorie/'.$m[1]);}
+      throw $e;
+    }
+    flash('success','Kategoriefeld angelegt.');redirect('/admin/kategorie/'.$m[1]);
+}
+
+if (preg_match('#^/admin/kategoriefeld/(\d+)/umschalten$#',$path,$m) && $method==='POST') {
+    require_admin();$q=db()->prepare("SELECT * FROM category_fields WHERE id=?");$q->execute([(int)$m[1]]);$fld=$q->fetch();if(!$fld)not_found();
+    db()->prepare("UPDATE category_fields SET is_active=IF(is_active=1,0,1) WHERE id=?")->execute([$fld['id']]);
+    flash('success','Feldstatus geändert.');redirect('/admin/kategorie/'.$fld['category_id']);
+}
