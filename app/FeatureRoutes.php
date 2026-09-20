@@ -1731,6 +1731,7 @@ if ($path==='/admin/einzelangebote' && $method==='GET') {
     require_admin();
     $sellers=db()->query("SELECT id,first_name,last_name,email FROM sellers WHERE deleted_at IS NULL ORDER BY last_name,first_name")->fetchAll();
     $cats=db()->query("SELECT id,name FROM categories WHERE is_active=1 ORDER BY sort_order,name")->fetchAll();
+    $shippingAddresses=db()->query("SELECT * FROM shipping_addresses WHERE active=1 ORDER BY label,id")->fetchAll();
     $rows=db()->query("SELECT a.*,f.title,f.compensation,f.fulfillment_type,CONCAT(s.first_name,' ',s.last_name) seller_name FROM offer_assignments a JOIN offers f ON f.id=a.offer_id JOIN sellers s ON s.id=a.seller_id ORDER BY a.created_at DESC")->fetchAll();
     ob_start();?>
     <div class="dashboard-head"><div><div class="eyebrow">Administration</div><h1>Individuelle Angebote</h1><p class="meta">Private Angebote sind ausschließlich der ausgewählten Verkäuferin sichtbar.</p></div></div>
@@ -1767,6 +1768,15 @@ if ($path==='/admin/einzelangebote' && $method==='GET') {
         <label>Nachfrist Revision (Minuten)<input type="number" min="0" name="digital_revision_grace_minutes" value="60"></label>
         <label>Fristverstoß Revision<select name="digital_revision_violation_effect"><option value="log_only">Nur dokumentieren</option><option value="extension_day">Bestätigter Verstoß +1 digitaler Bearbeitungstag</option></select></label>
       </div>
+      <h3>Versandbedingungen</h3>
+      <div class="form-grid">
+        <label>Empfängeradresse<select name="shipping_address_id"><option value="">Keine feste Adresse</option><?php foreach($shippingAddresses as $addr):?><option value="<?=$addr['id']?>"><?=e($addr['label'].' · '.$addr['recipient_name'].' · '.$addr['postal_code'].' '.$addr['city'])?></option><?php endforeach;?></select></label>
+        <label>Kostenmodell<select name="shipping_cost_mode"><option value="seller">Verkäuferin trägt Versand</option><option value="fixed">Fester Versandzuschuss</option><option value="reimburse">Volle Erstattung gegen Nachweis</option></select></label>
+        <label>Fester Versandzuschuss (€)<input type="number" step=".01" min="0" name="shipping_allowance" value="0"></label>
+        <label>Bevorzugter Versanddienstleister<input name="preferred_carrier"></label>
+        <label>Gesamt-Versandfrist ab Freischaltung (Stunden)<input type="number" min="1" name="shipping_window_hours" placeholder="leer = keine Gesamtfrist"></label>
+      </div>
+      <label>Verpackungs-/Versandhinweise<textarea name="shipping_instructions"></textarea></label>
       <label>Beschreibung / individuelle Bedingungen<textarea name="description" required></textarea></label>
       <button class="btn">Privates Einzelangebot senden</button>
     </form>
@@ -1828,13 +1838,20 @@ if ($path==='/admin/einzelangebote' && $method==='POST') {
       }
     }
     $digitalRulesJson=json_encode($digitalRules,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+    $shippingAddressId=post('shipping_address_id')!==''?(int)post('shipping_address_id'):null;
+    $shippingCostMode=in_array(post('shipping_cost_mode'),['seller','fixed','reimburse'],true)?post('shipping_cost_mode'):'seller';
+    $shippingAllowance=$shippingCostMode==='fixed'?max(0,(float)post('shipping_allowance')):0.0;
+    $preferredCarrier=post('preferred_carrier')?:null;
+    $shippingWindowHours=post('shipping_window_hours')!==''?max(1,(int)post('shipping_window_hours')):null;
+    $shippingRules=['instructions'=>post('shipping_instructions')?:null];
+    $shippingRulesJson=json_encode($shippingRules,JSON_UNESCAPED_UNICODE);
     $slug='privat-'.date('YmdHis').'-'.substr(bin2hex(random_bytes(6)),0,10);
     db()->beginTransaction();
     try{
-        db()->prepare("INSERT INTO offers(category_id,title,slug,description,compensation,duration_days,fulfillment_type,evidence_rules_json,digital_rules_json,status,visibility,current_version) VALUES(?,?,?,?,?,?,?,?,?,'active','private',1)")
-          ->execute([$categoryId,$title,$slug,$description,$comp,$days,$type,json_encode($rules,JSON_UNESCAPED_UNICODE),$digitalRulesJson]);
+        db()->prepare("INSERT INTO offers(category_id,title,slug,description,compensation,duration_days,fulfillment_type,evidence_rules_json,digital_rules_json,shipping_rules_json,shipping_address_id,shipping_cost_mode,shipping_allowance,preferred_carrier,shipping_window_hours,status,visibility,current_version) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'active','private',1)")
+          ->execute([$categoryId,$title,$slug,$description,$comp,$days,$type,json_encode($rules,JSON_UNESCAPED_UNICODE),$digitalRulesJson,$shippingRulesJson,$shippingAddressId,$shippingCostMode,$shippingAllowance,$preferredCarrier,$shippingWindowHours]);
         $offerId=(int)db()->lastInsertId();
-        $snapshot=['title'=>$title,'category_id'=>$categoryId,'description'=>$description,'compensation'=>$comp,'duration_days'=>$days,'fulfillment_type'=>$type,'evidence_rules'=>$rules,'digital_rules'=>$digitalRules,'visibility'=>'private'];
+        $snapshot=['title'=>$title,'category_id'=>$categoryId,'description'=>$description,'compensation'=>$comp,'duration_days'=>$days,'fulfillment_type'=>$type,'evidence_rules'=>$rules,'digital_rules'=>$digitalRules,'shipping'=>['address_id'=>$shippingAddressId,'cost_mode'=>$shippingCostMode,'allowance'=>$shippingAllowance,'preferred_carrier'=>$preferredCarrier,'window_hours'=>$shippingWindowHours,'instructions'=>$shippingRules['instructions']],'visibility'=>'private'];
         db()->prepare("INSERT INTO offer_versions(offer_id,version_no,snapshot_json) VALUES(?,1,?)")->execute([$offerId,json_encode($snapshot,JSON_UNESCAPED_UNICODE)]);
         db()->prepare("INSERT INTO offer_assignments(offer_id,seller_id,acceptance_deadline,status) VALUES(?,?,?,'assigned')")->execute([$offerId,$sellerId,$deadline->format('Y-m-d H:i:s')]);
         $assignmentId=(int)db()->lastInsertId();
