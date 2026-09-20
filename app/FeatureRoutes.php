@@ -1747,6 +1747,25 @@ if ($path==='/admin/einzelangebote' && $method==='GET') {
         <label>Mittag-Fotos<input type="number" min="0" max="20" name="midday_count" value="1"></label>
         <label>Abend-Fotos<input type="number" min="0" max="20" name="evening_count" value="1"></label>
       </div>
+      <h3>Digitale Abgaberegeln</h3>
+      <p class="meta">Für digitale oder kombinierte Einzelangebote. Nicht benötigte Digitalfelder können bei rein physischen Angeboten ignoriert werden.</p>
+      <div class="form-grid">
+        <label><input type="checkbox" style="width:auto" name="digital_allow_text" value="1" checked> Text erlaubt</label>
+        <label><input type="checkbox" style="width:auto" name="digital_require_text" value="1"> Text verpflichtend</label>
+        <label><input type="checkbox" style="width:auto" name="digital_allow_audio" value="1" checked> Audio erlaubt</label>
+        <label><input type="checkbox" style="width:auto" name="digital_require_audio" value="1"> Audio verpflichtend</label>
+        <label><input type="checkbox" style="width:auto" name="digital_allow_video" value="1" checked> Video erlaubt</label>
+        <label><input type="checkbox" style="width:auto" name="digital_require_video" value="1"> Video verpflichtend</label>
+        <label>Text Mindestzeichen<input type="number" min="0" name="digital_text_min_chars" value="0"></label>
+        <label>Text Maximalzeichen (0 = unbegrenzt)<input type="number" min="0" name="digital_text_max_chars" value="0"></label>
+        <label>Max. Größe je Audio/Video (MB)<input type="number" min="1" max="500" name="digital_max_file_mb" value="50"></label>
+        <label>Erstabgabe innerhalb (Stunden)<input type="number" min="1" name="digital_deadline_hours" value="72"></label>
+        <label>Nachfrist Erstabgabe (Minuten)<input type="number" min="0" name="digital_grace_minutes" value="60"></label>
+        <label>Fristverstoß Erstabgabe<select name="digital_violation_effect"><option value="log_only">Nur dokumentieren</option><option value="extension_day">Bestätigter Verstoß +1 digitaler Bearbeitungstag</option></select></label>
+        <label>Revisionsfrist (Stunden)<input type="number" min="1" name="digital_revision_deadline_hours" value="48"></label>
+        <label>Nachfrist Revision (Minuten)<input type="number" min="0" name="digital_revision_grace_minutes" value="60"></label>
+        <label>Fristverstoß Revision<select name="digital_revision_violation_effect"><option value="log_only">Nur dokumentieren</option><option value="extension_day">Bestätigter Verstoß +1 digitaler Bearbeitungstag</option></select></label>
+      </div>
       <label>Beschreibung / individuelle Bedingungen<textarea name="description" required></textarea></label>
       <button class="btn">Privates Einzelangebot senden</button>
     </form>
@@ -1764,13 +1783,57 @@ if ($path==='/admin/einzelangebote' && $method==='POST') {
     $deadline=new DateTimeImmutable($deadlineRaw,new DateTimeZone((string)app_config('app.timezone','Europe/Berlin')));
     if($deadline<=new DateTimeImmutable('now',$deadline->getTimezone())){flash('error','Die Annahmefrist muss in der Zukunft liegen.');redirect('/admin/einzelangebote');}
     $rules=['precheck_required_count'=>max(1,(int)post('precheck_required_count','1')),'daily'=>['morning'=>max(0,(int)post('morning_count','1')),'midday'=>max(0,(int)post('midday_count','1')),'evening'=>max(0,(int)post('evening_count','1'))]];
+    $digitalRules=normalize_digital_rules([
+      'allowed'=>[
+        'text'=>isset($_POST['digital_allow_text']),
+        'audio'=>isset($_POST['digital_allow_audio']),
+        'video'=>isset($_POST['digital_allow_video']),
+      ],
+      'required'=>[
+        'text'=>isset($_POST['digital_require_text']),
+        'audio'=>isset($_POST['digital_require_audio']),
+        'video'=>isset($_POST['digital_require_video']),
+      ],
+      'text'=>[
+        'min_chars'=>max(0,(int)post('digital_text_min_chars','0')),
+        'max_chars'=>max(0,(int)post('digital_text_max_chars','0')),
+      ],
+      'media'=>['max_file_mb'=>max(1,(int)post('digital_max_file_mb','50'))],
+      'deadline'=>[
+        'hours_after_acceptance'=>max(1,(int)post('digital_deadline_hours','72')),
+        'grace_minutes'=>max(0,(int)post('digital_grace_minutes','60')),
+        'violation_effect'=>post('digital_violation_effect','log_only'),
+      ],
+      'revision'=>[
+        'deadline_hours'=>max(1,(int)post('digital_revision_deadline_hours','48')),
+        'grace_minutes'=>max(0,(int)post('digital_revision_grace_minutes','60')),
+        'violation_effect'=>post('digital_revision_violation_effect','log_only'),
+      ],
+    ]);
+    if(in_array($type,['digital','mixed'],true)){
+      foreach(['text','audio','video'] as $format){
+        if($digitalRules['required'][$format] && !$digitalRules['allowed'][$format]){
+          flash('error','Ein verpflichtendes Digitalformat muss zugleich erlaubt sein.');
+          redirect('/admin/einzelangebote');
+        }
+      }
+      if(!$digitalRules['allowed']['text'] && !$digitalRules['allowed']['audio'] && !$digitalRules['allowed']['video']){
+        flash('error','Für ein digitales Einzelangebot muss mindestens ein Abgabeformat erlaubt sein.');
+        redirect('/admin/einzelangebote');
+      }
+      if($digitalRules['text']['max_chars']>0 && $digitalRules['text']['max_chars']<$digitalRules['text']['min_chars']){
+        flash('error','Die maximale Textlänge darf nicht unter der Mindestlänge liegen.');
+        redirect('/admin/einzelangebote');
+      }
+    }
+    $digitalRulesJson=json_encode($digitalRules,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
     $slug='privat-'.date('YmdHis').'-'.substr(bin2hex(random_bytes(6)),0,10);
     db()->beginTransaction();
     try{
-        db()->prepare("INSERT INTO offers(category_id,title,slug,description,compensation,duration_days,fulfillment_type,evidence_rules_json,status,visibility,current_version) VALUES(?,?,?,?,?,?,?,?,'active','private',1)")
-          ->execute([$categoryId,$title,$slug,$description,$comp,$days,$type,json_encode($rules,JSON_UNESCAPED_UNICODE)]);
+        db()->prepare("INSERT INTO offers(category_id,title,slug,description,compensation,duration_days,fulfillment_type,evidence_rules_json,digital_rules_json,status,visibility,current_version) VALUES(?,?,?,?,?,?,?,?,?,'active','private',1)")
+          ->execute([$categoryId,$title,$slug,$description,$comp,$days,$type,json_encode($rules,JSON_UNESCAPED_UNICODE),$digitalRulesJson]);
         $offerId=(int)db()->lastInsertId();
-        $snapshot=['title'=>$title,'category_id'=>$categoryId,'description'=>$description,'compensation'=>$comp,'duration_days'=>$days,'fulfillment_type'=>$type,'evidence_rules'=>$rules,'visibility'=>'private'];
+        $snapshot=['title'=>$title,'category_id'=>$categoryId,'description'=>$description,'compensation'=>$comp,'duration_days'=>$days,'fulfillment_type'=>$type,'evidence_rules'=>$rules,'digital_rules'=>$digitalRules,'visibility'=>'private'];
         db()->prepare("INSERT INTO offer_versions(offer_id,version_no,snapshot_json) VALUES(?,1,?)")->execute([$offerId,json_encode($snapshot,JSON_UNESCAPED_UNICODE)]);
         db()->prepare("INSERT INTO offer_assignments(offer_id,seller_id,acceptance_deadline,status) VALUES(?,?,?,'assigned')")->execute([$offerId,$sellerId,$deadline->format('Y-m-d H:i:s')]);
         $assignmentId=(int)db()->lastInsertId();
