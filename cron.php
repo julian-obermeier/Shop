@@ -80,6 +80,13 @@ foreach($tasks as $t){
     }
 }
 
+/* Genehmigte Vorabkontrollen am vereinbarten Startdatum starten. */
+$startable=$pdo->prepare("SELECT id FROM orders WHERE status='precheck' AND precheck_approved_at IS NOT NULL AND planned_start_date IS NOT NULL AND planned_start_date<=?");
+$startable->execute([$now->format('Y-m-d')]);
+foreach($startable->fetchAll() as $row){
+    start_order_on_planned_date((int)$row['id'],$now);
+}
+
 /* Auftragstage abschließen und bei vollständig erledigter Durchführung in den Versand wechseln. */
 $runningOrders=$pdo->query("SELECT id FROM orders WHERE status='running'")->fetchAll();
 foreach($runningOrders as $row){
