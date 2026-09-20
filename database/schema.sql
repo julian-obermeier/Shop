@@ -508,6 +508,7 @@ CREATE TABLE IF NOT EXISTS order_shipping_steps (
  requires_text TINYINT(1) NOT NULL DEFAULT 0,
  requires_checkbox TINYINT(1) NOT NULL DEFAULT 0,
  is_dispatch_step TINYINT(1) NOT NULL DEFAULT 0,
+ deadline_hours INT NULL,
  due_at DATETIME NULL,
  status ENUM('locked','open','completed') NOT NULL DEFAULT 'locked',
  submission_json JSON NULL,
