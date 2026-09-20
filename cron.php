@@ -3,13 +3,24 @@ declare(strict_types=1);
 require __DIR__.'/app/Core.php';
 
 $pdo=db();
+$cronLock='shop-v1-cron-'.substr(hash('sha256',(string)app_config('app.url','default')),0,24);
+$lockStmt=$pdo->prepare('SELECT GET_LOCK(?,0)');
+$lockStmt->execute([$cronLock]);
+if((int)$lockStmt->fetchColumn()!==1){
+    echo '['.date('c')."] cron skipped: another run is active\n";
+    exit;
+}
+register_shutdown_function(static function() use ($pdo,$cronLock): void {
+    try{$q=$pdo->prepare('SELECT RELEASE_LOCK(?)');$q->execute([$cronLock]);}catch(Throwable){}
+});
+
 $now=new DateTimeImmutable('now',new DateTimeZone((string)app_config('app.timezone','Europe/Berlin')));
 $nowSql=$now->format('Y-m-d H:i:s');
 $grace=max(0,(int)setting_value('grace_minutes','60'));
 
 $pdo->prepare("DELETE FROM email_verifications WHERE expires_at < ?")->execute([$nowSql]);
 $pdo->prepare("DELETE FROM password_resets WHERE expires_at < ? OR used_at IS NOT NULL")->execute([$nowSql]);
-$pdo->prepare("DELETE FROM rate_limits WHERE blocked_until IS NULL AND window_started_at < DATE_SUB(?,INTERVAL 2 DAY) OR blocked_until < DATE_SUB(?,INTERVAL 1 DAY)")->execute([$nowSql,$nowSql]);
+$pdo->prepare("DELETE FROM rate_limits WHERE (blocked_until IS NULL AND window_started_at < DATE_SUB(?,INTERVAL 2 DAY)) OR (blocked_until IS NOT NULL AND blocked_until < DATE_SUB(?,INTERVAL 1 DAY))")->execute([$nowSql,$nowSql]);
 
 function cron_provisional_violation(int $orderId, int $sellerId, string $sourceKey, string $type, string $reason): void {
     $q=db()->prepare("SELECT id FROM violations WHERE source_key=? LIMIT 1");$q->execute([$sourceKey]);
@@ -108,9 +119,9 @@ foreach($windows as $w){
     $startTs=strtotime($w['starts_at']);$endTs=strtotime($w['ends_at']);$nowTs=$now->getTimestamp();
     $diffStart=$startTs-$nowTs;$diffEnd=$endTs-$nowTs;
 
-    if($diffStart<=3600 && $diffStart>3300) notify_seller((int)$w['seller_id'],'evidence.reminder','Nachweis in 60 Minuten','Für Auftrag '.$w['order_no'].' beginnt das Zeitfenster „'.$w['window_key'].'“ in etwa 60 Minuten.','/auftrag/'.$w['order_no'],'window-'.$w['id'].'-60m');
-    if($diffStart<=900 && $diffStart>600) notify_seller((int)$w['seller_id'],'evidence.reminder','Nachweis in 15 Minuten','Für Auftrag '.$w['order_no'].' beginnt das Zeitfenster „'.$w['window_key'].'“ in etwa 15 Minuten.','/auftrag/'.$w['order_no'],'window-'.$w['id'].'-15m');
-    if($nowTs>=$startTs && $nowTs<$startTs+300) notify_seller((int)$w['seller_id'],'evidence.open','Nachweisfenster geöffnet','Das Zeitfenster „'.$w['window_key'].'“ für Auftrag '.$w['order_no'].' ist jetzt geöffnet.','/auftrag/'.$w['order_no'],'window-'.$w['id'].'-open');
+    if($diffStart>900 && $diffStart<=3600) notify_seller((int)$w['seller_id'],'evidence.reminder','Nachweis in weniger als 60 Minuten','Für Auftrag '.$w['order_no'].' beginnt das Zeitfenster „'.$w['window_key'].'“ innerhalb der nächsten 60 Minuten.','/auftrag/'.$w['order_no'],'window-'.$w['id'].'-60m');
+    if($diffStart>0 && $diffStart<=900) notify_seller((int)$w['seller_id'],'evidence.reminder','Nachweis in weniger als 15 Minuten','Für Auftrag '.$w['order_no'].' beginnt das Zeitfenster „'.$w['window_key'].'“ innerhalb der nächsten 15 Minuten.','/auftrag/'.$w['order_no'],'window-'.$w['id'].'-15m');
+    if($nowTs>=$startTs && $nowTs<=$endTs) notify_seller((int)$w['seller_id'],'evidence.open','Nachweisfenster geöffnet','Das Zeitfenster „'.$w['window_key'].'“ für Auftrag '.$w['order_no'].' ist jetzt geöffnet.','/auftrag/'.$w['order_no'],'window-'.$w['id'].'-open');
 
     if(strtotime($w['grace_ends_at']??$w['ends_at'])<$nowTs){
         $missing=max(0,(int)$w['required_count']-$submitted);
@@ -316,11 +327,11 @@ foreach($shippingSteps as $step){
     $graceEnd=$due->modify('+'.$grace.' minutes');
     $diff=$due->getTimestamp()-$now->getTimestamp();
 
-    if($diff<=3600 && $diff>3300){
-        notify_seller((int)$step['seller_id'],'shipping.reminder','Versandschritt in 60 Minuten fällig','Der Versandschritt „'.$step['title'].'“ in Auftrag '.$step['order_no'].' ist in etwa 60 Minuten fällig.','/auftrag/'.$step['order_no'].'/versand','shipping-step-'.$step['id'].'-60m');
+    if($diff>900 && $diff<=3600){
+        notify_seller((int)$step['seller_id'],'shipping.reminder','Versandschritt in weniger als 60 Minuten fällig','Der Versandschritt „'.$step['title'].'“ in Auftrag '.$step['order_no'].' ist innerhalb der nächsten 60 Minuten fällig.','/auftrag/'.$step['order_no'].'/versand','shipping-step-'.$step['id'].'-60m');
     }
-    if($diff<=900 && $diff>600){
-        notify_seller((int)$step['seller_id'],'shipping.reminder','Versandschritt bald fällig','Der Versandschritt „'.$step['title'].'“ in Auftrag '.$step['order_no'].' ist in etwa 15 Minuten fällig.','/auftrag/'.$step['order_no'].'/versand','shipping-step-'.$step['id'].'-15m');
+    if($diff>0 && $diff<=900){
+        notify_seller((int)$step['seller_id'],'shipping.reminder','Versandschritt in weniger als 15 Minuten fällig','Der Versandschritt „'.$step['title'].'“ in Auftrag '.$step['order_no'].' ist innerhalb der nächsten 15 Minuten fällig.','/auftrag/'.$step['order_no'].'/versand','shipping-step-'.$step['id'].'-15m');
     }
     if($graceEnd<$now){
         cron_provisional_violation((int)$step['order_id'],(int)$step['seller_id'],'shipping-step-'.$step['id'].'-missed','shipping_requirement','Versandschritt „'.$step['title'].'“ wurde nicht fristgerecht abgeschlossen.');
