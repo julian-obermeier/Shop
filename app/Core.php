@@ -196,6 +196,103 @@ function setting_value(string $key, mixed $default = null): mixed {
     return setting($key, $default);
 }
 
+function analyze_uploaded_image(string $tmpName, string $mime): array {
+    $metadata=[];
+    $flags=[];
+
+    $info=@getimagesize($tmpName);
+    if(!$info) return ['metadata'=>$metadata,'quality_flags'=>['invalid_image'=>true]];
+
+    $width=(int)($info[0]??0);
+    $height=(int)($info[1]??0);
+    $metadata['width']=$width;
+    $metadata['height']=$height;
+
+    $minWidth=max(1,(int)setting('image_min_width',720));
+    $minHeight=max(1,(int)setting('image_min_height',720));
+    if($width<$minWidth || $height<$minHeight){
+        throw new RuntimeException('Bildauflösung zu niedrig. Mindestens '.$minWidth.'×'.$minHeight.' Pixel erforderlich.');
+    }
+
+    if($mime==='image/jpeg' && function_exists('exif_read_data')){
+        try{
+            $exif=@exif_read_data($tmpName,'IFD0,EXIF',true,false);
+            if(is_array($exif)){
+                $ifd=$exif['IFD0']??[];
+                $ex=$exif['EXIF']??[];
+                foreach([
+                    'make'=>$ifd['Make']??null,
+                    'model'=>$ifd['Model']??null,
+                    'orientation'=>$ifd['Orientation']??null,
+                    'software'=>$ifd['Software']??null,
+                    'datetime_original'=>$ex['DateTimeOriginal']??null,
+                    'pixel_x_dimension'=>$ex['ExifImageWidth']??null,
+                    'pixel_y_dimension'=>$ex['ExifImageLength']??null,
+                ] as $key=>$value){
+                    if($value!==null && $value!=='') $metadata['exif_'.$key]=is_scalar($value)?(string)$value:null;
+                }
+            }
+        }catch(Throwable){
+            // EXIF is optional and must never block an otherwise valid upload.
+        }
+    }
+
+    $source=null;
+    if($mime==='image/jpeg' && function_exists('imagecreatefromjpeg')) $source=@imagecreatefromjpeg($tmpName);
+    elseif($mime==='image/png' && function_exists('imagecreatefrompng')) $source=@imagecreatefrompng($tmpName);
+    elseif($mime==='image/webp' && function_exists('imagecreatefromwebp')) $source=@imagecreatefromwebp($tmpName);
+
+    if($source){
+        $sampleSize=32;
+        $sample=imagecreatetruecolor($sampleSize,$sampleSize);
+        if($sample && imagecopyresampled($sample,$source,0,0,0,0,$sampleSize,$sampleSize,$width,$height)){
+            $luma=[];
+            $sum=0.0;
+            for($y=0;$y<$sampleSize;$y++){
+                $row=[];
+                for($x=0;$x<$sampleSize;$x++){
+                    $rgb=imagecolorat($sample,$x,$y);
+                    $r=($rgb>>16)&255;$g=($rgb>>8)&255;$b=$rgb&255;
+                    $v=0.2126*$r+0.7152*$g+0.0722*$b;
+                    $row[]=$v;$sum+=$v;
+                }
+                $luma[]=$row;
+            }
+            $avg=$sum/($sampleSize*$sampleSize);
+            $metadata['average_luminance']=round($avg,2);
+            $darkThreshold=(float)setting('image_dark_luminance_threshold',28);
+            if($avg<$darkThreshold) $flags['possibly_too_dark']=true;
+
+            $lap=[];
+            for($y=1;$y<$sampleSize-1;$y++){
+                for($x=1;$x<$sampleSize-1;$x++){
+                    $lap[]=
+                        4*$luma[$y][$x]
+                        -$luma[$y-1][$x]
+                        -$luma[$y+1][$x]
+                        -$luma[$y][$x-1]
+                        -$luma[$y][$x+1];
+                }
+            }
+            if($lap){
+                $mean=array_sum($lap)/count($lap);
+                $variance=0.0;
+                foreach($lap as $v)$variance+=($v-$mean)**2;
+                $variance/=count($lap);
+                $metadata['blur_variance']=round($variance,2);
+                $blurThreshold=(float)setting('image_blur_variance_threshold',45);
+                if($variance<$blurThreshold) $flags['possibly_blurry']=true;
+            }
+        }
+        if(is_resource($sample??null) || $sample instanceof GdImage) @imagedestroy($sample);
+        if(is_resource($source) || $source instanceof GdImage) @imagedestroy($source);
+    }else{
+        $metadata['quality_analysis']='gd_unavailable';
+    }
+
+    return ['metadata'=>$metadata,'quality_flags'=>$flags];
+}
+
 function private_upload(array $file, string $folder): array {
     if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
         throw new RuntimeException('Upload fehlgeschlagen.');
@@ -223,6 +320,14 @@ function private_upload(array $file, string $folder): array {
     ];
     if (!isset($allowed[$mime])) throw new RuntimeException('Dateiformat ist nicht erlaubt.');
 
+    $metadata=[];
+    $qualityFlags=[];
+    if(str_starts_with($mime,'image/')){
+        $analysis=analyze_uploaded_image((string)$file['tmp_name'],$mime);
+        $metadata=$analysis['metadata']??[];
+        $qualityFlags=$analysis['quality_flags']??[];
+    }
+
     $baseRoot = realpath(__DIR__.'/../storage/private') ?: __DIR__.'/../storage/private';
     $safeFolder = trim(str_replace(['..', '\\'], ['', '/'], $folder), '/');
     $base = $baseRoot.'/'.$safeFolder;
@@ -241,7 +346,19 @@ function private_upload(array $file, string $folder): array {
         'mime' => $mime,
         'size' => (int)$file['size'],
         'sha256' => (string)hash_file('sha256', $target),
+        'metadata' => $metadata,
+        'quality_flags' => $qualityFlags,
     ];
+}
+
+function upload_metadata_json(array $upload): ?string {
+    $value=$upload['metadata']??[];
+    return $value ? json_encode($value,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES) : null;
+}
+
+function upload_quality_flags_json(array $upload): ?string {
+    $value=$upload['quality_flags']??[];
+    return $value ? json_encode($value,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES) : null;
 }
 
 function current_run_id(int $orderId): ?int {
