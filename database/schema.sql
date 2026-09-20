@@ -250,17 +250,32 @@ CREATE TABLE IF NOT EXISTS damage_cases (
  FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS order_bonuses (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ order_id BIGINT UNSIGNED NOT NULL,
+ amount DECIMAL(10,2) NOT NULL,
+ status ENUM('reserved','released','cancelled') NOT NULL DEFAULT 'reserved',
+ note VARCHAR(255) NULL,
+ created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ released_at DATETIME NULL,
+ cancelled_at DATETIME NULL,
+ FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE,
+ INDEX(order_id,status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS wallet_entries (
  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
  seller_id BIGINT UNSIGNED NOT NULL,
  order_id BIGINT UNSIGNED NULL,
+ bonus_id BIGINT UNSIGNED NULL,
  entry_type ENUM('reserved','review','available','paid','cancelled','adjustment') NOT NULL,
  amount DECIMAL(10,2) NOT NULL,
  description VARCHAR(255) NULL,
  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
  FOREIGN KEY(seller_id) REFERENCES sellers(id),
  FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE SET NULL,
- INDEX(seller_id,entry_type)
+ FOREIGN KEY(bonus_id) REFERENCES order_bonuses(id) ON DELETE SET NULL,
+ INDEX(seller_id,entry_type), INDEX(bonus_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS payout_profiles (
