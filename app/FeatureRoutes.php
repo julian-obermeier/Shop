@@ -391,3 +391,122 @@ if (preg_match('#^/admin/angebot/(\\d+)/duplizieren$#',$path,$m) && $method==='P
     }catch(Throwable $e){db()->rollBack();throw $e;}
     flash('success','Angebot wurde als Entwurf dupliziert.');redirect('/admin/angebot/'.$id);
 }
+
+
+/* ---------- V1 decisions and spontaneous evidence ---------- */
+
+if ($path==='/admin/entscheidungen' && $method==='GET') {
+    require_admin();
+    $pre=db()->query("SELECT e.id,e.order_id,e.created_at,o.order_no,CONCAT(s.first_name,' ',s.last_name) seller_name
+      FROM evidences e JOIN orders o ON o.id=e.order_id JOIN sellers s ON s.id=o.seller_id
+      WHERE e.evidence_type='precheck' AND e.status='submitted' ORDER BY e.created_at")->fetchAll();
+    $viol=db()->query("SELECT v.*,o.order_no,CONCAT(s.first_name,' ',s.last_name) seller_name
+      FROM violations v JOIN orders o ON o.id=v.order_id JOIN sellers s ON s.id=o.seller_id
+      WHERE v.status IN('open','reviewed') ORDER BY v.created_at")->fetchAll();
+    $damage=db()->query("SELECT d.*,o.order_no,CONCAT(s.first_name,' ',s.last_name) seller_name
+      FROM damage_cases d JOIN orders o ON o.id=d.order_id JOIN sellers s ON s.id=o.seller_id
+      WHERE d.status IN('reported','evidence_requested','review') ORDER BY d.created_at")->fetchAll();
+    $revisions=db()->query("SELECT r.*,o.order_no,CONCAT(s.first_name,' ',s.last_name) seller_name
+      FROM revision_rounds r JOIN orders o ON o.id=r.order_id JOIN sellers s ON s.id=o.seller_id
+      WHERE r.status='submitted' ORDER BY r.created_at")->fetchAll();
+    $payouts=db()->query("SELECT p.*,CONCAT(s.first_name,' ',s.last_name) seller_name
+      FROM payout_requests p JOIN sellers s ON s.id=p.seller_id
+      WHERE p.status IN('requested','review','released') ORDER BY p.created_at")->fetchAll();
+
+    ob_start();?>
+    <div class="dashboard-head"><div><div class="eyebrow">Administration</div><h1>Offene Entscheidungen</h1></div></div>
+    <div class="grid">
+      <div class="card"><div class="meta">Vorabnachweise</div><div class="stat"><?=count($pre)?></div></div>
+      <div class="card"><div class="meta">Verstöße</div><div class="stat"><?=count($viol)?></div></div>
+      <div class="card"><div class="meta">Beschädigungen</div><div class="stat"><?=count($damage)?></div></div>
+    </div>
+    <h2>Verstöße prüfen</h2>
+    <div class="table-wrap"><table><thead><tr><th>Auftrag</th><th>Verkäuferin</th><th>Grund</th><th>Entscheidung</th></tr></thead><tbody>
+    <?php foreach($viol as $v):?><tr><td><a href="<?=e(url('/admin/auftrag/'.$v['order_no']))?>"><?=e($v['order_no'])?></a></td><td><?=e($v['seller_name'])?></td><td><?=e($v['reason']??$v['violation_type'])?></td><td><div class="actions"><form method="post" action="<?=e(url('/admin/verstoss/'.$v['id'].'/bestaetigen'))?>"><?=csrf_field()?><button class="btn danger">Bestätigen (+1 Tag)</button></form><form method="post" action="<?=e(url('/admin/verstoss/'.$v['id'].'/verwerfen'))?>"><?=csrf_field()?><button class="btn secondary">Verwerfen</button></form></div></td></tr><?php endforeach;?>
+    <?php if(!$viol):?><tr><td colspan="4">Keine offenen Verstöße.</td></tr><?php endif;?></tbody></table></div>
+    <h2>Vorabkontrollen</h2><div class="table-wrap"><table><tbody><?php foreach($pre as $x):?><tr><td><?=e($x['order_no'])?></td><td><?=e($x['seller_name'])?></td><td><?=e(date('d.m.Y H:i',strtotime($x['created_at'])))?></td><td><a href="<?=e(url('/admin/auftrag/'.$x['order_no']))?>">Prüfen</a></td></tr><?php endforeach;?></tbody></table></div>
+    <h2>Beschädigungen</h2><div class="table-wrap"><table><tbody><?php foreach($damage as $d):?><tr><td><?=e($d['order_no'])?></td><td><?=e($d['seller_name'])?></td><td><?=e($d['reason'])?></td><td><a href="<?=e(url('/admin/auftrag/'.$d['order_no']))?>">Auftrag öffnen</a></td></tr><?php endforeach;?></tbody></table></div>
+    <h2>Digitale Revisionen</h2><div class="table-wrap"><table><tbody><?php foreach($revisions as $r):?><tr><td><?=e($r['order_no'])?></td><td><?=e($r['seller_name'])?></td><td>Runde <?=e($r['round_no'])?></td><td><a href="<?=e(url('/admin/auftrag/'.$r['order_no']))?>">Prüfen</a></td></tr><?php endforeach;?></tbody></table></div>
+    <h2>Auszahlungen</h2><div class="table-wrap"><table><tbody><?php foreach($payouts as $p):?><tr><td><?=e($p['seller_name'])?></td><td><?=money($p['amount'])?></td><td><?=e($p['status'])?></td><td><a href="<?=e(url('/admin/auszahlungen'))?>">Öffnen</a></td></tr><?php endforeach;?></tbody></table></div>
+    <?php render('Offene Entscheidungen',ob_get_clean());exit;
+}
+
+if (preg_match('#^/admin/verstoss/(\d+)/(bestaetigen|verwerfen)$#',$path,$m) && $method==='POST') {
+    require_admin();
+    $q=db()->prepare("SELECT v.*,o.order_no,o.seller_id FROM violations v JOIN orders o ON o.id=v.order_id WHERE v.id=?");
+    $q->execute([(int)$m[1]]);$v=$q->fetch();if(!$v)not_found();
+    if($m[2]==='bestaetigen'){
+        db()->beginTransaction();
+        try{
+            db()->prepare("UPDATE violations SET status='confirmed',reviewed_at=NOW() WHERE id=? AND status IN('open','reviewed')")->execute([$v['id']]);
+            $q=db()->prepare("SELECT id FROM extra_days WHERE source_type='violation' AND source_id=? AND status='provisional' LIMIT 1");
+            $q->execute([$v['id']]);$extraId=$q->fetchColumn();
+            if($extraId){
+                db()->prepare("UPDATE extra_days SET status='confirmed' WHERE id=?")->execute([$extraId]);
+            }else{
+                db()->prepare("INSERT INTO extra_days(order_id,source_type,source_id,status,paid,amount,reason) VALUES(?,'violation',?,'confirmed',0,0,?)")->execute([$v['order_id'],$v['id'],$v['reason']]);
+                $extraId=(int)db()->lastInsertId();
+            }
+            db()->commit();
+            schedule_extra_day((int)$extraId);
+        }catch(Throwable $e){db()->rollBack();throw $e;}
+        db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")->execute([$v['order_id'],'Verstoß bestätigt: '.($v['reason']?:$v['violation_type']).' · +1 zusätzlicher Durchführungstag.']);
+        notify_seller((int)$v['seller_id'],'violation.confirmed','Verstoß bestätigt','Im Auftrag '.$v['order_no'].' wurde ein Verstoß bestätigt. Ein zusätzlicher Durchführungstag wurde angehängt.','/auftrag/'.$v['order_no'],'violation-confirmed-'.$v['id'],true);
+        flash('success','Verstoß bestätigt; der Zusatztag ist jetzt verbindlich terminiert.');
+    }else{
+        db()->prepare("UPDATE violations SET status='discarded',reviewed_at=NOW() WHERE id=? AND status IN('open','reviewed')")->execute([$v['id']]);
+        db()->prepare("UPDATE extra_days SET status='cancelled' WHERE source_type='violation' AND source_id=? AND status='provisional'")->execute([$v['id']]);
+        db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")->execute([$v['order_id'],'Möglicher Verstoß wurde nach Prüfung verworfen.']);
+        notify_seller((int)$v['seller_id'],'violation.discarded','Verstoß verworfen','Der mögliche Verstoß im Auftrag '.$v['order_no'].' wurde verworfen.','/auftrag/'.$v['order_no'],'violation-discarded-'.$v['id'],false);
+        flash('success','Verstoß verworfen; der provisorische Zusatztag wurde storniert.');
+    }
+    redirect('/admin/entscheidungen');
+}
+
+if (preg_match('#^/admin/auftrag/(\d{8})/spontan$#',$path,$m) && $method==='POST') {
+    require_admin();
+    $q=db()->prepare("SELECT * FROM orders WHERE order_no=? AND status='running'");$q->execute([$m[1]]);$o=$q->fetch();if(!$o)not_found();
+    $required=max(1,min(20,(int)post('required_count','1')));
+    $raw=post('due_at');if($raw===''){flash('error','Bitte eine Frist angeben.');redirect('/admin/auftrag/'.$o['order_no']);}
+    $tz=new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'));$due=new DateTimeImmutable($raw,$tz);
+    if($due<=new DateTimeImmutable('now',$tz)){flash('error','Die Frist muss in der Zukunft liegen.');redirect('/admin/auftrag/'.$o['order_no']);}
+    $grace=$due->modify('+'.max(0,(int)setting_value('grace_minutes','60')).' minutes');
+    db()->prepare("INSERT INTO spontaneous_requests(order_id,instructions,required_count,due_at,grace_ends_at,status) VALUES(?,?,?,?,?,'requested')")
+      ->execute([$o['id'],post('instructions'),$required,$due->format('Y-m-d H:i:s'),$grace->format('Y-m-d H:i:s')]);
+    $id=(int)db()->lastInsertId();
+    notify_seller((int)$o['seller_id'],'spontaneous.request','Spontaner Fotowunsch','Für Auftrag '.$o['order_no'].' wurden '.$required.' zusätzliche Foto(s) angefordert. Frist: '.$due->format('d.m.Y H:i').' Uhr.','/auftrag/'.$o['order_no'].'/spontan/'.$id,'spontaneous-request-'.$id,true);
+    db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")->execute([$o['id'],'Spontane Fotoanforderung: '.$required.' Foto(s), Frist '.$due->format('d.m.Y H:i').' Uhr.']);
+    flash('success','Spontane Fotoanforderung erstellt.');redirect('/admin/auftrag/'.$o['order_no']);
+}
+
+if (preg_match('#^/auftrag/(\d{8})/spontan/(\d+)$#',$path,$m) && $method==='GET') {
+    $s=require_seller();
+    $q=db()->prepare("SELECT r.*,o.order_no,o.id order_id FROM spontaneous_requests r JOIN orders o ON o.id=r.order_id WHERE o.order_no=? AND r.id=? AND o.seller_id=?");
+    $q->execute([$m[1],(int)$m[2],$s['id']]);$r=$q->fetch();if(!$r)not_found();
+    if($r['status']==='requested')db()->prepare("UPDATE spontaneous_requests SET status='seen' WHERE id=?")->execute([$r['id']]);
+    $cnt=db()->prepare("SELECT COUNT(*) FROM evidences WHERE order_id=? AND evidence_type='spontaneous' AND reference_type='spontaneous_request' AND reference_id=? AND status IN('submitted','accepted')");
+    $cnt->execute([$r['order_id'],$r['id']]);$submitted=(int)$cnt->fetchColumn();
+    $grace=new DateTimeImmutable($r['grace_ends_at'],new DateTimeZone((string)app_config('app.timezone','Europe/Berlin')));$expired=new DateTimeImmutable('now',$grace->getTimezone())>$grace;
+    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Spontaner Nachweis · <?=e($r['order_no'])?></div><h1>Zusätzliche Fotoanforderung</h1></div><a class="btn secondary" href="<?=e(url('/auftrag/'.$r['order_no']))?>">Zum Auftrag</a></div>
+    <div class="grid two"><section class="panel"><h2>Anforderung</h2><p><?=nl2br(e($r['instructions']))?></p><p><strong><?=e($submitted)?> / <?=e($r['required_count'])?></strong> Fotos eingereicht</p><p class="meta">Reguläre Frist: <?=e(date('d.m.Y H:i',strtotime($r['due_at'])))?><br>Nachfrist bis: <?=e(date('d.m.Y H:i',strtotime($r['grace_ends_at'])))?></p></section>
+    <section class="panel"><h2>Live-Foto einreichen</h2><?php if(!$expired && $submitted<(int)$r['required_count']):?><form method="post" enctype="multipart/form-data"><?=csrf_field()?><label>Foto<input data-camera-input type="file" name="evidence" required></label><button class="btn">Foto einreichen</button></form><?php elseif($submitted>=(int)$r['required_count']):?><p class="badge ok">Anforderung vollständig eingereicht.</p><?php else:?><p class="badge bad">Nachfrist abgelaufen.</p><?php endif;?></section></div>
+    <?php render('Spontaner Nachweis',ob_get_clean());exit;
+}
+
+if (preg_match('#^/auftrag/(\d{8})/spontan/(\d+)$#',$path,$m) && $method==='POST') {
+    $s=require_seller();
+    $q=db()->prepare("SELECT r.*,o.id order_id,o.order_no FROM spontaneous_requests r JOIN orders o ON o.id=r.order_id WHERE o.order_no=? AND r.id=? AND o.seller_id=? AND o.status='running'");
+    $q->execute([$m[1],(int)$m[2],$s['id']]);$r=$q->fetch();if(!$r)not_found();
+    $tz=new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'));
+    if(new DateTimeImmutable('now',$tz)>new DateTimeImmutable($r['grace_ends_at'],$tz)){flash('error','Die Nachfrist ist abgelaufen.');redirect('/auftrag/'.$r['order_no'].'/spontan/'.$r['id']);}
+    try{
+        $up=private_upload($_FILES['evidence']??[],'order-'.$r['order_id'].'/spontaneous');
+        db()->prepare("INSERT INTO evidences(order_id,order_run_id,seller_id,evidence_type,file_path,mime_type,file_size,sha256,reference_type,reference_id) VALUES(?,?,?,'spontaneous',?,?,?,?, 'spontaneous_request',?)")
+          ->execute([$r['order_id'],current_run_id((int)$r['order_id']),$s['id'],$up['path'],$up['mime'],$up['size'],$up['sha256'],$r['id']]);
+        $cnt=db()->prepare("SELECT COUNT(*) FROM evidences WHERE order_id=? AND evidence_type='spontaneous' AND reference_type='spontaneous_request' AND reference_id=? AND status IN('submitted','accepted')");
+        $cnt->execute([$r['order_id'],$r['id']]);$submitted=(int)$cnt->fetchColumn();
+        if($submitted >= (int)$r['required_count'])db()->prepare("UPDATE spontaneous_requests SET status='uploaded' WHERE id=?")->execute([$r['id']]);
+        flash('success','Spontanes Foto wurde eingereicht.');
+    }catch(Throwable $e){flash('error',$e->getMessage());}
+    redirect('/auftrag/'.$r['order_no'].'/spontan/'.$r['id']);
+}
