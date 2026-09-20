@@ -1138,6 +1138,23 @@ function reject_if_archived_route(string $path, string $method): void {
         if($o && $o['archived_at']){flash('error','Der archivierte Auftrag ist schreibgeschützt.');redirect('/admin/auftrag/'.$o['order_no']);}
         return;
     }
+    elseif(preg_match('#^/admin/digital-version/(\d+)/#',$path,$m)){
+        $q=db()->prepare('SELECT o.order_no,o.archived_at FROM digital_versions d JOIN orders o ON o.id=d.order_id WHERE d.id=?');$q->execute([(int)$m[1]]);$o=$q->fetch();
+        if($o && $o['archived_at']){flash('error','Der archivierte Auftrag ist schreibgeschützt.');redirect('/admin/auftrag/'.$o['order_no']);}
+        return;
+    }elseif(preg_match('#^/admin/startdatum/(\d+)/#',$path,$m)){
+        $q=db()->prepare('SELECT o.order_no,o.archived_at FROM order_start_date_requests r JOIN orders o ON o.id=r.order_id WHERE r.id=?');$q->execute([(int)$m[1]]);$o=$q->fetch();
+        if($o && $o['archived_at']){flash('error','Der archivierte Auftrag ist schreibgeschützt.');redirect('/admin/auftrag/'.$o['order_no']);}
+        return;
+    }elseif(preg_match('#^/admin/bonus/(\d+)/#',$path,$m)){
+        $q=db()->prepare('SELECT o.order_no,o.archived_at FROM order_bonuses b JOIN orders o ON o.id=b.order_id WHERE b.id=?');$q->execute([(int)$m[1]]);$o=$q->fetch();
+        if($o && $o['archived_at']){flash('error','Der archivierte Auftrag ist schreibgeschützt.');redirect('/admin/auftrag/'.$o['order_no']);}
+        return;
+    }elseif(preg_match('#^/admin/auftragsbestandteil/(\d+)/#',$path,$m)){
+        $q=db()->prepare('SELECT o.order_no,o.archived_at FROM order_components c JOIN orders o ON o.id=c.order_id WHERE c.id=?');$q->execute([(int)$m[1]]);$o=$q->fetch();
+        if($o && $o['archived_at']){flash('error','Der archivierte Auftrag ist schreibgeschützt.');redirect('/admin/auftrag/'.$o['order_no']);}
+        return;
+    }
 
     if($orderNo!==null){
         $q=db()->prepare('SELECT archived_at FROM orders WHERE order_no=?');$q->execute([$orderNo]);$archived=$q->fetchColumn();
