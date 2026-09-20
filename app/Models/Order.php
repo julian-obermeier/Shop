@@ -26,6 +26,7 @@ class Order extends Model
             'received_at'=>'datetime',
             'execution_completed_at'=>'datetime',
             'completed_at'=>'datetime',
+            'archived_at'=>'datetime',
             'shipping_due_at'=>'datetime',
             'paused_at'=>'datetime',
             'requirements_effective_at'=>'datetime',
@@ -96,22 +97,23 @@ class Order extends Model
 
     public function executionProofsAccepted(): bool
     {
-        $hasAcceptedStart=$this->days()
-            ->where('day_number',0)
-            ->where('status','accepted')
-            ->exists();
-
-        if(!$hasAcceptedStart) return false;
-
         $requiredDays=(int)data_get($this->offer_snapshot,'duration_days',1);
         $acceptedDays=$this->days()
             ->where('series_number',$this->series_number)
+            ->where('source_type','regular')
             ->where('day_number','>',0)
             ->where('counts_toward_series',true)
             ->where('status','accepted')
             ->count();
 
-        return $acceptedDays >= $requiredDays;
+        $openExtraDays=$this->days()
+            ->where('series_number',$this->series_number)
+            ->whereIn('source_type',['violation','manual','damage'])
+            ->where('counts_toward_series',true)
+            ->where('status','!=','accepted')
+            ->exists();
+
+        return $acceptedDays >= $requiredDays && !$openExtraDays;
     }
 
     public function readyForFinalInspection(): bool
@@ -125,6 +127,6 @@ class Order extends Model
 
     public function isTerminal(): bool
     {
-        return in_array($this->status,['completed','cancelled','rejected','request_rejected','not_started'],true);
+        return in_array($this->status,['completed','cancelled','rejected','request_rejected','not_started','archived'],true);
     }
 }
