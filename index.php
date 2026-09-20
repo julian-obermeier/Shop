@@ -351,8 +351,8 @@ if(preg_match('#^/auftrag/(\d{8})/nachweis$#',$path,$m)&&$method==='POST'){
           ->execute([$o['id'],$runId,...$values]);
       }
    }
-   db()->prepare("INSERT INTO evidences(order_id,order_run_id,seller_id,evidence_type,file_path,mime_type,file_size,sha256) VALUES(?,?,?,?,?,?,?,?)")
-     ->execute([$o['id'],$runId,$s['id'],post('type','precheck'),$up['path'],$up['mime'],$up['size'],$up['sha256']]);
+   db()->prepare("INSERT INTO evidences(order_id,order_run_id,seller_id,evidence_type,file_path,mime_type,file_size,sha256,metadata_json,quality_flags_json) VALUES(?,?,?,?,?,?,?,?,?,?)")
+     ->execute([$o['id'],$runId,$s['id'],post('type','precheck'),$up['path'],$up['mime'],$up['size'],$up['sha256'],upload_metadata_json($up),upload_quality_flags_json($up)]);
    flash('success','Nachweis und Artikeldaten wurden sicher gespeichert.');
  }catch(Throwable $e){flash('error',$e->getMessage());}
  redirect('/auftrag/'.$o['order_no']);
