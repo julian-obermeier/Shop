@@ -459,6 +459,7 @@ if (preg_match('#^/auftrag/(\d{8})/digital$#',$path,$m)&&$method==='GET') {
     $st->execute([$m[1],$s['id']]);$o=$st->fetch();if(!$o)not_found();
     $v=db()->prepare("SELECT * FROM digital_versions WHERE order_id=? ORDER BY version_no DESC");$v->execute([$o['id']]);$versions=$v->fetchAll();
     $rr=db()->prepare("SELECT r.*,COUNT(i.id) item_count FROM revision_rounds r LEFT JOIN revision_items i ON i.revision_round_id=r.id WHERE r.order_id=? GROUP BY r.id ORDER BY r.round_no DESC");$rr->execute([$o['id']]);$rounds=$rr->fetchAll();
+    $ri=db()->prepare("SELECT i.*,r.round_no,r.status round_status,r.due_at FROM revision_items i JOIN revision_rounds r ON r.id=i.revision_round_id WHERE r.order_id=? ORDER BY r.round_no DESC,i.id");$ri->execute([$o['id']]);$revisionItems=$ri->fetchAll();
     $locked=!empty($o['archived_at']) || $o['status']==='rejected';
 
     ob_start();?>
@@ -489,12 +490,14 @@ if (preg_match('#^/auftrag/(\d{8})/digital$#',$path,$m)&&$method==='GET') {
           <?php else:?><a href="<?=e($mediaUrl)?>" target="_blank">Datei innerhalb der Plattform öffnen</a><?php endif;?>
           <p class="meta">Keine Downloadfunktion für Verkäuferinnen.</p>
         <?php endif;?>
+        <?php if($x['review_note']):?><p><strong>Prüfhinweis:</strong> <?=e($x['review_note'])?></p><?php endif;?>
       </article>
     <?php endforeach;?>
     <?php if(!$versions):?><div class="empty">Noch keine digitale Version eingereicht.</div><?php endif;?>
     </div>
 
     <h2>Revisionen</h2><div class="table-wrap"><table><thead><tr><th>Runde</th><th>Status</th><th>Punkte</th><th>Frist</th></tr></thead><tbody><?php foreach($rounds as $r):?><tr><td>Runde <?=e($r['round_no'])?></td><td><?=e($r['status'])?></td><td><?=e($r['item_count'])?></td><td><?=e($r['due_at']?date('d.m.Y H:i',strtotime($r['due_at'])):'keine Frist')?></td></tr><?php endforeach;?></tbody></table></div>
+    <?php if($revisionItems):?><h3>Änderungspunkte</h3><div class="timeline"><?php foreach($revisionItems as $item):?><div><strong>Runde <?=e($item['round_no'])?> · <?=e($item['description'])?></strong><?php if($item['location_ref']):?><br><span class="meta">Bezug: <?=e($item['location_ref'])?></span><?php endif;?><br><span class="badge"><?=e($item['status'])?></span><?= $item['due_at']?' · <span class="meta">Frist '.e(date('d.m.Y H:i',strtotime($item['due_at']))).'</span>':'' ?></div><?php endforeach;?></div><?php endif;?>
     <?php render('Digitale Abgabe',ob_get_clean());exit;
 }
 if (preg_match('#^/auftrag/(\d{8})/digital$#',$path,$m)&&$method==='POST') {
