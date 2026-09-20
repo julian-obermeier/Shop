@@ -3,7 +3,6 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Conversation;
-use App\Models\IdentityVerification;
 use App\Models\Offer;
 use App\Models\Order;
 use App\Models\OrderPrecheck;
@@ -21,7 +20,6 @@ class DashboardController extends Controller
             'active_orders'=>Order::whereNotIn('status',['completed','cancelled','rejected'])->count(),
             'proofs_pending'=>ProofSubmission::where('review_status','pending')->count(),
             'payouts_pending'=>PayoutRequest::whereIn('status',['requested','review'])->count(),
-            'verifications_pending'=>IdentityVerification::whereIn('status',['requested','review'])->count(),
             'prechecks_pending'=>OrderPrecheck::where('status','submitted')->count(),
             'messages_open'=>Conversation::where('status','open')->count(),
         ];
