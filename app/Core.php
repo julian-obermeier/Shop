@@ -1050,3 +1050,50 @@ function build_interim_summary(int $orderId, int $completedDays): array {
         'created_at'=>date(DATE_ATOM),
     ];
 }
+
+
+function rate_limit_key(string $scope, string $identifier=''): string {
+    $ip=(string)($_SERVER['REMOTE_ADDR'] ?? 'unknown');
+    return hash('sha256',$scope.'|'.$ip.'|'.mb_strtolower(trim($identifier)));
+}
+
+function rate_limit_consume(string $scope, string $identifier='', int $limit=5, int $windowSeconds=900, int $blockSeconds=900): bool {
+    $key=rate_limit_key($scope,$identifier);
+    $pdo=db();$owns=!$pdo->inTransaction();
+    if($owns)$pdo->beginTransaction();
+    try{
+        $q=$pdo->prepare('SELECT * FROM rate_limits WHERE rate_key=? FOR UPDATE');$q->execute([$key]);$row=$q->fetch();
+        $now=new DateTimeImmutable('now',new DateTimeZone((string)app_config('app.timezone','Europe/Berlin')));
+        if(!$row){
+            $pdo->prepare('INSERT INTO rate_limits(rate_key,hits,window_started_at) VALUES(?,1,?)')->execute([$key,$now->format('Y-m-d H:i:s')]);
+            if($owns)$pdo->commit();
+            return true;
+        }
+
+        if(!empty($row['blocked_until']) && new DateTimeImmutable($row['blocked_until'])>$now){
+            if($owns)$pdo->commit();
+            return false;
+        }
+
+        $started=new DateTimeImmutable($row['window_started_at']);
+        if(($now->getTimestamp()-$started->getTimestamp()) >= $windowSeconds){
+            $pdo->prepare('UPDATE rate_limits SET hits=1,window_started_at=?,blocked_until=NULL WHERE rate_key=?')
+                ->execute([$now->format('Y-m-d H:i:s'),$key]);
+            if($owns)$pdo->commit();
+            return true;
+        }
+
+        $hits=(int)$row['hits']+1;$blocked=null;
+        if($hits>$limit)$blocked=$now->modify('+'.$blockSeconds.' seconds')->format('Y-m-d H:i:s');
+        $pdo->prepare('UPDATE rate_limits SET hits=?,blocked_until=? WHERE rate_key=?')->execute([$hits,$blocked,$key]);
+        if($owns)$pdo->commit();
+        return $blocked===null;
+    }catch(Throwable $e){
+        if($owns && $pdo->inTransaction())$pdo->rollBack();
+        throw $e;
+    }
+}
+
+function rate_limit_clear(string $scope, string $identifier=''): void {
+    try{db()->prepare('DELETE FROM rate_limits WHERE rate_key=?')->execute([rate_limit_key($scope,$identifier)]);}catch(Throwable){}
+}
