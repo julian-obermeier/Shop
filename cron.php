@@ -56,7 +56,7 @@ foreach($windows as $w){
 /* Spontane Nachweise: Halbzeit-/Enderinnerung und fehlende Bilder einzeln als mögliche Verstöße. */
 $spontaneous=$pdo->query("SELECT sr.*,o.seller_id,o.order_no FROM spontaneous_requests sr JOIN orders o ON o.id=sr.order_id WHERE sr.status NOT IN('reviewed','missed') AND o.status IN('running','shipping','review')")->fetchAll();
 foreach($spontaneous as $r){
-    $cnt=$pdo->prepare("SELECT COUNT(*) FROM evidences WHERE ((source_type='spontaneous' AND source_id=?) OR (reference_type='spontaneous_request' AND reference_id=?)) AND status<>'rejected'");$cnt->execute([$r['id'],$r['id']]);$submitted=(int)$cnt->fetchColumn();
+    $cnt=$pdo->prepare("SELECT COUNT(*) FROM evidences WHERE source_type='spontaneous' AND source_id=? AND status<>'rejected'");$cnt->execute([$r['id']]);$submitted=(int)$cnt->fetchColumn();
     if($submitted>=(int)$r['required_count']){
         $pdo->prepare("UPDATE spontaneous_requests SET status='uploaded' WHERE id=?")->execute([$r['id']]);
         continue;
@@ -78,6 +78,35 @@ foreach($tasks as $t){
     if($deadline<$now){
         cron_provisional_violation((int)$t['order_id'],(int)$t['seller_id'],'task-'.$t['id'].'-missed','task_missing','Zusatzaufgabe „'.$t['title'].'“ wurde nicht fristgerecht eingereicht.');
     }
+}
+
+/* Auftragstage abschließen und bei vollständig erledigter Durchführung in den Versand wechseln. */
+$runningOrders=$pdo->query("SELECT id FROM orders WHERE status='running'")->fetchAll();
+foreach($runningOrders as $row){
+    $orderId=(int)$row['id'];
+    $days=$pdo->prepare("SELECT * FROM order_days WHERE order_id=? AND status IN('planned','active') ORDER BY day_no");
+    $days->execute([$orderId]);
+    foreach($days->fetchAll() as $day){
+        $w=$pdo->prepare("SELECT status,grace_ends_at FROM evidence_windows WHERE order_id=? AND order_run_id<=>? AND day_no=?");
+        $w->execute([$orderId,$day['order_run_id'],$day['day_no']]);
+        $windowsForDay=$w->fetchAll();
+        $terminal=true;$missed=false;
+        if($windowsForDay){
+            foreach($windowsForDay as $win){
+                if(in_array($win['status'],['planned','open'],true)){$terminal=false;break;}
+                if($win['status']==='missed')$missed=true;
+            }
+        }else{
+            $dayEnd=new DateTimeImmutable($day['calendar_date'].' 23:59:59',new DateTimeZone((string)app_config('app.timezone','Europe/Berlin')));
+            $terminal=$dayEnd<$now;
+        }
+        if($terminal){
+            $pdo->prepare("UPDATE order_days SET status=? WHERE id=?")->execute([$missed?'missed':'completed',$day['id']]);
+        }else{
+            $pdo->prepare("UPDATE order_days SET status='active' WHERE id=? AND calendar_date<=?")->execute([$day['id'],$now->format('Y-m-d')]);
+        }
+    }
+    advance_order_to_shipping_if_ready($orderId);
 }
 
 /* Individuelle Angebote: 24h / 1h Erinnerung und automatisches Ablaufen. */
