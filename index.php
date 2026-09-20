@@ -55,9 +55,12 @@ if(preg_match('#^/angebot/([a-z0-9-]+)$#',$path,$m)&&$method==='GET'){
  $st->execute([$m[1]]);$o=$st->fetch();if(!$o)not_found();
  $op=db()->prepare("SELECT * FROM offer_options WHERE offer_id=? AND active=1 ORDER BY id");$op->execute([$o['id']]);$options=$op->fetchAll();
  $components=offer_component_definitions($o);$componentExtra=offer_component_extra_total($o);
+ $pureDigital=offer_is_pure_digital($o);
+ $hasDigital=$pureDigital || count(array_filter($components,fn($component)=>($component['component_type']??'')==='digital'))>0;
+ $digitalRules=$hasDigital?offer_digital_rules($o):null;
  $rules=offer_evidence_rules($o);
- $dailyCount=array_sum($rules['daily']);
- $regularPhotos=(int)$rules['precheck_required_count']+($o['duration_days']?($dailyCount*(int)$o['duration_days']):0);
+ $dailyCount=$pureDigital?0:array_sum($rules['daily']);
+ $regularPhotos=$pureDigital?0:((int)$rules['precheck_required_count']+($o['duration_days']?($dailyCount*(int)$o['duration_days']):0));
  $planned=offer_task_plan_summary((int)$o['id'],$o['duration_days']!==null?(int)$o['duration_days']:1);
  $shipping=build_shipping_snapshot($o);
  $shippingPhotos=array_sum(array_map(fn($x)=>(int)($x['required_photos']??0),$shipping['steps']??[]));
@@ -70,11 +73,11 @@ if(preg_match('#^/angebot/([a-z0-9-]+)$#',$path,$m)&&$method==='GET'){
  if($currentSeller){$fq=db()->prepare("SELECT COUNT(*) FROM orders WHERE seller_id=?");$fq->execute([$currentSeller['id']]);$isFirstOrder=(int)$fq->fetchColumn()===0;}
  ob_start();?><div class="eyebrow"><?=e($o['category_name'])?></div><h1><?=e($o['title'])?></h1>
  <div class="grid two"><section class="panel"><h2>Das erwartet dich</h2><p><?=nl2br(e($o['description']))?></p>
- <h3>Aufwand</h3><div class="timeline"><div><strong>Dauer:</strong> <?=$o['duration_days']?e($o['duration_days']).' Tage':'individuell / nicht tagegebunden'?></div><div><strong>Vorabnachweise:</strong> <?=e($rules['precheck_required_count'])?> Foto(s)</div><div><strong>Tägliche Regel-Nachweise:</strong> <?=e($dailyCount)?> Foto(s) pro Tag<?php if($o['duration_days']):?> · <?=e($dailyCount*(int)$o['duration_days'])?> insgesamt<?php endif;?></div><div><strong>Geplante Zusatzaufgaben:</strong> <?=e($planned['executions'])?> Ausführung(en)</div><div><strong>Versandschritte:</strong> <?=e(count($shipping['steps']??[]))?> · <?=e($shippingPhotos)?> bekannte Versandfoto(s)</div><div><strong>Bekannte Pflichtfotos:</strong> <?=e($knownPhotos)?><?php if(!$o['duration_days']):?> + variable Tagesnachweise<?php endif;?></div></div>
+ <h3>Aufwand</h3><div class="timeline"><div><strong>Dauer:</strong> <?=$o['duration_days']?e($o['duration_days']).' Tage':'individuell / nicht tagegebunden'?></div><?php if($pureDigital):?><div><strong>Digitale Formate:</strong> <?=e(digital_rules_summary($digitalRules))?></div><div><strong>Erstabgabe:</strong> innerhalb <?=e($digitalRules['deadline']['hours_after_acceptance'])?> Stunden + <?=e($digitalRules['deadline']['grace_minutes'])?> Minuten Nachfrist</div><?php if($digitalRules['allowed']['text']):?><div><strong>Textumfang:</strong> min. <?=e($digitalRules['text']['min_chars'])?> Zeichen<?= $digitalRules['text']['max_chars']>0?' · max. '.e($digitalRules['text']['max_chars']).' Zeichen':'' ?></div><?php endif;?><?php else:?><div><strong>Vorabnachweise:</strong> <?=e($rules['precheck_required_count'])?> Foto(s)</div><div><strong>Tägliche Regel-Nachweise:</strong> <?=e($dailyCount)?> Foto(s) pro Tag<?php if($o['duration_days']):?> · <?=e($dailyCount*(int)$o['duration_days'])?> insgesamt<?php endif;?></div><div><strong>Versandschritte:</strong> <?=e(count($shipping['steps']??[]))?> · <?=e($shippingPhotos)?> bekannte Versandfoto(s)</div><div><strong>Bekannte Pflichtfotos:</strong> <?=e($knownPhotos)?><?php if(!$o['duration_days']):?> + variable Tagesnachweise<?php endif;?></div><?php endif;?><div><strong>Geplante Zusatzaufgaben:</strong> <?=e($planned['executions'])?> Ausführung(en)</div><?php if($hasDigital&&!$pureDigital):?><div><strong>Digitaler Bestandteil:</strong> <?=e(digital_rules_summary($digitalRules))?></div><?php endif;?></div>
  <?php if(count($components)>1):?><h3>Kombi-Bestandteile</h3><div class="timeline"><?php foreach($components as $component):?><div><strong><?=e($component['title'])?></strong> · <?=e($component['component_type']==='digital'?'digital':'physisch')?><?php if(!$component['is_primary']):?> · +<?=money($component['compensation'])?><?php else:?> · in Grundvergütung enthalten<?php endif;?><?php if($component['duration_days']):?> · <?=e($component['duration_days'])?> Tage<?php endif;?></div><?php endforeach;?></div><p class="meta">Während des aktiven Kombi-Auftrags sind alle enthaltenen Kategorien für weitere Aufträge blockiert.</p><?php endif;?>
  <p class="meta">Spontane Nachweise, Neuaufnahmen nach Beanstandungen oder bestätigte Verstöße können zusätzliche Nachweise bzw. zusätzliche Durchführungstage verursachen.</p>
  <?php if($planned['plans']):?><h3>Geplante Aufgaben</h3><div class="timeline"><?php foreach($planned['plans'] as $pt): $occ=count($pt['_occurrence_days']??[]);?><div><strong><?=e($pt['title'])?></strong> · <?=e($occ)?>× · <?=money((float)$pt['compensation']*$occ)?><?php if((int)$pt['required_photos']>0):?> · <?=e((int)$pt['required_photos']*$occ)?> Aufgabenfoto(s)<?php endif;?><br><span class="meta"><?=e($pt['description']??'')?></span></div><?php endforeach;?></div><?php endif;?>
- <h3>Versand</h3><p><?=e($shippingLabel)?><?php if($shipping['preferred_carrier']):?><br>Bevorzugter Versanddienstleister: <?=e($shipping['preferred_carrier'])?><?php endif;?><?php if($shipping['instructions']):?><br><?=nl2br(e($shipping['instructions']))?><?php endif;?></p><p class="meta">Die konkrete Empfängeradresse wird erst in der Versandphase angezeigt.</p>
+ <?php if(!$pureDigital):?><h3>Versand</h3><p><?=e($shippingLabel)?><?php if($shipping['preferred_carrier']):?><br>Bevorzugter Versanddienstleister: <?=e($shipping['preferred_carrier'])?><?php endif;?><?php if($shipping['instructions']):?><br><?=nl2br(e($shipping['instructions']))?><?php endif;?></p><p class="meta">Die konkrete Empfängeradresse wird erst in der Versandphase angezeigt.</p><?php else:?><h3>Digitale Abgabe</h3><p>Erlaubte/erforderliche Formate: <?=e(digital_rules_summary($digitalRules))?>. Audio und Video werden geschützt innerhalb der Plattform bereitgestellt.</p><?php endif;?>
  <p class="meta"><?=e($o['accepted_count'])?> echte Annahme(n) insgesamt · <?=e($o['active_count'])?> aktuell aktive Auftrag/Aufträge.</p></section>
  <aside class="panel"><div class="meta">Grundvergütung</div><div class="price"><?=money($o['compensation'])?></div>
  <?php if($componentExtra>0):?><p>Kombi-Bestandteile: <strong>+<?=money($componentExtra)?></strong></p><?php endif;?>
@@ -116,14 +119,17 @@ if(preg_match('#^/angebot/([a-z0-9-]+)/annehmen$#',$path,$m)&&$method==='POST'){
  $plannedTaskCompensation=(float)$taskSummary['compensation'];
  $componentExtra=offer_component_extra_total($o);
  $componentDefinitions=offer_component_definitions($o);
+ $pureDigital=offer_is_pure_digital($o);
  $hasDigital=in_array($o['fulfillment_type'],['digital','mixed'],true);
  foreach($componentDefinitions as $component){if(($component['component_type']??'')==='digital'){$hasDigital=true;break;}}
  $digitalRules=$hasDigital?offer_digital_rules($o):null;
  $digitalRulesJson=$hasDigital?json_encode($digitalRules,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES):null;
- $digitalDueAt=$hasDigital?(new DateTimeImmutable('now',new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'))))->modify('+'.(int)$digitalRules['deadline']['hours_after_acceptance'].' hours')->format('Y-m-d H:i:s'):null;
+ $tz=new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'));$acceptedAt=new DateTimeImmutable('now',$tz);
+ $digitalDueAt=$hasDigital?$acceptedAt->modify('+'.(int)$digitalRules['deadline']['hours_after_acceptance'].' hours')->format('Y-m-d H:i:s'):null;
+ $initialStatus=$pureDigital?'running':'precheck';$startedAt=$pureDigital?$acceptedAt->format('Y-m-d H:i:s'):null;
  $total=(float)$o['compensation']+$componentExtra+$optionsTotal+$shippingAllowance+$plannedTaskCompensation;$no=order_number();
  db()->beginTransaction(); try{
-   db()->prepare("INSERT INTO orders(order_no,seller_id,offer_id,offer_version,status,base_compensation,total_compensation,duration_days,shipping_snapshot_json,digital_rules_snapshot_json,digital_due_at) VALUES(?,?,?,?, 'precheck',?,?,?,?,?,?)")->execute([$no,$s['id'],$o['id'],$o['current_version'],$o['compensation'],$total,$o['duration_days'],json_encode($shippingSnapshot,JSON_UNESCAPED_UNICODE),$digitalRulesJson,$digitalDueAt]);
+   db()->prepare("INSERT INTO orders(order_no,seller_id,offer_id,offer_version,status,base_compensation,total_compensation,duration_days,shipping_snapshot_json,digital_rules_snapshot_json,digital_due_at,started_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)")->execute([$no,$s['id'],$o['id'],$o['current_version'],$initialStatus,$o['compensation'],$total,$o['duration_days'],json_encode($shippingSnapshot,JSON_UNESCAPED_UNICODE),$digitalRulesJson,$digitalDueAt,$startedAt]);
    $oid=(int)db()->lastInsertId();
    $acceptanceRules=offer_evidence_rules($o);
    $selectedOptionSnapshots=array_map(fn($opt)=>[
@@ -153,8 +159,8 @@ if(preg_match('#^/angebot/([a-z0-9-]+)/annehmen$#',$path,$m)&&$method==='POST'){
      'options_total'=>$optionsTotal,
      'selected_options'=>$selectedOptionSnapshots,
      'evidence_rules'=>$acceptanceRules,
-     'precheck_photos'=>(int)$acceptanceRules['precheck_required_count'],
-     'daily_photos_per_day'=>array_sum($acceptanceRules['daily']),
+     'precheck_photos'=>$pureDigital?0:(int)$acceptanceRules['precheck_required_count'],
+     'daily_photos_per_day'=>$pureDigital?0:array_sum($acceptanceRules['daily']),
      'planned_task_executions'=>(int)$taskSummary['executions'],
      'planned_task_photos'=>(int)$taskSummary['required_photos'],
      'planned_task_compensation'=>$plannedTaskCompensation,
@@ -171,11 +177,13 @@ if(preg_match('#^/angebot/([a-z0-9-]+)/annehmen$#',$path,$m)&&$method==='POST'){
    db()->prepare("INSERT INTO order_acceptance_confirmations(order_id,seller_id,offer_version,payload_json) VALUES(?,?,?,?)")
      ->execute([$oid,$s['id'],$o['current_version'],json_encode($confirmationPayload,JSON_UNESCAPED_UNICODE)]);
    snapshot_offer_task_plans((int)$o['id'],$oid);
-   db()->prepare("INSERT INTO order_runs(order_id,run_no,status) VALUES(?,1,'precheck')")->execute([$oid]);
+   db()->prepare("INSERT INTO order_runs(order_id,run_no,status,started_at) VALUES(?,1,?,?)")->execute([$oid,$pureDigital?'running':'precheck',$startedAt]);
    snapshot_order_components($oid,$o);
+   if($pureDigital)db()->prepare("UPDATE order_components SET status='execution',updated_at=NOW() WHERE order_id=? AND component_type='digital'")->execute([$oid]);
    foreach($selected as $opt)db()->prepare("INSERT INTO order_options(order_id,offer_option_id,label_snapshot,price_snapshot) VALUES(?,?,?,?)")->execute([$oid,$opt['id'],$opt['label'],$opt['price']]);
+   if($pureDigital){instantiate_planned_order_tasks($oid);sync_option_requirement_tasks($oid);}
    db()->prepare("INSERT INTO wallet_entries(seller_id,order_id,entry_type,amount,description) VALUES(?,?,'reserved',?,'Auftragswert vorgemerkt')")->execute([$s['id'],$oid,$total]);
-   db()->prepare("INSERT INTO system_events(seller_id,order_id,event_type,payload_json) VALUES(?,?,'order.accepted',?)")->execute([$s['id'],$oid,json_encode(['offer_version'=>$o['current_version'],'option_ids'=>$requested,'shipping_allowance'=>$shippingAllowance,'component_extra_compensation'=>$componentExtra,'blocked_category_ids'=>$blockedCategories,'planned_task_compensation'=>$plannedTaskCompensation,'planned_task_executions'=>$taskSummary['executions'],'digital_due_at'=>$digitalDueAt,'total'=>$total],JSON_UNESCAPED_UNICODE)]);
+   db()->prepare("INSERT INTO system_events(seller_id,order_id,event_type,payload_json) VALUES(?,?,'order.accepted',?)")->execute([$s['id'],$oid,json_encode(['offer_version'=>$o['current_version'],'option_ids'=>$requested,'shipping_allowance'=>$shippingAllowance,'component_extra_compensation'=>$componentExtra,'blocked_category_ids'=>$blockedCategories,'planned_task_compensation'=>$plannedTaskCompensation,'planned_task_executions'=>$taskSummary['executions'],'digital_due_at'=>$digitalDueAt,'pure_digital'=>$pureDigital,'total'=>$total],JSON_UNESCAPED_UNICODE)]);
    if(in_array($o['fulfillment_type'],['digital','mixed'],true))db()->prepare("INSERT INTO rights_acceptances(order_id,seller_id,terms_version,payload_json) VALUES(?,?,?,?)")->execute([$oid,$s['id'],'v1',json_encode(['scope'=>'technical_processing_and_order_terms'],JSON_UNESCAPED_UNICODE)]);
    db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")
      ->execute([$oid,'Auftrag '.$no.' verbindlich angenommen · Angebotsversion V'.$o['current_version'].' · Auftragswert '.money($total).'.']);
@@ -200,15 +208,14 @@ if(preg_match('#^/angebot/([a-z0-9-]+)/annehmen$#',$path,$m)&&$method==='POST'){
    'Gesamtwert bei Annahme: <strong>'.money($total).'</strong></p>'.
    '<h2>Gewählte Zusatzoptionen</h2>'.$optionsHtml.
    '<p>Dauer: '.($o['duration_days']!==null?e($o['duration_days']).' Tage':'individueller Umfang').'<br>'.
-   'Vorabnachweise: '.e($acceptanceRules['precheck_required_count']).' Foto(s)<br>'.
-   'Regel-Nachweise pro Tag: '.e(array_sum($acceptanceRules['daily'])).' Foto(s)<br>'.
+   ($pureDigital?'Digitale Durchführung startet sofort.<br>':'Vorabnachweise: '.e($acceptanceRules['precheck_required_count']).' Foto(s)<br>Regel-Nachweise pro Tag: '.e(array_sum($acceptanceRules['daily'])).' Foto(s)<br>').
    'Geplante Zusatzaufgaben: '.e($taskSummary['executions']).'<br>'.
-   'Versand: '.e($shippingText).'</p>'.
+   ($pureDigital?'Digitale Abgabe innerhalb der Plattform':'Versand: '.e($shippingText)).'</p>'.
    ($hasDigital?'<p>Digitale Abgabe: <strong>'.e(digital_rules_summary($digitalRules)).'</strong><br>Erstabgabe bis: <strong>'.e(date('d.m.Y H:i',strtotime($digitalDueAt))).'</strong></p>':'').
    '<p>Bestätigte Verstöße können zusätzliche unbezahlte Durchführungstage auslösen. Spontane Nachweise oder Neuaufnahmen können zusätzliche Nachweise erforderlich machen.</p>'.
    '<p><a href="'.e(url('/auftrag/'.$no)).'">Auftragsbestätigung in der Plattform öffnen</a></p>'
  );
- flash('success','Auftrag '.$no.' wurde angenommen. Gesamtwert: '.money($total).'. Eine Auftragsbestätigung wurde per E-Mail versendet.');redirect('/auftrag/'.$no);
+ flash('success','Auftrag '.$no.' wurde angenommen. Gesamtwert: '.money($total).'. Eine Auftragsbestätigung wurde per E-Mail versendet.'.($pureDigital?' Die digitale Durchführung ist sofort aktiv.':''));redirect($pureDigital?'/auftrag/'.$no.'/digital':'/auftrag/'.$no);
 }
 if($path==='/registrieren'&&$method==='GET'){
  ob_start();?><div class="grid two"><section><div class="eyebrow">Verkäuferinnenkonto</div><h1>Registrieren</h1><p>Nur für Volljährige ab 18 Jahren. Es gibt kein öffentliches Verkäuferinnenprofil.</p></section><form class="panel" method="post"><?=csrf_field()?><div class="form-grid"><label>Vorname<input name="first_name" required></label><label>Nachname<input name="last_name" required></label><label>Geburtsdatum<input type="date" name="birth_date" required></label><label>Telefon<input name="phone" required></label><label>Straße / Hausnummer<input name="street" required></label><label>PLZ<input name="postal_code" required></label><label>Ort<input name="city" required></label><label>E-Mail<input type="email" name="email" required></label></div><label>Passwort<input type="password" name="password" minlength="10" required></label><label><input type="checkbox" name="adult" value="1" required style="width:auto"> Ich bestätige, dass ich mindestens 18 Jahre alt bin und die Plattformregeln akzeptiere.</label><button class="btn">Konto erstellen</button></form></div><?php render('Registrieren',ob_get_clean());exit;
