@@ -60,3 +60,20 @@ jobs:
           grep -qx "order_acceptance_confirmations" /tmp/tables.txt
           grep -qx "system_outages" /tmp/tables.txt
           grep -qx "order_interim_summaries" /tmp/tables.txt
+      - name: Re-run all migrations against complete schema
+        env:
+          MYSQL_PWD: root
+        run: |
+          mysql -h 127.0.0.1 -uroot shop_v1 -e "TRUNCATE TABLE migrations"
+          php -r '
+            require "app/Migrator.php";
+            $pdo=new PDO("mysql:host=127.0.0.1;port=3306;dbname=shop_v1;charset=utf8mb4","root","root",[
+              PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,
+              PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC,
+              PDO::ATTR_EMULATE_PREPARES=>false,
+            ]);
+            $result=run_app_migrations($pdo,__DIR__."/database/migrations");
+            if(count($result["applied"])<1){fwrite(STDERR,"No migrations applied\n");exit(1);}
+            echo "Applied ".count($result["applied"])." migrations with ".count($result["warnings"])." tolerated existing-schema warnings\n";
+          '
+          mysql -N -h 127.0.0.1 -uroot shop_v1 -e "SELECT COUNT(*) FROM migrations" | grep -Eq "^[1-9][0-9]*$"
