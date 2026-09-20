@@ -42,6 +42,7 @@ Komplett neu aufgebaute, Composer-freie PHP-8/MySQL-Ankaufsplattform für ALL-IN
 ```bash
 cd /www/htdocs/w021867a/shop.fetisch-game.com
 git pull origin main
+php bin/update.php
 ```
 
 Falls die Domain auf einem anderen Ordner liegt, nur den Pfad anpassen.
