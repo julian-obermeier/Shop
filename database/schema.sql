@@ -73,6 +73,20 @@ CREATE TABLE IF NOT EXISTS category_fields (
  FOREIGN KEY(category_id) REFERENCES categories(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS shipping_addresses (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ label VARCHAR(190) NOT NULL,
+ recipient_name VARCHAR(190) NOT NULL,
+ street VARCHAR(190) NOT NULL,
+ address_extra VARCHAR(190) NULL,
+ postal_code VARCHAR(30) NOT NULL,
+ city VARCHAR(150) NOT NULL,
+ country_code CHAR(2) NOT NULL DEFAULT 'DE',
+ active TINYINT(1) NOT NULL DEFAULT 1,
+ created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ updated_at DATETIME NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS offers (
  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
  category_id BIGINT UNSIGNED NOT NULL,
@@ -81,15 +95,21 @@ CREATE TABLE IF NOT EXISTS offers (
  description TEXT NOT NULL,
  compensation DECIMAL(10,2) NOT NULL DEFAULT 0,
  duration_days INT NULL,
+ shipping_snapshot_json JSON NULL,
  fulfillment_type ENUM('days','units','one_time','digital','mixed') NOT NULL DEFAULT 'days',
  evidence_rules_json JSON NULL,
  shipping_rules_json JSON NULL,
+ shipping_address_id BIGINT UNSIGNED NULL,
+ shipping_cost_mode ENUM('seller','fixed','reimburse') NOT NULL DEFAULT 'seller',
+ shipping_allowance DECIMAL(10,2) NOT NULL DEFAULT 0,
+ preferred_carrier VARCHAR(120) NULL,
  status ENUM('draft','active','inactive') NOT NULL DEFAULT 'draft',
  visibility ENUM('public','private') NOT NULL DEFAULT 'public',
  current_version INT NOT NULL DEFAULT 1,
  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
  updated_at DATETIME NULL,
  FOREIGN KEY(category_id) REFERENCES categories(id),
+ FOREIGN KEY(shipping_address_id) REFERENCES shipping_addresses(id) ON DELETE SET NULL,
  INDEX(status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -503,6 +523,8 @@ CREATE TABLE IF NOT EXISTS shipments (
  order_id BIGINT UNSIGNED NOT NULL UNIQUE,
  tracking_number VARCHAR(190) NULL,
  carrier VARCHAR(120) NULL,
+ claimed_shipping_cost DECIMAL(10,2) NULL,
+ approved_reimbursement DECIMAL(10,2) NULL,
  proof_evidence_id BIGINT UNSIGNED NULL,
  status ENUM('preparing','shipped','received','review') NOT NULL DEFAULT 'preparing',
  shipped_at DATETIME NULL,
