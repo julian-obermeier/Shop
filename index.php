@@ -265,9 +265,7 @@ if(preg_match('#^/admin/nachweis/(\\d+)/freigeben$#',$path,$m)&&$method==='POST'
  $st=db()->prepare("SELECT e.*,o.order_no,o.id order_id FROM evidences e JOIN orders o ON o.id=e.order_id WHERE e.id=?");
  $st->execute([(int)$m[1]]);$ev=$st->fetch();if(!$ev)not_found();
  db()->prepare("UPDATE evidences SET status='accepted',reviewed_at=NOW(),rejection_reason=NULL WHERE id=?")->execute([$ev['id']]);
- $started=false;
- if($ev['evidence_type']==='precheck') $started=try_start_order_after_precheck((int)$ev['order_id']);
- flash('success',$started?'Letzter Vorabnachweis freigegeben. Der Auftrag wurde automatisch gestartet.':'Nachweis freigegeben.');
+ flash('success',$ev['evidence_type']==='precheck'?'Vorabnachweis freigegeben. Der Auftrag startet erst nach ausdrücklicher Gesamtfreigabe.':'Nachweis freigegeben.');
  redirect('/admin/auftrag/'.$ev['order_no']);
 }
 if(preg_match('#^/admin/nachweis/(\\d+)/ablehnen$#',$path,$m)&&$method==='POST'){
