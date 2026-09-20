@@ -1,1 +1,16 @@
-{"name":"Private Ankauf","short_name":"Ankauf","start_url":"/","display":"standalone","background_color":"#f7f5f8","theme_color":"#17151b","icons":[]}
+{
+  "name": "Private Ankauf",
+  "short_name": "Ankauf",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f7f5f8",
+  "theme_color": "#17151b",
+  "icons": [
+    {
+      "src": "/assets/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
