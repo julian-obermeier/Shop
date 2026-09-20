@@ -701,3 +701,40 @@ if (preg_match('#^/admin/auftrag/(\d{8})/zwischenstaende$#',$path,$m) && $method
     <div class="timeline"><?php foreach($rows as $r): $x=json_decode($r['snapshot_json'],true)?:[];?><div><strong>Nach <?=e($r['completed_days'])?> abgeschlossenen Tagen</strong><div class="meta"><?=e(date('d.m.Y H:i',strtotime($r['created_at'])))?></div><pre style="white-space:pre-wrap"><?=e(json_encode($x,JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE))?></pre></div><?php endforeach;?><?php if(!$rows):?><div class="empty">Noch keine Zwischenstände erzeugt.</div><?php endif;?></div>
     <?php render('Zwischenstände',ob_get_clean());exit;
 }
+
+
+if ($path==='/admin/versandadressen' && $method==='GET') {
+    require_admin();
+    $rows=db()->query("SELECT * FROM shipping_addresses ORDER BY active DESC,label,id")->fetchAll();
+    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Administration</div><h1>Versandadressen</h1><p class="meta">Angebote verweisen auf diese Adressen. Bereits angenommene Aufträge behalten ihren gespeicherten Snapshot.</p></div><a class="btn secondary" href="<?=e(url('/admin/einstellungen'))?>">Einstellungen</a></div>
+    <form class="panel" method="post"><?=csrf_field()?>
+      <div class="form-grid">
+        <label>Bezeichnung<input name="label" placeholder="z. B. Hauptadresse" required></label>
+        <label>Empfängername<input name="recipient_name" required></label>
+        <label>Straße / Hausnummer<input name="street" required></label>
+        <label>Adresszusatz<input name="address_extra"></label>
+        <label>PLZ<input name="postal_code" required></label>
+        <label>Ort<input name="city" required></label>
+        <label>Land<select name="country_code"><option value="DE">Deutschland</option></select></label>
+      </div>
+      <button class="btn">Versandadresse anlegen</button>
+    </form><br>
+    <div class="table-wrap"><table><thead><tr><th>Bezeichnung</th><th>Empfänger</th><th>Adresse</th><th>Status</th><th>Aktion</th></tr></thead><tbody>
+    <?php foreach($rows as $r):?><tr><td><?=e($r['label'])?></td><td><?=e($r['recipient_name'])?></td><td><?=e($r['street'])?><?= $r['address_extra']?'<br>'.e($r['address_extra']):'' ?><br><?=e($r['postal_code'].' '.$r['city'])?></td><td><?=$r['active']?'Aktiv':'Inaktiv'?></td><td><form method="post" action="<?=e(url('/admin/versandadresse/'.$r['id'].'/umschalten'))?>"><?=csrf_field()?><button class="btn secondary"><?=$r['active']?'Deaktivieren':'Aktivieren'?></button></form></td></tr><?php endforeach;?>
+    </tbody></table></div><?php if(!$rows):?><div class="empty">Noch keine Versandadresse hinterlegt.</div><?php endif;?>
+    <?php render('Versandadressen',ob_get_clean());exit;
+}
+
+if ($path==='/admin/versandadressen' && $method==='POST') {
+    require_admin();
+    db()->prepare("INSERT INTO shipping_addresses(label,recipient_name,street,address_extra,postal_code,city,country_code) VALUES(?,?,?,?,?,?,'DE')")
+      ->execute([post('label'),post('recipient_name'),post('street'),post('address_extra')?:null,post('postal_code'),post('city')]);
+    flash('success','Versandadresse angelegt.');redirect('/admin/versandadressen');
+}
+
+if (preg_match('#^/admin/versandadresse/(\d+)/umschalten$#',$path,$m) && $method==='POST') {
+    require_admin();
+    $q=db()->prepare("SELECT * FROM shipping_addresses WHERE id=?");$q->execute([(int)$m[1]]);$row=$q->fetch();if(!$row)not_found();
+    db()->prepare("UPDATE shipping_addresses SET active=IF(active=1,0,1),updated_at=NOW() WHERE id=?")->execute([$row['id']]);
+    flash('success','Versandadresse aktualisiert.');redirect('/admin/versandadressen');
+}
