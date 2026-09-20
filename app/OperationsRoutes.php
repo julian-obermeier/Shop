@@ -213,6 +213,47 @@ if (preg_match('#^/admin/auszahlung/(\d+)/status/(review|released|rejected)$#',$
     flash('success','Auszahlungsstatus auf „'.$labels[$target].'“ gesetzt.');redirect('/admin/auszahlungen');
 }
 
+
+if (preg_match('#^/digitale-datei/(\d+)/(\d+)$#',$path,$m) && $method==='GET') {
+    $q=db()->prepare("SELECT d.*,o.seller_id,o.order_no,o.archived_at,o.status order_status FROM digital_versions d JOIN orders o ON o.id=d.order_id WHERE d.id=?");
+    $q->execute([(int)$m[1]]);$d=$q->fetch();if(!$d)not_found();
+
+    $allow=false;
+    if(admin()) $allow=true;
+    elseif(($s=seller()) && (int)$s['id']===(int)$d['seller_id'] && $d['order_status']!=='rejected') $allow=true;
+    if(!$allow){http_response_code(403);exit('Zugriff verweigert.');}
+
+    $assets=json_decode((string)($d['assets_json']??''),true);
+    if(!is_array($assets))$assets=[];
+    if(!$assets && $d['file_path'])$assets=[[
+      'path'=>$d['file_path'],
+      'mime'=>$d['mime_type'],
+      'sha256'=>$d['sha256'],
+    ]];
+
+    $index=(int)$m[2];
+    if(!array_key_exists($index,$assets) || !is_array($assets[$index]))not_found();
+    $asset=$assets[$index];
+    $relative=(string)($asset['path']??'');
+    if($relative==='' || str_contains($relative,'..'))not_found();
+
+    $real=__DIR__.'/../storage/private/'.ltrim($relative,'/');
+    if(!is_file($real))not_found();
+
+    $mime=(string)($asset['mime']??'application/octet-stream');
+    if(!str_starts_with($mime,'audio/') && !str_starts_with($mime,'video/')){
+        http_response_code(415);exit('Nicht unterstütztes Medienformat.');
+    }
+
+    header('Content-Type: '.$mime);
+    header('Content-Length: '.filesize($real));
+    header('X-Content-Type-Options: nosniff');
+    header('Content-Disposition: inline');
+    header('Cache-Control: private, no-store, max-age=0');
+    header('Accept-Ranges: bytes');
+    readfile($real);exit;
+}
+
 if (preg_match('#^/digitale-datei/(\d+)$#',$path,$m) && $method==='GET') {
     $q=db()->prepare("SELECT d.*,o.seller_id,o.order_no,o.archived_at,o.status order_status FROM digital_versions d JOIN orders o ON o.id=d.order_id WHERE d.id=?");
     $q->execute([(int)$m[1]]);$d=$q->fetch();if(!$d||!$d['file_path'])not_found();
