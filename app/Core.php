@@ -251,19 +251,63 @@ function current_run_id(int $orderId): ?int {
     return $id === false ? null : (int)$id;
 }
 
-function offer_evidence_rules(array|int $offerOrOrderId): array {
-    if (is_int($offerOrOrderId)) {
-        $q = db()->prepare('SELECT f.evidence_rules_json FROM orders o JOIN offers f ON f.id=o.offer_id WHERE o.id=?');
-        $q->execute([$offerOrOrderId]);
-        $raw = $q->fetchColumn();
-    } else {
-        $raw = $offerOrOrderId['evidence_rules_json'] ?? null;
+
+function order_offer_snapshot(array|int $order): array {
+    if(is_int($order)){
+        $q=db()->prepare('SELECT offer_id,offer_version FROM orders WHERE id=?');
+        $q->execute([$order]);
+        $order=$q->fetch() ?: [];
     }
 
+    $offerId=(int)($order['offer_id']??0);
+    $version=(int)($order['offer_version']??0);
+    if($offerId && $version){
+        $q=db()->prepare('SELECT snapshot_json FROM offer_versions WHERE offer_id=? AND version_no=? LIMIT 1');
+        $q->execute([$offerId,$version]);
+        $raw=$q->fetchColumn();
+        if($raw){
+            $snapshot=json_decode((string)$raw,true);
+            if(is_array($snapshot)) return $snapshot;
+        }
+    }
+
+    if($offerId){
+        $q=db()->prepare('SELECT * FROM offers WHERE id=?');
+        $q->execute([$offerId]);
+        $offer=$q->fetch();
+        if($offer){
+            $rules=json_decode((string)($offer['evidence_rules_json']??''),true);
+            return [
+                'title'=>$offer['title']??null,
+                'category_id'=>(int)($offer['category_id']??0),
+                'description'=>$offer['description']??null,
+                'compensation'=>(float)($offer['compensation']??0),
+                'duration_days'=>$offer['duration_days']??null,
+                'fulfillment_type'=>$offer['fulfillment_type']??null,
+                'evidence_rules'=>is_array($rules)?$rules:[],
+                'status'=>$offer['status']??null,
+            ];
+        }
+    }
+
+    return [];
+}
+
+function offer_evidence_rules(array|int $offerOrOrderId): array {
     $rules = [];
-    if ($raw) {
-        $decoded = json_decode((string)$raw, true);
-        if (is_array($decoded)) $rules = $decoded;
+    if (is_int($offerOrOrderId)) {
+        $snapshot=order_offer_snapshot($offerOrOrderId);
+        if(is_array($snapshot['evidence_rules']??null)) $rules=$snapshot['evidence_rules'];
+        elseif(!empty($snapshot['evidence_rules_json'])){
+            $decoded=json_decode((string)$snapshot['evidence_rules_json'],true);
+            if(is_array($decoded)) $rules=$decoded;
+        }
+    } else {
+        if(is_array($offerOrOrderId['evidence_rules']??null)) $rules=$offerOrOrderId['evidence_rules'];
+        elseif(!empty($offerOrOrderId['evidence_rules_json'])){
+            $decoded=json_decode((string)$offerOrOrderId['evidence_rules_json'],true);
+            if(is_array($decoded)) $rules=$decoded;
+        }
     }
 
     $precheck = (int)($rules['precheck_required_count'] ?? $rules['precheck_required'] ?? 1);
