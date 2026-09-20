@@ -1552,60 +1552,222 @@ if (preg_match('#^/auftrag/(\d{8})/spontan/(\d+)$#',$path,$m) && $method==='POST
 if ($path==='/heute' && $method==='GET') {
     $s=require_seller();
     $tz=new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'));
-    $now=new DateTimeImmutable('now',$tz);$today=$now->format('Y-m-d');
+    $now=new DateTimeImmutable('now',$tz);
+    $today=$now->format('Y-m-d');
+    $todayEnd=$now->setTime(23,59,59);
 
     $q=db()->prepare("SELECT w.*,o.order_no,f.title,
       (SELECT COUNT(*) FROM evidences e WHERE e.order_id=w.order_id AND e.order_run_id<=>w.order_run_id AND e.evidence_type='daily' AND e.day_no=w.day_no AND e.window_key=w.window_key AND e.status IN('submitted','accepted')) submitted_count
-      FROM evidence_windows w JOIN orders o ON o.id=w.order_id JOIN offers f ON f.id=o.offer_id
-      WHERE o.seller_id=? AND o.status='running' AND DATE(w.starts_at)=? ORDER BY w.starts_at");
+      FROM evidence_windows w
+      JOIN orders o ON o.id=w.order_id
+      JOIN offers f ON f.id=o.offer_id
+      WHERE o.seller_id=? AND o.status='running' AND o.archived_at IS NULL
+        AND DATE(w.starts_at)=?
+        AND w.status IN('planned','open','submitted')
+      ORDER BY w.starts_at");
     $q->execute([$s['id'],$today]);$windows=$q->fetchAll();
 
-    $q=db()->prepare("SELECT r.*,o.order_no FROM spontaneous_requests r JOIN orders o ON o.id=r.order_id
-      WHERE o.seller_id=? AND o.status='running' AND r.status NOT IN('reviewed','missed') ORDER BY r.due_at");
-    $q->execute([$s['id']]);$spontaneous=$q->fetchAll();
+    $q=db()->prepare("SELECT r.*,o.order_no FROM spontaneous_requests r
+      JOIN orders o ON o.id=r.order_id
+      WHERE o.seller_id=? AND o.status='running' AND o.archived_at IS NULL
+        AND r.status IN('requested','seen','confirmed')
+        AND r.grace_ends_at>=NOW() AND r.due_at<=?
+      ORDER BY r.due_at");
+    $q->execute([$s['id'],$todayEnd->format('Y-m-d H:i:s')]);$spontaneous=$q->fetchAll();
 
-    $q=db()->prepare("SELECT r.*,o.order_no FROM evidence_retake_requests r JOIN orders o ON o.id=r.order_id
-      WHERE r.seller_id=? AND o.status IN('precheck','running','review') AND r.status='requested' AND r.grace_ends_at>=NOW() ORDER BY r.due_at");
-    $q->execute([$s['id']]);$retakes=$q->fetchAll();
+    $q=db()->prepare("SELECT r.*,o.order_no FROM evidence_retake_requests r
+      JOIN orders o ON o.id=r.order_id
+      WHERE r.seller_id=? AND o.status IN('precheck','running','review') AND o.archived_at IS NULL
+        AND r.status='requested' AND r.grace_ends_at>=NOW() AND r.due_at<=?
+      ORDER BY r.due_at");
+    $q->execute([$s['id'],$todayEnd->format('Y-m-d H:i:s')]);$retakes=$q->fetchAll();
 
-    $q=db()->prepare("SELECT t.*,o.order_no FROM order_tasks t JOIN orders o ON o.id=t.order_id
-      WHERE o.seller_id=? AND o.status IN('running','review') AND t.status='open' ORDER BY COALESCE(t.due_at,'9999-12-31')");
-    $q->execute([$s['id']]);$tasks=$q->fetchAll();
+    $q=db()->prepare("SELECT t.*,o.order_no FROM order_tasks t
+      JOIN orders o ON o.id=t.order_id
+      WHERE o.seller_id=? AND o.status IN('running','review') AND o.archived_at IS NULL
+        AND t.status IN('open','rejected')
+        AND (t.due_at IS NULL OR t.due_at<=?)
+      ORDER BY COALESCE(t.due_at,'9999-12-31')");
+    $q->execute([$s['id'],$todayEnd->format('Y-m-d H:i:s')]);$tasks=$q->fetchAll();
 
-    $q=db()->prepare("SELECT o.order_no,f.title FROM orders o JOIN offers f ON f.id=o.offer_id
-      WHERE o.seller_id=? AND o.status='shipping' ORDER BY o.updated_at");
-    $q->execute([$s['id']]);$shipping=$q->fetchAll();
+    $q=db()->prepare("SELECT st.*,o.order_no,f.title FROM order_shipping_steps st
+      JOIN orders o ON o.id=st.order_id
+      JOIN offers f ON f.id=o.offer_id
+      WHERE o.seller_id=? AND o.status='shipping' AND o.archived_at IS NULL
+        AND st.status='open'
+        AND (st.due_at IS NULL OR st.due_at<=?)
+      ORDER BY COALESCE(st.due_at,'9999-12-31'),st.sort_order");
+    $q->execute([$s['id'],$todayEnd->format('Y-m-d H:i:s')]);$shippingSteps=$q->fetchAll();
+
+    $q=db()->prepare("SELECT o.order_no,o.shipping_due_at,f.title FROM orders o
+      JOIN offers f ON f.id=o.offer_id
+      WHERE o.seller_id=? AND o.status='shipping' AND o.archived_at IS NULL
+        AND o.shipping_due_at IS NOT NULL AND o.shipping_due_at<=?
+      ORDER BY o.shipping_due_at");
+    $q->execute([$s['id'],$todayEnd->format('Y-m-d H:i:s')]);$shippingDeadlines=$q->fetchAll();
+
+    $q=db()->prepare("SELECT o.id,o.order_no,o.digital_due_at,f.title
+      FROM orders o JOIN offers f ON f.id=o.offer_id
+      WHERE o.seller_id=? AND o.archived_at IS NULL
+        AND o.status IN('precheck','running','review')
+        AND o.digital_due_at IS NOT NULL AND o.digital_due_at<=?
+        AND NOT EXISTS(SELECT 1 FROM digital_versions d WHERE d.order_id=o.id)
+      ORDER BY o.digital_due_at");
+    $q->execute([$s['id'],$todayEnd->format('Y-m-d H:i:s')]);$digitalInitial=$q->fetchAll();
+
+    $q=db()->prepare("SELECT rr.*,o.order_no,f.title FROM revision_rounds rr
+      JOIN orders o ON o.id=rr.order_id JOIN offers f ON f.id=o.offer_id
+      WHERE o.seller_id=? AND o.archived_at IS NULL
+        AND rr.status='open' AND rr.due_at IS NOT NULL AND rr.due_at<=?
+      ORDER BY rr.due_at");
+    $q->execute([$s['id'],$todayEnd->format('Y-m-d H:i:s')]);$revisions=$q->fetchAll();
+
+    $q=db()->prepare("SELECT a.*,f.title FROM offer_assignments a
+      JOIN offers f ON f.id=a.offer_id
+      WHERE a.seller_id=? AND a.status='assigned' AND a.acceptance_deadline<=?
+      ORDER BY a.acceptance_deadline");
+    $q->execute([$s['id'],$todayEnd->format('Y-m-d H:i:s')]);$privateOffers=$q->fetchAll();
+
+    $q=db()->prepare("SELECT d.*,o.order_no,f.title FROM damage_cases d
+      JOIN orders o ON o.id=d.order_id JOIN offers f ON f.id=o.offer_id
+      WHERE o.seller_id=? AND o.archived_at IS NULL AND d.status='evidence_requested'
+      ORDER BY d.created_at");
+    $q->execute([$s['id']]);$damageRequests=$q->fetchAll();
 
     $nowItems=[];$nextItems=[];$laterItems=[];
+
+    $pushDue=function(array $item, ?string $dueAt) use (&$nowItems,&$nextItems,&$laterItems,$now,$todayEnd,$tz): void {
+        if(!$dueAt){$nextItems[]=$item;return;}
+        $due=new DateTimeImmutable($dueAt,$tz);
+        if($due <= $now->modify('+1 hour')){$nowItems[]=$item;return;}
+        if($due <= $now->modify('+3 hours')){$nextItems[]=$item;return;}
+        if($due <= $todayEnd){$laterItems[]=$item;return;}
+    };
+
     foreach($windows as $w){
-        $start=new DateTimeImmutable($w['starts_at'],$tz);$end=new DateTimeImmutable($w['ends_at'],$tz);$grace=new DateTimeImmutable($w['grace_ends_at'],$tz);
+        $startAt=new DateTimeImmutable($w['starts_at'],$tz);
+        $endAt=new DateTimeImmutable($w['ends_at'],$tz);
+        $graceAt=new DateTimeImmutable($w['grace_ends_at']?:$w['ends_at'],$tz);
         $remaining=max(0,(int)$w['required_count']-(int)$w['submitted_count']);
-        if($remaining<=0)continue;
-        $item=['kind'=>'window','title'=>$w['title'].' · '.window_label($w['window_key']),'text'=>'Tag '.$w['day_no'].' · '.$remaining.' Nachweis(e) offen · bis '.$end->format('H:i').' Uhr','link'=>'/auftrag/'.$w['order_no']];
-        if($now >= $start && $now <= $grace)$nowItems[]=$item;elseif($start>$now && $start<=$now->modify('+2 hours'))$nextItems[]=$item;else $laterItems[]=$item;
+        if($remaining<=0) continue;
+        $late=$now>$endAt;
+        $item=[
+          'title'=>$w['title'].' · '.window_label($w['window_key']),
+          'text'=>'Tag '.$w['day_no'].' · '.$remaining.' Nachweis(e) offen · '.($late?'Nachfrist bis '.$graceAt->format('H:i'):'regulär bis '.$endAt->format('H:i')).' Uhr',
+          'link'=>'/auftrag/'.$w['order_no'],
+          'overdue'=>$late,
+        ];
+        if($now >= $startAt && $now <= $graceAt)$nowItems[]=$item;
+        elseif($startAt>$now && $startAt<=$now->modify('+3 hours'))$nextItems[]=$item;
+        else $laterItems[]=$item;
     }
+
     foreach($spontaneous as $r){
         $due=new DateTimeImmutable($r['due_at'],$tz);
-        $item=['kind'=>'spontaneous','title'=>'Spontane Fotoanforderung · '.$r['order_no'],'text'=>$r['instructions'].' · Frist '.$due->format('H:i').' Uhr','link'=>'/auftrag/'.$r['order_no'].'/spontan/'.$r['id']];
-        if($due<=$now->modify('+1 hour'))$nowItems[]=$item;else $nextItems[]=$item;
+        $pushDue([
+          'title'=>'Spontane Fotoanforderung · '.$r['order_no'],
+          'text'=>$r['instructions'].' · '.($due<$now?'Nachfrist aktiv · regulär fällig ':'Fällig ').$due->format('H:i').' Uhr',
+          'link'=>'/auftrag/'.$r['order_no'].'/spontan/'.$r['id'],
+          'overdue'=>$due<$now,
+        ],$r['due_at']);
     }
+
     foreach($retakes as $r){
         $due=new DateTimeImmutable($r['due_at'],$tz);
-        $item=['kind'=>'retake','title'=>'Neuaufnahme erforderlich · '.$r['order_no'],'text'=>$r['instructions'].' · Frist '.$due->format('d.m. H:i').' Uhr','link'=>'/auftrag/'.$r['order_no'].'/retake/'.$r['id']];
-        if($due<=$now->modify('+1 hour'))$nowItems[]=$item;else $nextItems[]=$item;
+        $pushDue([
+          'title'=>'Neuaufnahme erforderlich · '.$r['order_no'],
+          'text'=>$r['instructions'].' · '.($due<$now?'Nachfrist aktiv · regulär fällig ':'Fällig ').$due->format('H:i').' Uhr',
+          'link'=>'/auftrag/'.$r['order_no'].'/retake/'.$r['id'],
+          'overdue'=>$due<$now,
+        ],$r['due_at']);
     }
+
     foreach($tasks as $t){
         $due=$t['due_at']?new DateTimeImmutable($t['due_at'],$tz):null;
-        $item=['kind'=>'task','title'=>'Zusatzaufgabe · '.$t['order_no'],'text'=>$t['title'].($due?' · Frist '.$due->format('d.m. H:i').' Uhr':''),'link'=>'/auftrag/'.$t['order_no'].'/aufgabe/'.$t['id']];
-        if($due && $due<=$now->modify('+1 hour'))$nowItems[]=$item;else $nextItems[]=$item;
+        $pushDue([
+          'title'=>'Zusatzaufgabe · '.$t['order_no'],
+          'text'=>$t['title'].($due?' · '.($due<$now?'über regulärer Frist · ':'fällig ').$due->format('H:i').' Uhr':' · ohne feste Uhrzeit'),
+          'link'=>'/auftrag/'.$t['order_no'].'/aufgabe/'.$t['id'],
+          'overdue'=>$due && $due<$now,
+        ],$t['due_at']);
     }
-    foreach($shipping as $x)$nextItems[]=['kind'=>'shipping','title'=>'Versand · '.$x['order_no'],'text'=>$x['title'].' · Versandworkflow offen','link'=>'/auftrag/'.$x['order_no'].'/versand'];
+
+    foreach($shippingSteps as $step){
+        $pushDue([
+          'title'=>'Versandschritt · '.$step['order_no'],
+          'text'=>$step['title'].($step['due_at']?' · fällig '.date('H:i',strtotime($step['due_at'])).' Uhr':''),
+          'link'=>'/auftrag/'.$step['order_no'].'/versand',
+          'overdue'=>$step['due_at'] && strtotime($step['due_at'])<time(),
+        ],$step['due_at']);
+    }
+
+    foreach($shippingDeadlines as $x){
+        $pushDue([
+          'title'=>'Gesamt-Versandfrist · '.$x['order_no'],
+          'text'=>$x['title'].' · Versand bis '.date('H:i',strtotime($x['shipping_due_at'])).' Uhr',
+          'link'=>'/auftrag/'.$x['order_no'].'/versand',
+          'overdue'=>strtotime($x['shipping_due_at'])<time(),
+        ],$x['shipping_due_at']);
+    }
+
+    foreach($digitalInitial as $x){
+        $pushDue([
+          'title'=>'Digitale Erstabgabe · '.$x['order_no'],
+          'text'=>$x['title'].' · fällig '.date('H:i',strtotime($x['digital_due_at'])).' Uhr',
+          'link'=>'/auftrag/'.$x['order_no'].'/digital',
+          'overdue'=>strtotime($x['digital_due_at'])<time(),
+        ],$x['digital_due_at']);
+    }
+
+    foreach($revisions as $r){
+        $pushDue([
+          'title'=>'Digitale Revision · '.$r['order_no'],
+          'text'=>$r['title'].' · Runde '.$r['round_no'].' · fällig '.date('H:i',strtotime($r['due_at'])).' Uhr',
+          'link'=>'/auftrag/'.$r['order_no'].'/digital',
+          'overdue'=>strtotime($r['due_at'])<time(),
+        ],$r['due_at']);
+    }
+
+    foreach($privateOffers as $a){
+        $pushDue([
+          'title'=>'Individuelles Angebot läuft ab',
+          'text'=>$a['title'].' · Annahmefrist '.date('H:i',strtotime($a['acceptance_deadline'])).' Uhr',
+          'link'=>'/individuelle-angebote',
+          'overdue'=>strtotime($a['acceptance_deadline'])<time(),
+        ],$a['acceptance_deadline']);
+    }
+
+    foreach($damageRequests as $d){
+        $nextItems[]=[
+          'title'=>'Beschädigung · weiterer Nachweis angefordert',
+          'text'=>$d['order_no'].' · '.$d['title'].' · '.$d['reason'],
+          'link'=>'/auftrag/'.$d['order_no'],
+          'overdue'=>false,
+        ];
+    }
+
+    $sortItems=static function(array &$items): void {
+        usort($items,fn($a,$b)=>(int)($b['overdue']??false)<=>(int)($a['overdue']??false));
+    };
+    $sortItems($nowItems);$sortItems($nextItems);$sortItems($laterItems);
 
     $renderItems=function(array $items): string {
-        ob_start();?><div class="timeline"><?php foreach($items as $item):?><div><strong><?=e($item['title'])?></strong><p class="meta"><?=e($item['text'])?></p><a href="<?=e(url($item['link']))?>">Jetzt öffnen →</a></div><?php endforeach;?><?php if(!$items):?><div class="empty">Nichts offen.</div><?php endif;?></div><?php return ob_get_clean();
+        ob_start();?><div class="timeline"><?php foreach($items as $item):?><div>
+          <div class="actions"><strong><?=e($item['title'])?></strong><?php if(!empty($item['overdue'])):?><span class="badge bad">Nachfrist / überfällig</span><?php endif;?></div>
+          <p class="meta"><?=e($item['text'])?></p><a href="<?=e(url($item['link']))?>">Jetzt öffnen →</a>
+        </div><?php endforeach;?><?php if(!$items):?><div class="empty">Nichts offen.</div><?php endif;?></div><?php return ob_get_clean();
     };
-    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Heute · <?=e($now->format('d.m.Y'))?></div><h1>Dein Tagesplan</h1></div><a class="btn secondary" href="<?=e(url('/dashboard'))?>">Alle Aufträge</a></div>
-    <div class="grid"><section class="panel"><h2>Jetzt erledigen</h2><?=$renderItems($nowItems)?></section><section class="panel"><h2>Als Nächstes</h2><?=$renderItems($nextItems)?></section><section class="panel"><h2>Heute später</h2><?=$renderItems($laterItems)?></section></div>
+
+    ob_start();?>
+    <div class="dashboard-head">
+      <div><div class="eyebrow">Heute · <?=e($now->format('d.m.Y'))?></div><h1>Dein Tagesplan</h1><p class="meta">Alle heute relevanten Nachweise, Aufgaben, Versand- und Digitalfristen sowie individuelle Angebote.</p></div>
+      <div class="actions"><a class="btn secondary" href="<?=e(url('/benachrichtigungen'))?>">Benachrichtigungen</a><a class="btn secondary" href="<?=e(url('/dashboard'))?>">Alle Aufträge</a></div>
+    </div>
+    <div class="grid">
+      <section class="panel"><h2>Jetzt erledigen</h2><?=$renderItems($nowItems)?></section>
+      <section class="panel"><h2>Als Nächstes</h2><?=$renderItems($nextItems)?></section>
+      <section class="panel"><h2>Heute später</h2><?=$renderItems($laterItems)?></section>
+    </div>
     <?php render('Heute',ob_get_clean());exit;
 }
 
