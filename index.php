@@ -264,20 +264,30 @@ if(preg_match('#^/auftrag/(\d{8})$#',$path,$m)&&$method==='GET'){
  $acq=db()->prepare("SELECT * FROM order_acceptance_confirmations WHERE order_id=? LIMIT 1");$acq->execute([$o['id']]);$acceptanceConfirmation=$acq->fetch()?:null;
  $acceptanceData=$acceptanceConfirmation?(json_decode($acceptanceConfirmation['payload_json']??'{}',true)?:[]):[];
  $currentRunId=current_run_id((int)$o['id']);
- $itq=db()->prepare("SELECT * FROM order_items WHERE order_id=? AND order_run_id<=>? ORDER BY id DESC LIMIT 1");$itq->execute([$o['id'],$currentRunId]);$orderItem=$itq->fetch()?:null;
- $cfq=db()->prepare("SELECT * FROM category_fields WHERE category_id=? AND is_active=1 ORDER BY sort_order,id");$cfq->execute([$o['category_id']]);$categoryFields=$cfq->fetchAll();
- $itemAttributes=$orderItem ? (json_decode($orderItem['attributes_json']??'{}',true)?:[]) : [];
  $aoq=db()->prepare("SELECT * FROM offer_options WHERE offer_id=? AND active=1 ORDER BY id");$aoq->execute([$o['offer_id']]);$availableOptions=$aoq->fetchAll();
  $soq=db()->prepare("SELECT * FROM order_options WHERE order_id=? ORDER BY id");$soq->execute([$o['id']]);$selectedOptions=$soq->fetchAll();
  $selectedOptionIds=array_map(fn($x)=>(int)$x['offer_option_id'],$selectedOptions);
  $orderComponents=order_components((int)$o['id']);
+ $physicalComponents=array_values(array_filter($orderComponents,fn($component)=>($component['component_type']??'physical')==='physical'));
+ $componentItems=[];$componentFields=[];$componentAttributes=[];
+ foreach($physicalComponents as $component){
+   $isPrimary=empty($component['source_component_id']);
+   $iq=$isPrimary
+     ? db()->prepare("SELECT * FROM order_items WHERE order_id=? AND order_run_id<=>? AND (order_component_id=? OR order_component_id IS NULL) ORDER BY order_component_id IS NULL,id DESC LIMIT 1")
+     : db()->prepare("SELECT * FROM order_items WHERE order_id=? AND order_run_id<=>? AND order_component_id=? ORDER BY id DESC LIMIT 1");
+   $iq->execute([$o['id'],$currentRunId,$component['id']]);$componentItems[$component['id']]=$iq->fetch()?:null;
+   $fq=db()->prepare("SELECT * FROM category_fields WHERE category_id=? AND is_active=1 ORDER BY sort_order,id");$fq->execute([$component['category_id']]);$componentFields[$component['id']]=$fq->fetchAll();
+   $componentAttributes[$component['id']]=$componentItems[$component['id']]?(json_decode($componentItems[$component['id']]['attributes_json']??'{}',true)?:[]):[];
+ }
  $sdq=db()->prepare("SELECT * FROM order_start_date_requests WHERE order_id=? ORDER BY created_at DESC");$sdq->execute([$o['id']]);$startDateRequests=$sdq->fetchAll();
  $pendingStartDateRequest=null;foreach($startDateRequests as $sdr){if($sdr['status']==='pending'){$pendingStartDateRequest=$sdr;break;}}
  $ocq=db()->prepare("SELECT field_name,old_value,new_value,reason,effective_day_no,created_at FROM order_changes WHERE order_id=? ORDER BY created_at DESC,id DESC");$ocq->execute([$o['id']]);$orderChanges=$ocq->fetchAll();
  $ev=db()->prepare("SELECT * FROM evidences WHERE order_id=? ORDER BY created_at DESC");$ev->execute([$o['id']]);$evidences=$ev->fetchAll();
- $rules=offer_evidence_rules((int)$o['id']);$preRequired=max(1,(int)$rules['precheck_required_count']);
- $preAccepted=count(array_filter($evidences,fn($x)=>$x['evidence_type']==='precheck'&&(int)($x['order_run_id']??0)===(int)$currentRunId&&$x['status']==='accepted'));
- $prePending=count(array_filter($evidences,fn($x)=>$x['evidence_type']==='precheck'&&(int)($x['order_run_id']??0)===(int)$currentRunId&&$x['status']==='submitted'));
+ $rules=offer_evidence_rules((int)$o['id']);
+ $precheckProgress=order_precheck_component_progress((int)$o['id'],$currentRunId);
+ $preRequired=max(0,(int)$precheckProgress['required_total']);
+ $preAccepted=max(0,(int)$precheckProgress['accepted_total']);
+ $prePending=max(0,(int)$precheckProgress['pending_total']);
  $ow=db()->prepare("SELECT w.*,(SELECT COUNT(*) FROM evidences e WHERE e.order_id=w.order_id AND e.order_run_id<=>w.order_run_id AND e.evidence_type='daily' AND e.day_no=w.day_no AND e.window_key=w.window_key AND e.status IN('submitted','accepted')) submitted_count FROM evidence_windows w WHERE w.order_id=? AND w.order_run_id<=>? AND w.starts_at<=NOW() AND COALESCE(w.grace_ends_at,w.ends_at)>=NOW() AND w.status IN('planned','open','submitted') ORDER BY w.starts_at");
  $ow->execute([$o['id'],$currentRunId]);$openWindows=$ow->fetchAll();
  ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Auftrag <?=e($o['order_no'])?></div><h1><?=e($o['title'])?></h1><span class="badge"><?=e($o['status'])?></span></div><div class="price"><?=money($o['total_compensation'])?></div></div>
@@ -285,17 +295,41 @@ if(preg_match('#^/auftrag/(\d{8})$#',$path,$m)&&$method==='GET'){
  <?php if(!empty($acceptanceData['selected_options'])):?><h3>Gewählte Optionen</h3><div class="timeline"><?php foreach($acceptanceData['selected_options'] as $confirmedOption):?><div><?=e($confirmedOption['label']??'Option')?> · <?=money($confirmedOption['price']??0)?></div><?php endforeach;?></div><?php endif;?>
  <p class="meta">Vorabnachweise: <?=e($acceptanceData['precheck_photos']??'–')?> · Regel-Nachweise pro Tag: <?=e($acceptanceData['daily_photos_per_day']??'–')?> · geplante Zusatzaufgaben: <?=e($acceptanceData['planned_task_executions']??0)?> · Versand-/Endschritte: <?=e($acceptanceData['shipping_step_count']??0)?>.</p><p class="meta">Diese Bestätigung bleibt historisch unverändert. Spätere genehmigte Änderungen werden separat am Auftrag dokumentiert.</p></section><?php endif;?>
 <?php if(count($orderComponents)>1):?><section class="panel" style="margin-top:18px"><h2>Kombi-Bestandteile</h2><div class="timeline"><?php foreach($orderComponents as $component):?><div><div class="dashboard-head"><div><strong><?=e($component['title_snapshot'])?></strong><br><span class="meta"><?=e($component['category_name'])?> · <?=e($component['component_type']==='digital'?'digital':'physisch')?><?php if($component['duration_days']):?> · <?=e($component['duration_days'])?> Tage<?php endif;?></span></div><span class="badge"><?=e($component['status'])?></span></div><span class="meta">Vergütung: <?=money($component['compensation_snapshot'])?> · <?=$component['required']?'Pflichtbestandteil':'optional'?></span></div><?php endforeach;?></div><p class="meta">Der Gesamtauftrag ist erst abgeschlossen, wenn alle Pflichtbestandteile abgeschlossen sind.</p></section><?php endif;?>
-<div class="grid two"><section class="panel"><h2>Ablauf</h2><div class="timeline"><div>1. Vorbereitung / Vorabkontrolle <?= $o['status']==='precheck'?'← aktuell':''?></div><div>2. Durchführung</div><div>3. Versand / digitale Abgabe</div><div>4. Prüfung</div><div>5. Auszahlung</div><div>6. Archiv</div></div></section><section class="panel"><h2>Vorabkontrolle</h2><?php if($o['status']==='precheck'):?><p>Lade die für den konkreten Artikel erforderlichen Startnachweise direkt über die Kamera hoch.</p><p><strong><?=e($preAccepted)?> / <?=e($preRequired)?></strong> Pflichtnachweise freigegeben<?php if($prePending):?> · <?=e($prePending)?> warten auf Prüfung<?php endif;?></p><div class="progress"><span style="width:<?=e((string)min(100,round(($preAccepted/$preRequired)*100)))?>%"></span></div><br><form method="post" action="<?=e(url('/auftrag/'.$o['order_no'].'/nachweis'))?>" enctype="multipart/form-data"><?=csrf_field()?><input type="hidden" name="type" value="precheck">
-<label>Kurze Artikelbezeichnung<input name="item_label" value="<?=e($orderItem['label']??'')?>" required placeholder="z. B. schwarze Sportsocken"></label>
-<div class="form-grid"><label>Größe (optional)<input name="size_value" value="<?=e($orderItem['size_value']??'')?>"></label><label>Farbe (optional)<input name="color_value" value="<?=e($orderItem['color_value']??'')?>"></label><label>Marke (optional)<input name="brand_value" value="<?=e($orderItem['brand_value']??'')?>"></label><label>Material (optional)<input name="material_value" value="<?=e($orderItem['material_value']??'')?>"></label></div>
-<?php foreach($categoryFields as $fld): $key=$fld['field_key'];$val=$itemAttributes[$key]??'';$opts=json_decode($fld['options_json']??'[]',true)?:[]; ?>
-<label><?=e($fld['label'])?><?=$fld['required']?' *':''?>
-<?php if($fld['field_type']==='select'):?><select name="attr[<?=e($key)?>]" <?=$fld['required']?'required':''?>><option value="">Bitte wählen</option><?php foreach($opts as $opt):?><option value="<?=e($opt)?>" <?=$val===$opt?'selected':''?>><?=e($opt)?></option><?php endforeach;?></select>
-<?php elseif($fld['field_type']==='multiselect'):?><select name="attr[<?=e($key)?>][]" multiple <?=$fld['required']?'required':''?>><?php foreach($opts as $opt):?><option value="<?=e($opt)?>" <?=in_array($opt,(array)$val,true)?'selected':''?>><?=e($opt)?></option><?php endforeach;?></select>
-<?php elseif($fld['field_type']==='boolean'):?><select name="attr[<?=e($key)?>]" <?=$fld['required']?'required':''?>><option value="">Bitte wählen</option><option value="1" <?=$val==='1'||$val===1?'selected':''?>>Ja</option><option value="0" <?=$val==='0'||$val===0?'selected':''?>>Nein</option></select>
-<?php else:?><input type="<?=$fld['field_type']==='number'?'number':($fld['field_type']==='date'?'date':'text')?>" name="attr[<?=e($key)?>]" value="<?=e(is_array($val)?implode(', ',$val):$val)?>" <?=$fld['required']?'required':''?>><?php endif;?>
-</label><?php endforeach;?>
-<label>Pflichtfoto<input data-camera-input type="file" name="evidence" required></label><button class="btn">Nachweis einreichen</button></form><?php else:?><p class="meta">Die Vorabkontrolle ist abgeschlossen bzw. befindet sich nicht mehr in der Vorbereitungsphase.</p><?php endif;?></section></div>
+<div class="grid two"><section class="panel"><h2>Ablauf</h2><div class="timeline"><div>1. Vorbereitung / Vorabkontrolle <?= $o['status']==='precheck'?'← aktuell':''?></div><div>2. Durchführung</div><div>3. Versand / digitale Abgabe</div><div>4. Prüfung</div><div>5. Auszahlung</div><div>6. Archiv</div></div></section><section class="panel"><h2>Vorabkontrolle</h2><?php if($o['status']==='precheck'):?>
+<p>Jeder physische Bestandteil wird separat dokumentiert. Bereits abgelehnte Aufnahmen bleiben in der Historie, blockieren nach einer erfolgreichen Neuaufnahme aber nicht die Gesamtfreigabe.</p>
+<p><strong><?=e($preAccepted)?> / <?=e($preRequired)?></strong> erforderliche Vorabnachweise freigegeben<?php if($prePending):?> · <?=e($prePending)?> warten auf Prüfung<?php endif;?></p>
+<?php if($preRequired>0):?><div class="progress"><span style="width:<?=e((string)min(100,round(($preAccepted/$preRequired)*100)))?>%"></span></div><?php endif;?>
+<div class="timeline" style="margin-top:14px">
+<?php foreach($physicalComponents as $component):
+  $cid=(int)$component['id'];$item=$componentItems[$cid]??null;$attrs=$componentAttributes[$cid]??[];$fields=$componentFields[$cid]??[];
+  $p=$precheckProgress['components'][$cid]??['required'=>0,'accepted'=>0,'pending'=>0,'rejected'=>0,'complete'=>true];
+  $remaining=max(0,(int)$p['required']-(int)$p['accepted']-(int)$p['pending']);
+?>
+<div>
+  <div class="dashboard-head"><div><strong><?=e($component['title_snapshot'])?></strong><br><span class="meta"><?=e($component['category_name'])?> · <?=e($component['required']?'Pflichtbestandteil':'optional')?></span></div><span class="badge"><?=$p['complete']?'bereit':($p['pending']?'in Prüfung':'offen')?></span></div>
+  <p class="meta">Erforderlich: <?=e($p['required'])?> · akzeptiert: <?=e($p['accepted'])?> · in Prüfung: <?=e($p['pending'])?><?php if($p['rejected']):?> · historisch beanstandet: <?=e($p['rejected'])?><?php endif;?></p>
+  <?php if($p['required']>0 && !$p['complete'] && $p['pending']==0):?>
+  <form method="post" action="<?=e(url('/auftrag/'.$o['order_no'].'/nachweis'))?>" enctype="multipart/form-data">
+    <?=csrf_field()?><input type="hidden" name="type" value="precheck"><input type="hidden" name="component_id" value="<?=e($cid)?>">
+    <label>Artikelbezeichnung<input name="item_label" value="<?=e($item['label']??'')?>" required placeholder="Konkreten Artikel beschreiben"></label>
+    <div class="form-grid"><label>Größe (optional)<input name="size_value" value="<?=e($item['size_value']??'')?>"></label><label>Farbe (optional)<input name="color_value" value="<?=e($item['color_value']??'')?>"></label><label>Marke (optional)<input name="brand_value" value="<?=e($item['brand_value']??'')?>"></label><label>Material (optional)<input name="material_value" value="<?=e($item['material_value']??'')?>"></label></div>
+    <?php foreach($fields as $fld): $key=$fld['field_key'];$val=$attrs[$key]??'';$opts=json_decode($fld['options_json']??'[]',true)?:[]; ?>
+    <label><?=e($fld['label'])?><?=$fld['required']?' *':''?>
+    <?php if($fld['field_type']==='select'):?><select name="attr[<?=e($key)?>]" <?=$fld['required']?'required':''?>><option value="">Bitte wählen</option><?php foreach($opts as $opt):?><option value="<?=e($opt)?>" <?=$val===$opt?'selected':''?>><?=e($opt)?></option><?php endforeach;?></select>
+    <?php elseif($fld['field_type']==='multiselect'):?><select name="attr[<?=e($key)?>][]" multiple <?=$fld['required']?'required':''?>><?php foreach($opts as $opt):?><option value="<?=e($opt)?>" <?=in_array($opt,(array)$val,true)?'selected':''?>><?=e($opt)?></option><?php endforeach;?></select>
+    <?php elseif($fld['field_type']==='boolean'):?><select name="attr[<?=e($key)?>]" <?=$fld['required']?'required':''?>><option value="">Bitte wählen</option><option value="1" <?=$val==='1'||$val===1?'selected':''?>>Ja</option><option value="0" <?=$val==='0'||$val===0?'selected':''?>>Nein</option></select>
+    <?php else:?><input type="<?=$fld['field_type']==='number'?'number':($fld['field_type']==='date'?'date':'text')?>" name="attr[<?=e($key)?>]" value="<?=e(is_array($val)?implode(', ',$val):$val)?>" <?=$fld['required']?'required':''?>><?php endif;?>
+    </label><?php endforeach;?>
+    <label>Pflichtfoto<input data-camera-input type="file" name="evidence" required></label>
+    <button class="btn">Nachweis für <?=e($component['title_snapshot'])?> einreichen</button>
+  </form>
+  <?php elseif($p['pending']>0):?><p class="meta">Für diesen Bestandteil liegt bereits ein Nachweis zur Prüfung vor.</p>
+  <?php elseif($p['complete']):?><p class="meta">Die erforderlichen Vorabnachweise dieses Bestandteils sind vollständig akzeptiert.</p><?php endif;?>
+</div>
+<?php endforeach;?>
+<?php if(!$physicalComponents):?><p class="meta">Dieser Auftrag enthält keinen physischen Bestandteil mit Vorabkontrolle.</p><?php endif;?>
+</div>
+<?php else:?><p class="meta">Die Vorabkontrolle ist abgeschlossen bzw. befindet sich nicht mehr in der Vorbereitungsphase.</p><?php endif;?></section></div>
 <section class="panel" style="margin-top:18px"><h2>Startdatum</h2>
 <?php if($o['planned_start_date']):?>
   <p>Vereinbarter Start: <strong><?=e(date('d.m.Y',strtotime($o['planned_start_date'])))?></strong></p>
