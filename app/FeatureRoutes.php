@@ -278,6 +278,20 @@ if (preg_match('#^/admin/auftrag/(\d{8})/abschliessen$#',$path,$m)&&$method==='P
             redirect('/admin/auftrag/'.$o['order_no']);
         }
 
+        $q=db()->prepare("SELECT COUNT(*) total,
+            SUM(required=1 AND status<>'completed') open_required,
+            SUM(component_type='digital') digital_count,
+            SUM(component_type='physical') physical_count
+            FROM order_components WHERE order_id=?");
+        $q->execute([$o['id']]);$componentStats=$q->fetch();
+        $componentCount=(int)($componentStats['total']??0);
+        if($componentCount>1 && (int)($componentStats['open_required']??0)>0){
+            flash('error','Der Kombi-Auftrag kann erst abgeschlossen werden, wenn alle Pflichtbestandteile den Status „Abgeschlossen“ haben.');
+            redirect('/admin/auftrag/'.$o['order_no']);
+        }
+        $hasDigital=$componentCount>0 ? (int)($componentStats['digital_count']??0)>0 : in_array($o['fulfillment_type'],['digital','mixed'],true);
+        $hasPhysical=$componentCount>0 ? (int)($componentStats['physical_count']??0)>0 : $o['fulfillment_type']!=='digital';
+
         $q=db()->prepare("SELECT COUNT(*) FROM order_tasks WHERE order_id=? AND status<>'accepted'");
         $q->execute([$o['id']]);
         if((int)$q->fetchColumn()>0){
@@ -285,7 +299,7 @@ if (preg_match('#^/admin/auftrag/(\d{8})/abschliessen$#',$path,$m)&&$method==='P
             redirect('/admin/auftrag/'.$o['order_no']);
         }
 
-        if($o['fulfillment_type']==='digital'){
+        if($hasDigital){
             $q=db()->prepare("SELECT * FROM digital_versions WHERE order_id=? ORDER BY version_no DESC LIMIT 1");
             $q->execute([$o['id']]);$latestDigital=$q->fetch();
             $allowedDigital=$decision==='accept' ? ['accepted'] : ['accepted','partial'];
@@ -301,7 +315,8 @@ if (preg_match('#^/admin/auftrag/(\d{8})/abschliessen$#',$path,$m)&&$method==='P
                 flash('error','Es ist noch eine digitale Revision offen oder zur Prüfung eingereicht.');
                 redirect('/admin/auftrag/'.$o['order_no']);
             }
-        }else{
+        }
+        if($hasPhysical){
             $q=db()->prepare("SELECT * FROM shipments WHERE order_id=?");
             $q->execute([$o['id']]);$shipment=$q->fetch();
             if(!$shipment || $shipment['status']!=='received'){
@@ -347,6 +362,7 @@ if (preg_match('#^/admin/auftrag/(\d{8})/abschliessen$#',$path,$m)&&$method==='P
             db()->prepare("UPDATE orders SET status='rejected',released_amount=0,rejection_reason=?,completed_at=NOW(),archived_at=NOW(),updated_at=NOW() WHERE id=?")->execute([$reason,$o['id']]);
             db()->prepare("UPDATE wallet_entries SET entry_type='cancelled',description='Auftrag endgültig abgelehnt' WHERE order_id=? AND entry_type='reserved'")->execute([$o['id']]);
             db()->prepare("UPDATE order_bonuses SET status='cancelled',cancelled_at=NOW() WHERE order_id=? AND status='reserved'")->execute([$o['id']]);
+            db()->prepare("UPDATE order_components SET status='rejected',updated_at=NOW() WHERE order_id=? AND status<>'completed'")->execute([$o['id']]);
             db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")->execute([$o['id'],'Auftrag endgültig abgelehnt.'.($reason!==''?' Grund: '.$reason:'')]);
             db()->commit();
         }catch(Throwable $e){db()->rollBack();throw $e;}
