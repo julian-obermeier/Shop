@@ -581,32 +581,55 @@ if (preg_match('#^/admin/nachweis/(\\d+)/ablehnen$#',$path,$m) && $method==='POS
     flash('success','Nachweis wurde beanstandet.');redirect('/admin/auftrag/'.$ev['order_no']);
 }
 
-if (preg_match('#^/admin/auftrag/(\\d{8})/vorabkontrolle-freigeben$#',$path,$m) && $method==='POST') {
+if (preg_match('#^/admin/auftrag/(\d{8})/vorabkontrolle-freigeben$#',$path,$m) && $method==='POST') {
     require_admin();
     $q=db()->prepare("SELECT * FROM orders WHERE order_no=? AND status='precheck'");
     $q->execute([$m[1]]);$o=$q->fetch();if(!$o)not_found();
+
+    if(empty($o['planned_start_date'])){
+        flash('error','Die Verkäuferin muss zuerst ein Startdatum festlegen.');
+        redirect('/admin/auftrag/'.$o['order_no']);
+    }
+
+    $tz=new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'));
+    $today=new DateTimeImmutable('today',$tz);
+    $planned=new DateTimeImmutable($o['planned_start_date'].' 00:00:00',$tz);
+    if($planned <= $today){
+        flash('error','Das geplante Startdatum ist bereits erreicht oder vergangen. Vor der Gesamtfreigabe muss ein neues zukünftiges Startdatum genehmigt werden.');
+        redirect('/admin/auftrag/'.$o['order_no']);
+    }
+
     $runId=current_run_id((int)$o['id']);
     $rules=offer_evidence_rules((int)$o['id']);
     $required=max(1,(int)$rules['precheck_required_count']);
     $q=db()->prepare("SELECT COUNT(*) total,SUM(status='accepted') accepted_count,SUM(status<>'accepted') open_count FROM evidences WHERE order_id=? AND order_run_id<=>? AND evidence_type='precheck'");
     $q->execute([$o['id'],$runId]);$stats=$q->fetch();
-    $total=(int)($stats['total']??0);$accepted=(int)($stats['accepted_count']??0);$open=(int)($stats['open_count']??0);
+    $accepted=(int)($stats['accepted_count']??0);$open=(int)($stats['open_count']??0);
     if($accepted<$required || $open>0){
         flash('error','Die Vorabkontrolle kann erst freigegeben werden, wenn alle '.$required.' Pflichtnachweise des aktuellen Durchlaufs vorhanden und akzeptiert sind.');
         redirect('/admin/auftrag/'.$o['order_no']);
     }
-    $started=new DateTimeImmutable('now',new DateTimeZone((string)app_config('app.timezone','Europe/Berlin')));
+
     db()->beginTransaction();
     try{
-        db()->prepare("UPDATE orders SET status='running',started_at=?,updated_at=NOW() WHERE id=?")->execute([$started->format('Y-m-d H:i:s'),$o['id']]);
-        db()->prepare("UPDATE order_runs SET status='running',started_at=? WHERE id=?")->execute([$started->format('Y-m-d H:i:s'),current_run_id((int)$o['id'])]);
-        schedule_order_days((int)$o['id'],$started);
-        db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")->execute([$o['id'],'Vorabkontrolle vollständig freigegeben. Der Auftrag ist jetzt gestartet.']);
-        log_event('precheck.approved',(int)$o['seller_id'],(int)$o['id'],['started_at'=>$started->format(DATE_ATOM)]);
+        db()->prepare("UPDATE orders SET precheck_approved_at=NOW(),updated_at=NOW() WHERE id=?")->execute([$o['id']]);
+        db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")
+            ->execute([$o['id'],'Vorabkontrolle vollständig freigegeben. Geplanter Start: '.date('d.m.Y',strtotime($o['planned_start_date'])).'.']);
+        log_event('precheck.approved',(int)$o['seller_id'],(int)$o['id'],['planned_start_date'=>$o['planned_start_date']]);
         db()->commit();
     }catch(Throwable $e){db()->rollBack();throw $e;}
-    notify_seller((int)$o['seller_id'],'order.started','Auftrag gestartet','Die Vorabkontrolle für Auftrag '.$o['order_no'].' wurde vollständig freigegeben. Der Auftrag ist jetzt gestartet.','/auftrag/'.$o['order_no'],null,true);
-    flash('success','Vorabkontrolle vollständig freigegeben – Auftrag gestartet.');redirect('/admin/auftrag/'.$o['order_no']);
+
+    notify_seller(
+        (int)$o['seller_id'],
+        'precheck.approved',
+        'Vorabkontrolle freigegeben',
+        'Die Vorabkontrolle für Auftrag '.$o['order_no'].' ist vollständig freigegeben. Der Auftrag startet automatisch am '.date('d.m.Y',strtotime($o['planned_start_date'])).'.',
+        '/auftrag/'.$o['order_no'],
+        'precheck-approved-'.$o['id'],
+        true
+    );
+    flash('success','Vorabkontrolle vollständig freigegeben. Automatischer Start am '.date('d.m.Y',strtotime($o['planned_start_date'])).'.');
+    redirect('/admin/auftrag/'.$o['order_no']);
 }
 
 if ($path==='/benachrichtigungen' && $method==='GET') {
