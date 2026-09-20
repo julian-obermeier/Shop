@@ -472,7 +472,7 @@ if(preg_match('#^/auftrag/(\d{8})/nachweis$#',$path,$m)&&$method==='POST'){
       }
    }
 
-   $up=private_upload($_FILES['evidence']??[],'order-'.$o['id']);
+   $up=private_image_upload($_FILES['evidence']??[],'order-'.$o['id']);
    if($type==='precheck'){
       $isPrimary=empty($component['source_component_id']);
       $sql=$isPrimary
