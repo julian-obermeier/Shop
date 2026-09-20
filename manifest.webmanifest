@@ -12,5 +12,7 @@
       "type": "image/svg+xml",
       "purpose": "any maskable"
     }
-  ]
+  ],
+  "scope": "/",
+  "lang": "de-DE"
 }
