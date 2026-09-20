@@ -313,10 +313,6 @@ if (preg_match('#^/auftrag/(\d{8})/beschaedigung$#',$path,$m)&&$method==='POST')
     flash('success','Beschädigung für „'.$component['title_snapshot'].'“ wurde gemeldet. Der Auftrag läuft bis zur Entscheidung weiter.');
     redirect('/auftrag/'.$o['order_no']);
 }
-if ($path==='/admin/verkaeuferinnen'&&$method==='GET') {
-    require_admin();$rows=db()->query("SELECT s.*,COUNT(o.id) orders_count FROM sellers s LEFT JOIN orders o ON o.seller_id=s.id WHERE s.deleted_at IS NULL GROUP BY s.id ORDER BY s.created_at DESC")->fetchAll();
-    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Administration</div><h1>Verkäuferinnen</h1></div></div><div class="table-wrap"><table><thead><tr><th>Name</th><th>E-Mail</th><th>Verifiziert</th><th>Aufträge</th><th></th></tr></thead><tbody><?php foreach($rows as $r):?><tr><td><?=e($r['first_name'].' '.$r['last_name'])?></td><td><?=e($r['email'])?></td><td><?=$r['email_verified_at']?'Ja':'Nein'?></td><td><?=e($r['orders_count'])?></td><td><a href="<?=e(url('/admin/verkaeuferin/'.$r['id']))?>">Akte</a></td></tr><?php endforeach;?></tbody></table></div><?php render('Verkäuferinnen',ob_get_clean());exit;
-}
 if (preg_match('#^/admin/auszahlung/(\d+)/bezahlt$#',$path,$m)&&$method==='POST') {
     require_admin();
     $st=db()->prepare("SELECT * FROM payout_requests WHERE id=?");$st->execute([(int)$m[1]]);$r=$st->fetch();if(!$r)not_found();
@@ -1257,18 +1253,6 @@ if (preg_match('#^/admin/aufgabenplan/(\d+)/loeschen$#',$path,$m) && $method==='
 }
 
 /* ---------- V1 completion: precheck, evidence review, offer versioning, notifications ---------- */
-
-if (preg_match('#^/admin/nachweis/(\\d+)/ablehnen$#',$path,$m) && $method==='POST') {
-    require_admin();
-    $reason=post('reason');
-    if($reason===''){flash('error','Bitte einen Beanstandungsgrund angeben.');redirect('/admin/auftraege');}
-    $q=db()->prepare("SELECT e.*,o.order_no,o.seller_id FROM evidences e JOIN orders o ON o.id=e.order_id WHERE e.id=?");
-    $q->execute([(int)$m[1]]);$ev=$q->fetch();if(!$ev)not_found();
-    db()->prepare("UPDATE evidences SET status='rejected',rejection_reason=?,reviewed_at=NOW() WHERE id=?")->execute([$reason,$ev['id']]);
-    notify_seller((int)$ev['seller_id'],'evidence.rejected','Nachweis beanstandet','Ein Nachweis im Auftrag '.$ev['order_no'].' wurde beanstandet: '.$reason,'/auftrag/'.$ev['order_no'],null,true);
-    log_event('evidence.rejected',(int)$ev['seller_id'],(int)$ev['order_id'],['evidence_id'=>(int)$ev['id'],'reason'=>$reason]);
-    flash('success','Nachweis wurde beanstandet.');redirect('/admin/auftrag/'.$ev['order_no']);
-}
 
 if (preg_match('#^/admin/auftrag/(\d{8})/vorabkontrolle-freigeben$#',$path,$m) && $method==='POST') {
     require_admin();
