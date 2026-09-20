@@ -205,6 +205,7 @@ function try_start_order_after_precheck(int $orderId): bool {
         db()->prepare("UPDATE orders SET status='running',started_at=NOW(),updated_at=NOW() WHERE id=? AND status='precheck'")->execute([$orderId]);
         db()->prepare("UPDATE order_runs SET status='running',started_at=COALESCE(started_at,NOW()) WHERE order_id=? AND status='precheck'")->execute([$orderId]);
         schedule_order_days($orderId,new DateTimeImmutable('now',new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'))));
+        schedule_existing_extra_days($orderId);
         db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system','Vorabkontrolle vollständig freigegeben. Der Auftrag ist gestartet.')")->execute([$orderId]);
         db()->commit();return true;
     }catch(Throwable $e){db()->rollBack();throw $e;}
@@ -359,4 +360,47 @@ function notify_seller(int $sellerId, string $type, string $title, string $body,
 function log_event(string $type, ?int $sellerId=null, ?int $orderId=null, array $payload=[]): void {
     db()->prepare('INSERT INTO system_events(seller_id,order_id,event_type,payload_json) VALUES(?,?,?,?)')
         ->execute([$sellerId,$orderId,$type,$payload?json_encode($payload,JSON_UNESCAPED_UNICODE):null]);
+}
+
+
+function schedule_extra_day(int $extraDayId, ?int $runId=null): void {
+    $q=db()->prepare("SELECT x.*,o.offer_id,f.evidence_rules_json FROM extra_days x JOIN orders o ON o.id=x.order_id JOIN offers f ON f.id=o.offer_id WHERE x.id=?");
+    $q->execute([$extraDayId]);$x=$q->fetch();if(!$x)return;
+    $orderId=(int)$x['order_id'];$runId=$runId?:current_run_id($orderId);if(!$runId)return;
+
+    $exists=db()->prepare("SELECT COUNT(*) FROM order_days WHERE order_id=? AND order_run_id=? AND source_ref=?");
+    $sourceRef='extra:'.$extraDayId;$exists->execute([$orderId,$runId,$sourceRef]);if((int)$exists->fetchColumn()>0)return;
+
+    $max=db()->prepare("SELECT COALESCE(MAX(day_no),0) max_day,MAX(calendar_date) max_date FROM order_days WHERE order_id=? AND order_run_id=?");
+    $max->execute([$orderId,$runId]);$m=$max->fetch();
+    $dayNo=(int)($m['max_day']??0)+1;
+    $tz=new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'));
+    $base=!empty($m['max_date'])?new DateTimeImmutable((string)$m['max_date'],$tz):new DateTimeImmutable('today',$tz);
+    $date=$base->modify('+1 day');
+    $type=in_array($x['source_type'],['violation','manual','damage'],true)?$x['source_type']:'manual';
+
+    db()->prepare("INSERT INTO order_days(order_id,order_run_id,day_no,day_type,calendar_date,status,source_ref) VALUES(?,?,?,?,?,'planned',?)")
+      ->execute([$orderId,$runId,$dayNo,$type,$date->format('Y-m-d'),$sourceRef]);
+
+    $rules=offer_evidence_rules($x);
+    $windows=[
+        'morning'=>parse_window_setting('window_morning','06:00-10:00'),
+        'midday'=>parse_window_setting('window_midday','12:00-16:00'),
+        'evening'=>parse_window_setting('window_evening','18:00-23:59'),
+    ];
+    $grace=max(0,(int)setting_value('grace_minutes','60'));
+    $win=db()->prepare("INSERT INTO evidence_windows(order_id,order_run_id,day_no,window_key,starts_at,ends_at,grace_ends_at,required_count,status) VALUES(?,?,?,?,?,?,?,?, 'planned')");
+    foreach($windows as $key=>$range){
+        $required=(int)($rules['daily'][$key]??0);if($required<=0)continue;
+        $start=new DateTimeImmutable($date->format('Y-m-d').' '.$range[0].':00',$tz);
+        $end=new DateTimeImmutable($date->format('Y-m-d').' '.$range[1].':00',$tz);
+        $win->execute([$orderId,$runId,$dayNo,$key,$start->format('Y-m-d H:i:s'),$end->format('Y-m-d H:i:s'),$end->modify('+'.$grace.' minutes')->format('Y-m-d H:i:s'),$required]);
+    }
+}
+
+function schedule_existing_extra_days(int $orderId): void {
+    $runId=current_run_id($orderId);if(!$runId)return;
+    $q=db()->prepare("SELECT id FROM extra_days WHERE order_id=? ORDER BY created_at,id");
+    $q->execute([$orderId]);
+    foreach($q->fetchAll() as $row) schedule_extra_day((int)$row['id'],$runId);
 }
