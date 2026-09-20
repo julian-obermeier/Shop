@@ -169,6 +169,7 @@ CREATE TABLE IF NOT EXISTS order_items (
  color_value VARCHAR(100) NULL,
  brand_value VARCHAR(120) NULL,
  material_value VARCHAR(120) NULL,
+ attributes_json JSON NULL,
  locked_at DATETIME NULL,
  FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE,
  FOREIGN KEY(order_run_id) REFERENCES order_runs(id) ON DELETE SET NULL
