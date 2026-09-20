@@ -321,6 +321,61 @@ foreach($runningOrders as $row){
     }
 }
 
+/* Gesamt-Versandfrist: unabhängig von einzelnen Schritten, ein möglicher Verstoß bei Überschreitung. */
+$shippingOrders=$pdo->query("SELECT o.id,o.order_no,o.seller_id,o.shipping_due_at,sh.status shipment_status
+    FROM orders o
+    LEFT JOIN shipments sh ON sh.order_id=o.id
+    WHERE o.status='shipping' AND o.shipping_due_at IS NOT NULL")->fetchAll();
+foreach($shippingOrders as $shipOrder){
+    if(($shipOrder['shipment_status']??null)==='shipped') continue;
+
+    $due=new DateTimeImmutable($shipOrder['shipping_due_at'],new DateTimeZone((string)app_config('app.timezone','Europe/Berlin')));
+    $graceEnd=$due->modify('+'.$grace.' minutes');
+    $diff=$due->getTimestamp()-$now->getTimestamp();
+
+    if($diff>3600 && $diff<=86400){
+        notify_seller(
+            (int)$shipOrder['seller_id'],
+            'shipping.overall_reminder',
+            'Gesamt-Versandfrist innerhalb von 24 Stunden',
+            'Der Versand für Auftrag '.$shipOrder['order_no'].' muss bis '.$due->format('d.m.Y H:i').' Uhr nachgewiesen werden.',
+            '/auftrag/'.$shipOrder['order_no'].'/versand',
+            'shipping-overall-'.$shipOrder['id'].'-24h',
+            true
+        );
+    }elseif($diff>0 && $diff<=3600){
+        notify_seller(
+            (int)$shipOrder['seller_id'],
+            'shipping.overall_reminder',
+            'Gesamt-Versandfrist in weniger als 1 Stunde',
+            'Der Versand für Auftrag '.$shipOrder['order_no'].' muss bis '.$due->format('d.m.Y H:i').' Uhr nachgewiesen werden.',
+            '/auftrag/'.$shipOrder['order_no'].'/versand',
+            'shipping-overall-'.$shipOrder['id'].'-1h',
+            true
+        );
+    }
+
+    if($now>=$due && $now<=$graceEnd){
+        notify_seller(
+            (int)$shipOrder['seller_id'],
+            'shipping.overall_grace',
+            'Nachfrist für Versand läuft',
+            'Die reguläre Gesamt-Versandfrist für Auftrag '.$shipOrder['order_no'].' ist abgelaufen. Die Nachfrist endet am '.$graceEnd->format('d.m.Y H:i').' Uhr.',
+            '/auftrag/'.$shipOrder['order_no'].'/versand',
+            'shipping-overall-'.$shipOrder['id'].'-grace-'.$due->getTimestamp(),
+            true
+        );
+    }elseif($graceEnd<$now){
+        cron_provisional_violation(
+            (int)$shipOrder['id'],
+            (int)$shipOrder['seller_id'],
+            'shipping-overall-'.$shipOrder['id'].'-missed',
+            'shipping_requirement',
+            'Die Gesamt-Versandfrist für Auftrag '.$shipOrder['order_no'].' wurde einschließlich Nachfrist nicht eingehalten.'
+        );
+    }
+}
+
 /* Versandschritt-Fristen: ein unvollständiger Schritt zählt als ein möglicher Verstoß. */
 $shippingSteps=$pdo->query("SELECT st.*,o.seller_id,o.order_no FROM order_shipping_steps st JOIN orders o ON o.id=st.order_id WHERE st.status='open' AND st.due_at IS NOT NULL AND o.status='shipping'")->fetchAll();
 foreach($shippingSteps as $step){
