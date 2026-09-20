@@ -129,6 +129,12 @@ if(preg_match('#^/angebot/([a-z0-9-]+)/annehmen$#',$path,$m)&&$method==='POST'){
  $initialStatus=$pureDigital?'running':'precheck';$startedAt=$pureDigital?$acceptedAt->format('Y-m-d H:i:s'):null;
  $total=(float)$o['compensation']+$componentExtra+$optionsTotal+$shippingAllowance+$plannedTaskCompensation;$no=order_number();
  db()->beginTransaction(); try{
+   $sellerLock=db()->prepare("SELECT id FROM sellers WHERE id=? FOR UPDATE");$sellerLock->execute([$s['id']]);
+   if(seller_has_category_conflict((int)$s['id'],$blockedCategories)){
+     db()->rollBack();
+     flash('error','Mindestens eine in diesem Angebot enthaltene Kategorie wurde zwischenzeitlich durch einen anderen aktiven Auftrag belegt.');
+     redirect('/angebote');
+   }
    db()->prepare("INSERT INTO orders(order_no,seller_id,offer_id,offer_version,status,base_compensation,total_compensation,duration_days,shipping_snapshot_json,digital_rules_snapshot_json,digital_due_at,started_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)")->execute([$no,$s['id'],$o['id'],$o['current_version'],$initialStatus,$o['compensation'],$total,$o['duration_days'],json_encode($shippingSnapshot,JSON_UNESCAPED_UNICODE),$digitalRulesJson,$digitalDueAt,$startedAt]);
    $oid=(int)db()->lastInsertId();
    $acceptanceRules=offer_evidence_rules($o);
