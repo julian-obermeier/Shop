@@ -56,10 +56,10 @@ if(preg_match('#^/angebot/([a-z0-9-]+)$#',$path,$m)&&$method==='GET'){
  $rules=offer_evidence_rules($o);
  $dailyCount=array_sum($rules['daily']);
  $regularPhotos=(int)$rules['precheck_required_count']+($o['duration_days']?($dailyCount*(int)$o['duration_days']):0);
- $planned=offer_planned_tasks_summary((int)$o['id'],$o['duration_days']!==null?(int)$o['duration_days']:null);
+ $planned=offer_task_plan_summary((int)$o['id'],$o['duration_days']!==null?(int)$o['duration_days']:1);
  $shipping=build_shipping_snapshot($o);
  $shippingPhotos=array_sum(array_map(fn($x)=>(int)($x['required_photos']??0),$shipping['steps']??[]));
- $knownPhotos=$regularPhotos+$shippingPhotos;
+ $knownPhotos=$regularPhotos+$shippingPhotos+(int)($planned['required_photos']??0);
  $shippingLabel=$shipping['cost_mode']==='fixed'
    ? 'Fester Versandzuschuss: '.money($shipping['allowance'])
    : ($shipping['cost_mode']==='reimburse' ? 'Versandkosten werden gegen Nachweis erstattet.' : 'Versandkosten trägt die Verkäuferin.');
@@ -68,9 +68,9 @@ if(preg_match('#^/angebot/([a-z0-9-]+)$#',$path,$m)&&$method==='GET'){
  if($currentSeller){$fq=db()->prepare("SELECT COUNT(*) FROM orders WHERE seller_id=?");$fq->execute([$currentSeller['id']]);$isFirstOrder=(int)$fq->fetchColumn()===0;}
  ob_start();?><div class="eyebrow"><?=e($o['category_name'])?></div><h1><?=e($o['title'])?></h1>
  <div class="grid two"><section class="panel"><h2>Das erwartet dich</h2><p><?=nl2br(e($o['description']))?></p>
- <h3>Aufwand</h3><div class="timeline"><div><strong>Dauer:</strong> <?=$o['duration_days']?e($o['duration_days']).' Tage':'individuell / nicht tagegebunden'?></div><div><strong>Vorabnachweise:</strong> <?=e($rules['precheck_required_count'])?> Foto(s)</div><div><strong>Tägliche Regel-Nachweise:</strong> <?=e($dailyCount)?> Foto(s) pro Tag<?php if($o['duration_days']):?> · <?=e($dailyCount*(int)$o['duration_days'])?> insgesamt<?php endif;?></div><div><strong>Geplante Zusatzaufgaben:</strong> <?=e($planned['occurrences'])?> Ausführung(en)</div><div><strong>Versandschritte:</strong> <?=e(count($shipping['steps']??[]))?> · <?=e($shippingPhotos)?> bekannte Versandfoto(s)</div><div><strong>Bekannte Pflichtfotos:</strong> <?=e($knownPhotos)?><?php if(!$o['duration_days']):?> + variable Tagesnachweise<?php endif;?></div></div>
+ <h3>Aufwand</h3><div class="timeline"><div><strong>Dauer:</strong> <?=$o['duration_days']?e($o['duration_days']).' Tage':'individuell / nicht tagegebunden'?></div><div><strong>Vorabnachweise:</strong> <?=e($rules['precheck_required_count'])?> Foto(s)</div><div><strong>Tägliche Regel-Nachweise:</strong> <?=e($dailyCount)?> Foto(s) pro Tag<?php if($o['duration_days']):?> · <?=e($dailyCount*(int)$o['duration_days'])?> insgesamt<?php endif;?></div><div><strong>Geplante Zusatzaufgaben:</strong> <?=e($planned['executions'])?> Ausführung(en)</div><div><strong>Versandschritte:</strong> <?=e(count($shipping['steps']??[]))?> · <?=e($shippingPhotos)?> bekannte Versandfoto(s)</div><div><strong>Bekannte Pflichtfotos:</strong> <?=e($knownPhotos)?><?php if(!$o['duration_days']):?> + variable Tagesnachweise<?php endif;?></div></div>
  <p class="meta">Spontane Nachweise, Neuaufnahmen nach Beanstandungen oder bestätigte Verstöße können zusätzliche Nachweise bzw. zusätzliche Durchführungstage verursachen.</p>
- <?php if($planned['tasks']):?><h3>Geplante Aufgaben</h3><div class="timeline"><?php foreach($planned['tasks'] as $pt):?><div><strong><?=e($pt['title'])?></strong> · <?=e($pt['occurrence_count'])?>× · <?=money((float)$pt['compensation']*(int)$pt['occurrence_count'])?><br><span class="meta"><?=e($pt['description']??'')?></span></div><?php endforeach;?></div><?php endif;?>
+ <?php if($planned['plans']):?><h3>Geplante Aufgaben</h3><div class="timeline"><?php foreach($planned['plans'] as $pt): $occ=count($pt['_occurrence_days']??[]);?><div><strong><?=e($pt['title'])?></strong> · <?=e($occ)?>× · <?=money((float)$pt['compensation']*$occ)?><?php if((int)$pt['required_photos']>0):?> · <?=e((int)$pt['required_photos']*$occ)?> Aufgabenfoto(s)<?php endif;?><br><span class="meta"><?=e($pt['description']??'')?></span></div><?php endforeach;?></div><?php endif;?>
  <h3>Versand</h3><p><?=e($shippingLabel)?><?php if($shipping['preferred_carrier']):?><br>Bevorzugter Versanddienstleister: <?=e($shipping['preferred_carrier'])?><?php endif;?><?php if($shipping['instructions']):?><br><?=nl2br(e($shipping['instructions']))?><?php endif;?></p><p class="meta">Die konkrete Empfängeradresse wird erst in der Versandphase angezeigt.</p>
  <p class="meta"><?=e($o['accepted_count'])?> echte Annahme(n) insgesamt · <?=e($o['active_count'])?> aktuell aktive Auftrag/Aufträge.</p></section>
  <aside class="panel"><div class="meta">Grundvergütung</div><div class="price"><?=money($o['compensation'])?></div>
@@ -90,7 +90,11 @@ if(preg_match('#^/angebot/([a-z0-9-]+)$#',$path,$m)&&$method==='GET'){
 }
 if(preg_match('#^/angebot/([a-z0-9-]+)/annehmen$#',$path,$m)&&$method==='POST'){
  $s=require_seller(); if(!$s['email_verified_at']){flash('error','Bitte bestätige zuerst deine E-Mail-Adresse.');redirect('/dashboard');}
- if(($_POST['confirm_summary']??'')!=='1'||($_POST['confirm_rules']??'')!=='1'){flash('error','Bitte bestätige vor Annahme die Auftragszusammenfassung und die geltenden Regeln.');redirect('/angebot/'.$m[1]);}
+ foreach(['confirm_personal','confirm_effort','confirm_rules','confirm_violation'] as $requiredConfirm){
+   if(($_POST[$requiredConfirm]??'')!=='1'){flash('error','Bitte bestätige alle Pflichtpunkte vor der Annahme.');redirect('/angebot/'.$m[1]);}
+ }
+ $firstQ=db()->prepare("SELECT COUNT(*) FROM orders WHERE seller_id=?");$firstQ->execute([$s['id']]);$isFirstOrder=(int)$firstQ->fetchColumn()===0;
+ if($isFirstOrder && ($_POST['confirm_briefing']??'')!=='1'){flash('error','Vor dem ersten Auftrag muss das Kurzbriefing bestätigt werden.');redirect('/angebot/'.$m[1]);}
  $st=db()->prepare("SELECT * FROM offers WHERE slug=? AND status='active' AND visibility='public'");$st->execute([$m[1]]);$o=$st->fetch();if(!$o)not_found();
  $dupe=db()->prepare("SELECT COUNT(*) FROM orders x JOIN offers ox ON ox.id=x.offer_id WHERE x.seller_id=? AND ox.category_id=? AND x.status IN('precheck','running','shipping','review','payout')");
  $dupe->execute([$s['id'],$o['category_id']]); if((int)$dupe->fetchColumn()>0){flash('error','In dieser Kategorie besteht bereits ein aktiver Auftrag.');redirect('/angebote');}
@@ -110,6 +114,26 @@ if(preg_match('#^/angebot/([a-z0-9-]+)/annehmen$#',$path,$m)&&$method==='POST'){
  db()->beginTransaction(); try{
    db()->prepare("INSERT INTO orders(order_no,seller_id,offer_id,offer_version,status,base_compensation,total_compensation,duration_days,shipping_snapshot_json) VALUES(?,?,?,?, 'precheck',?,?,?,?)")->execute([$no,$s['id'],$o['id'],$o['current_version'],$o['compensation'],$total,$o['duration_days'],json_encode($shippingSnapshot,JSON_UNESCAPED_UNICODE)]);
    $oid=(int)db()->lastInsertId();
+   $confirmationPayload=[
+     'personal_fulfillment'=>true,
+     'effort_reviewed'=>true,
+     'rules_accepted'=>true,
+     'violation_consequences_acknowledged'=>true,
+     'first_order_briefing'=>$isFirstOrder,
+     'offer_id'=>(int)$o['id'],
+     'offer_version'=>(int)$o['current_version'],
+     'duration_days'=>$o['duration_days']!==null?(int)$o['duration_days']:null,
+     'precheck_photos'=>(int)offer_evidence_rules($o)['precheck_required_count'],
+     'daily_photos_per_day'=>array_sum(offer_evidence_rules($o)['daily']),
+     'planned_task_executions'=>(int)$taskSummary['executions'],
+     'planned_task_photos'=>(int)$taskSummary['required_photos'],
+     'selected_option_ids'=>$requested,
+     'shipping_step_count'=>count($shippingSnapshot['steps']??[]),
+     'shipping_allowance'=>$shippingAllowance,
+     'total_compensation'=>$total,
+   ];
+   db()->prepare("INSERT INTO order_acceptance_confirmations(order_id,seller_id,offer_version,payload_json) VALUES(?,?,?,?)")
+     ->execute([$oid,$s['id'],$o['current_version'],json_encode($confirmationPayload,JSON_UNESCAPED_UNICODE)]);
    snapshot_offer_task_plans((int)$o['id'],$oid);
    db()->prepare("INSERT INTO order_runs(order_id,run_no,status) VALUES(?,1,'precheck')")->execute([$oid]);
    foreach($selected as $opt)db()->prepare("INSERT INTO order_options(order_id,offer_option_id,label_snapshot,price_snapshot) VALUES(?,?,?,?)")->execute([$oid,$opt['id'],$opt['label'],$opt['price']]);
