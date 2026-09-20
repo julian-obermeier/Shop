@@ -163,11 +163,41 @@ if (preg_match('#^/auftrag/(\d{8})/tagesnachweis$#',$path,$m)&&$method==='POST')
     redirect('/auftrag/'.$o['order_no']);
 }
 if (preg_match('#^/auftrag/(\d{8})/beschaedigung$#',$path,$m)&&$method==='POST') {
-    $s=require_seller();$st=db()->prepare("SELECT * FROM orders WHERE order_no=? AND seller_id=? AND status='running'");$st->execute([$m[1],$s['id']]);$o=$st->fetch();if(!$o)not_found();
+    $s=require_seller();
+    $st=db()->prepare("SELECT * FROM orders WHERE order_no=? AND seller_id=? AND status='running'");$st->execute([$m[1],$s['id']]);$o=$st->fetch();if(!$o)not_found();
     $reason=post('reason');if($reason===''){flash('error','Bitte beschreibe die Beschädigung.');redirect('/auftrag/'.$o['order_no']);}
-    db()->prepare("INSERT INTO damage_cases(order_id,reason) VALUES(?,?)")->execute([$o['id'],$reason]);$caseId=(int)db()->lastInsertId();
-    if(isset($_FILES['evidence'])&&($_FILES['evidence']['error']??UPLOAD_ERR_NO_FILE)===UPLOAD_ERR_OK){$up=private_upload($_FILES['evidence'],'order-'.$o['id']);db()->prepare("INSERT INTO evidences(order_id,seller_id,evidence_type,file_path,mime_type,file_size,sha256,metadata_json,quality_flags_json) VALUES(?,?,'damage',?,?,?,?,?,?)")->execute([$o['id'],$s['id'],$up['path'],$up['mime'],$up['size'],$up['sha256'],upload_metadata_json($up),upload_quality_flags_json($up)]);}
-    db()->prepare("INSERT INTO system_events(seller_id,order_id,event_type,payload_json) VALUES(?,?,'damage.reported',?)")->execute([$s['id'],$o['id'],json_encode(['damage_case_id'=>$caseId],JSON_UNESCAPED_UNICODE)]);flash('success','Beschädigung wurde gemeldet. Der Auftrag läuft bis zur Entscheidung weiter.');redirect('/auftrag/'.$o['order_no']);
+
+    $componentId=(int)post('component_id','0');
+    $component=null;
+    if($componentId>0){
+        $cq=db()->prepare("SELECT * FROM order_components WHERE id=? AND order_id=? AND component_type='physical'");
+        $cq->execute([$componentId,$o['id']]);$component=$cq->fetch();
+    }else{
+        $cq=db()->prepare("SELECT * FROM order_components WHERE order_id=? AND component_type='physical' ORDER BY sort_order,id");
+        $cq->execute([$o['id']]);$physical=$cq->fetchAll();
+        if(count($physical)===1){$component=$physical[0];$componentId=(int)$component['id'];}
+    }
+    if(!$component){flash('error','Bitte wähle den beschädigten physischen Auftragsbestandteil aus.');redirect('/auftrag/'.$o['order_no']);}
+
+    db()->prepare("INSERT INTO damage_cases(order_id,order_component_id,reason) VALUES(?,?,?)")->execute([$o['id'],$componentId,$reason]);
+    $caseId=(int)db()->lastInsertId();
+
+    if(isset($_FILES['evidence'])&&($_FILES['evidence']['error']??UPLOAD_ERR_NO_FILE)===UPLOAD_ERR_OK){
+        $up=private_upload($_FILES['evidence'],'order-'.$o['id']);
+        db()->prepare("INSERT INTO evidences(order_id,order_run_id,order_component_id,seller_id,evidence_type,source_type,source_id,file_path,mime_type,file_size,sha256,metadata_json,quality_flags_json) VALUES(?,?,?,?, 'damage','damage_case',?,?,?,?,?,?,?)")
+          ->execute([$o['id'],current_run_id((int)$o['id']),$componentId,$s['id'],$caseId,$up['path'],$up['mime'],$up['size'],$up['sha256'],upload_metadata_json($up),upload_quality_flags_json($up)]);
+    }
+
+    db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")
+      ->execute([$o['id'],'Beschädigung gemeldet für Bestandteil „'.$component['title_snapshot'].'“: '.$reason.'. Der Auftrag läuft bis zur Adminentscheidung weiter.']);
+    log_event('damage.reported',(int)$s['id'],(int)$o['id'],[
+        'damage_case_id'=>$caseId,
+        'order_component_id'=>$componentId,
+        'component_title'=>$component['title_snapshot'],
+        'reason'=>$reason,
+    ]);
+    flash('success','Beschädigung für „'.$component['title_snapshot'].'“ wurde gemeldet. Der Auftrag läuft bis zur Entscheidung weiter.');
+    redirect('/auftrag/'.$o['order_no']);
 }
 if ($path==='/admin/verkaeuferinnen'&&$method==='GET') {
     require_admin();$rows=db()->query("SELECT s.*,COUNT(o.id) orders_count FROM sellers s LEFT JOIN orders o ON o.seller_id=s.id WHERE s.deleted_at IS NULL GROUP BY s.id ORDER BY s.created_at DESC")->fetchAll();
@@ -250,9 +280,23 @@ if (preg_match('#^/admin/auftrag/(\d{8})/verstoss$#',$path,$m)&&$method==='POST'
     require_admin();$st=db()->prepare("SELECT * FROM orders WHERE order_no=?");$st->execute([$m[1]]);$o=$st->fetch();if(!$o)not_found();db()->prepare("INSERT INTO violations(order_id,violation_type,status,reason,extension_days) VALUES(?,?,'confirmed',?,1)")->execute([$o['id'],post('violation_type','manual'),post('reason')]);$vid=(int)db()->lastInsertId();db()->prepare("INSERT INTO extra_days(order_id,source_type,source_id,paid,amount,reason) VALUES(?,'violation',?,0,0,?)")->execute([$o['id'],$vid,post('reason')]);$extraDayId=(int)db()->lastInsertId();schedule_extra_day($extraDayId);db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")->execute([$o['id'],'Bestätigter Verstoß: '.post('reason').' · +1 zusätzlicher Durchführungstag']);flash('success','Verstoß bestätigt und +1 Tag angehängt.');redirect('/admin/auftrag/'.$o['order_no']);
 }
 if (preg_match('#^/admin/beschaedigung/(\d+)/(anerkennen|ablehnen)$#',$path,$m)&&$method==='POST') {
-    require_admin();$st=db()->prepare("SELECT d.*,o.order_no,o.id order_id,o.seller_id FROM damage_cases d JOIN orders o ON o.id=d.order_id WHERE d.id=?");$st->execute([(int)$m[1]]);$d=$st->fetch();if(!$d)not_found();
-    if($m[2]==='ablehnen'){db()->prepare("UPDATE damage_cases SET status='rejected',decided_at=NOW() WHERE id=?")->execute([$d['id']]);db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system','Beschädigung nicht anerkannt. Der Auftrag wird mit demselben Artikel fortgeführt.')")->execute([$d['order_id']]);}
-    else {
+    require_admin();
+    $st=db()->prepare("SELECT d.*,o.order_no,o.id order_id,o.seller_id,oc.title_snapshot component_title,cat.name component_category
+      FROM damage_cases d
+      JOIN orders o ON o.id=d.order_id
+      LEFT JOIN order_components oc ON oc.id=d.order_component_id
+      LEFT JOIN categories cat ON cat.id=oc.category_id
+      WHERE d.id=?");
+    $st->execute([(int)$m[1]]);$d=$st->fetch();if(!$d)not_found();
+    $componentLabel=$d['component_title']?:'physischer Artikel';
+
+    if($m[2]==='ablehnen'){
+        db()->prepare("UPDATE damage_cases SET status='rejected',decided_at=NOW() WHERE id=?")->execute([$d['id']]);
+        db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")
+          ->execute([$d['order_id'],'Beschädigung an „'.$componentLabel.'“ nicht anerkannt. Der Auftrag wird mit den bestehenden Artikeln fortgeführt.']);
+        notify_seller((int)$d['seller_id'],'damage.rejected','Beschädigung nicht anerkannt','Die gemeldete Beschädigung an „'.$componentLabel.'“ wurde nicht anerkannt. Der Auftrag wird fortgeführt.','/auftrag/'.$d['order_no'],null,true);
+        log_event('damage.rejected',(int)$d['seller_id'],(int)$d['order_id'],['damage_case_id'=>(int)$d['id'],'order_component_id'=>$d['order_component_id']]);
+    } else {
         db()->beginTransaction();
         try{
             $oldRunId=current_run_id((int)$d['order_id']);
@@ -269,7 +313,11 @@ if (preg_match('#^/admin/beschaedigung/(\d+)/(anerkennen|ablehnen)$#',$path,$m)&
             }
 
             db()->prepare("INSERT INTO order_runs(order_id,run_no,status,restart_reason) VALUES(?,?,'precheck',?)")
-                ->execute([$d['order_id'],$rn,$d['reason']]);
+                ->execute([$d['order_id'],$rn,'Anerkannte Beschädigung an '.$componentLabel.': '.$d['reason']]);
+
+            // Der gesamte Auftrag beginnt neu; alle nicht endgültig abgelehnten Bestandteile gehen zurück in die Vorbereitung.
+            db()->prepare("UPDATE order_components SET status='preparation',updated_at=NOW() WHERE order_id=? AND status<>'rejected'")
+                ->execute([$d['order_id']]);
 
             db()->prepare("UPDATE orders
                            SET status='precheck',
@@ -280,15 +328,17 @@ if (preg_match('#^/admin/beschaedigung/(\d+)/(anerkennen|ablehnen)$#',$path,$m)&
                            WHERE id=?")
                 ->execute([$d['order_id']]);
 
-            db()->prepare("UPDATE order_start_date_requests SET status='rejected',decided_at=NOW(),admin_note='Durch Neustart nach anerkannter Beschädigung überholt'
+            db()->prepare("UPDATE order_start_date_requests SET status='rejected',decided_at=NOW(),admin_note='Durch vollständigen Neustart nach anerkannter Beschädigung überholt'
                            WHERE order_id=? AND status='pending'")
                 ->execute([$d['order_id']]);
 
             db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")
-                ->execute([$d['order_id'],'Beschädigung anerkannt. Neuer Durchlauf '.$rn.' wurde vollständig neu angelegt. Vorabkontrolle und Startdatum müssen erneut festgelegt werden.']);
+                ->execute([$d['order_id'],'Beschädigung an „'.$componentLabel.'“ anerkannt. Der gesamte Auftrag startet als Durchlauf '.$rn.' vollständig neu. Alle physischen Artikel müssen erneut festgelegt, die Vorabkontrolle erneut durchgeführt und ein neues Startdatum gewählt werden. Bereits bestätigte Verstöße/Zusatztage bleiben bestehen.']);
 
             log_event('damage.restart',(int)$d['seller_id'],(int)$d['order_id'],[
                 'damage_case_id'=>(int)$d['id'],
+                'order_component_id'=>$d['order_component_id']!==null?(int)$d['order_component_id']:null,
+                'component_title'=>$componentLabel,
                 'old_run_id'=>$oldRunId,
                 'new_run_no'=>$rn,
                 'reason'=>$d['reason'],
@@ -299,8 +349,19 @@ if (preg_match('#^/admin/beschaedigung/(\d+)/(anerkennen|ablehnen)$#',$path,$m)&
             if(db()->inTransaction()) db()->rollBack();
             throw $e;
         }
+
+        notify_seller(
+            (int)$d['seller_id'],
+            'damage.restart',
+            'Beschädigung anerkannt – Auftrag startet neu',
+            'Die Beschädigung an „'.$componentLabel.'“ wurde anerkannt. Der gesamte Auftrag '.$d['order_no'].' startet mit neuen Artikeln, neuer Vorabkontrolle und neuem Startdatum vollständig neu.',
+            '/auftrag/'.$d['order_no'],
+            null,
+            true
+        );
     }
-    flash('success','Beschädigungsvorgang entschieden.');redirect('/admin/auftrag/'.$d['order_no']);
+    flash('success','Beschädigungsvorgang entschieden.');
+    redirect('/admin/auftrag/'.$d['order_no']);
 }
 if (preg_match('#^/admin/auftrag/(\d{8})/abschliessen$#',$path,$m)&&$method==='POST') {
     require_admin();
