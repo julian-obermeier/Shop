@@ -390,3 +390,90 @@ if (preg_match('#^/admin/auftrag/(\d{8})/wiederherstellen$#',$path,$m) && $metho
     db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system','Auftrag wurde durch den Admin aus dem Archiv wiederhergestellt.')")->execute([$o['id']]);
     flash('success','Auftrag wurde wiederhergestellt und kann wieder bearbeitet werden.');redirect('/admin/auftrag/'.$o['order_no']);
 }
+
+
+if (preg_match('#^/admin/verkaeuferin/(\d+)/bearbeiten$#',$path,$m) && $method==='GET') {
+    require_admin();
+    $q=db()->prepare("SELECT * FROM sellers WHERE id=?");$q->execute([(int)$m[1]]);$s=$q->fetch();if(!$s)not_found();
+    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Administration</div><h1>Verkäuferin bearbeiten</h1></div><a class="btn secondary" href="<?=e(url('/admin/verkaeuferin/'.$s['id']))?>">Zur Akte</a></div>
+    <form class="panel" method="post"><?=csrf_field()?>
+      <div class="form-grid">
+        <label>Vorname<input name="first_name" value="<?=e($s['first_name'])?>" required></label>
+        <label>Nachname<input name="last_name" value="<?=e($s['last_name'])?>" required></label>
+        <label>Geburtsdatum<input type="date" name="birth_date" value="<?=e($s['birth_date'])?>" required></label>
+        <label>Telefon<input name="phone" value="<?=e($s['phone'])?>" required></label>
+        <label>E-Mail<input type="email" name="email" value="<?=e($s['email'])?>" required></label>
+        <label>Straße<input name="street" value="<?=e($s['street'])?>" required></label>
+        <label>PLZ<input name="postal_code" value="<?=e($s['postal_code'])?>" required></label>
+        <label>Ort<input name="city" value="<?=e($s['city'])?>" required></label>
+      </div>
+      <hr><p class="meta">Wenn E-Mail-Adresse oder Geburtsdatum geändert werden, ist zur zusätzlichen Bestätigung dein aktuelles Admin-Passwort erforderlich.</p>
+      <label>Admin-Passwort für sensible Änderungen<input type="password" name="admin_password"></label>
+      <button class="btn">Änderungen speichern</button>
+    </form><?php render('Verkäuferin bearbeiten',ob_get_clean());exit;
+}
+
+if (preg_match('#^/admin/verkaeuferin/(\d+)/bearbeiten$#',$path,$m) && $method==='POST') {
+    $a=require_admin();
+    $q=db()->prepare("SELECT * FROM sellers WHERE id=?");$q->execute([(int)$m[1]]);$s=$q->fetch();if(!$s)not_found();
+
+    $email=strtolower(post('email'));$birth=post('birth_date');
+    if(!filter_var($email,FILTER_VALIDATE_EMAIL)){flash('error','Ungültige E-Mail-Adresse.');redirect('/admin/verkaeuferin/'.$s['id'].'/bearbeiten');}
+    try{$age=date_diff(new DateTime($birth),new DateTime('today'))->y;}catch(Throwable){$age=0;}
+    if($age<18){flash('error','Verkäuferinnen müssen mindestens 18 Jahre alt sein.');redirect('/admin/verkaeuferin/'.$s['id'].'/bearbeiten');}
+
+    $sensitive=strtolower((string)$s['email'])!==$email || (string)$s['birth_date']!==$birth;
+    if($sensitive && !password_verify((string)($_POST['admin_password']??''),$a['password_hash'])){
+        flash('error','Für Änderungen an E-Mail oder Geburtsdatum ist das aktuelle Admin-Passwort erforderlich.');
+        redirect('/admin/verkaeuferin/'.$s['id'].'/bearbeiten');
+    }
+
+    $new=[
+      'first_name'=>post('first_name'),'last_name'=>post('last_name'),'birth_date'=>$birth,
+      'street'=>post('street'),'postal_code'=>post('postal_code'),'city'=>post('city'),
+      'phone'=>post('phone'),'email'=>$email
+    ];
+    $old=array_intersect_key($s,$new);
+    $emailChanged=strtolower((string)$s['email'])!==$email;
+
+    try{
+        db()->beginTransaction();
+        db()->prepare("UPDATE sellers SET first_name=?,last_name=?,birth_date=?,street=?,postal_code=?,city=?,phone=?,email=?,email_verified_at=".($emailChanged?'NULL':'email_verified_at').",updated_at=NOW() WHERE id=?")
+          ->execute([$new['first_name'],$new['last_name'],$new['birth_date'],$new['street'],$new['postal_code'],$new['city'],$new['phone'],$new['email'],$s['id']]);
+        log_event('seller.admin_updated',(int)$s['id'],null,['old'=>$old,'new'=>$new,'admin_id'=>(int)$a['id']]);
+        if($emailChanged){
+            db()->prepare("DELETE FROM email_verifications WHERE seller_id=?")->execute([$s['id']]);
+            [$raw,$hash]=make_token();
+            db()->prepare("INSERT INTO email_verifications(seller_id,token_hash,expires_at) VALUES(?,?,DATE_ADD(NOW(),INTERVAL 24 HOUR))")->execute([$s['id'],$hash]);
+            send_app_mail($email,'Neue E-Mail-Adresse bestätigen','<p>Deine E-Mail-Adresse wurde administrativ geändert. Bitte bestätige die neue Adresse:</p><p><a href="'.e(url('/email-bestaetigen?token='.$raw)).'">E-Mail bestätigen</a></p>');
+        }
+        db()->commit();
+    }catch(PDOException $e){
+        if(db()->inTransaction())db()->rollBack();
+        flash('error','Änderung konnte nicht gespeichert werden. Möglicherweise wird die E-Mail-Adresse bereits verwendet.');
+        redirect('/admin/verkaeuferin/'.$s['id'].'/bearbeiten');
+    }
+    flash('success','Verkäuferinnendaten aktualisiert.');redirect('/admin/verkaeuferin/'.$s['id']);
+}
+
+if (preg_match('#^/admin/verkaeuferin/(\d+)/loeschen$#',$path,$m) && $method==='POST') {
+    require_admin();
+    $q=db()->prepare("SELECT * FROM sellers WHERE id=? AND deleted_at IS NULL");$q->execute([(int)$m[1]]);$s=$q->fetch();if(!$s)not_found();
+    if(post('confirm')!=='LOESCHEN'){flash('error','Zur Bestätigung muss LOESCHEN eingegeben werden.');redirect('/admin/verkaeuferin/'.$s['id']);}
+
+    db()->beginTransaction();
+    try{
+        db()->prepare("DELETE FROM email_verifications WHERE seller_id=?")->execute([$s['id']]);
+        db()->prepare("DELETE FROM password_resets WHERE seller_id=?")->execute([$s['id']]);
+        db()->prepare("DELETE FROM payout_profiles WHERE seller_id=?")->execute([$s['id']]);
+        $anonEmail='deleted-'.$s['id'].'-'.bin2hex(random_bytes(6)).'@invalid.local';
+        $randomPassword=password_hash(bin2hex(random_bytes(32)),PASSWORD_DEFAULT);
+        db()->prepare("UPDATE sellers SET first_name='Gelöscht',last_name='Konto',birth_date='1900-01-01',street='anonymisiert',postal_code='00000',city='anonymisiert',phone='',email=?,password_hash=?,email_verified_at=NULL,deleted_at=NOW(),updated_at=NOW() WHERE id=?")
+          ->execute([$anonEmail,$randomPassword,$s['id']]);
+        log_event('seller.deleted',(int)$s['id'],null,['seller_id'=>(int)$s['id']]);
+        db()->commit();
+    }catch(Throwable $e){db()->rollBack();throw $e;}
+
+    flash('success','Verkäuferinnenkonto wurde anonymisiert und deaktiviert. Historische Auftrags-, Zahlungs- und Nachweisdaten bleiben erhalten.');
+    redirect('/admin/verkaeuferinnen');
+}
