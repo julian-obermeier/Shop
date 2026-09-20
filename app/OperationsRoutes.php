@@ -352,3 +352,41 @@ if ($path==='/admin/heute' && $method==='GET') {
     <section class="panel"><h2>Auszahlungen</h2><?php foreach($payouts as $x):?><div><?=e($x['seller_name'])?> · <?=money($x['amount'])?> · <?=e($x['status'])?></div><?php endforeach;?><?php if(!$payouts):?><p class="meta">Keine offenen Auszahlungen.</p><?php endif;?></section></div>
     <?php render('Admin Heute',ob_get_clean());exit;
 }
+
+
+if ($path==='/archiv' && $method==='GET') {
+    $s=require_seller();
+    $q=db()->prepare("SELECT o.*,f.title FROM orders o JOIN offers f ON f.id=o.offer_id WHERE o.seller_id=? AND o.archived_at IS NOT NULL ORDER BY o.archived_at DESC");
+    $q->execute([$s['id']]);$rows=$q->fetchAll();
+    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Historie</div><h1>Archiv</h1><p class="meta">Archivierte Aufträge sind schreibgeschützt.</p></div><a class="btn secondary" href="<?=e(url('/dashboard'))?>">Dashboard</a></div>
+    <div class="table-wrap"><table><thead><tr><th>Nr.</th><th>Auftrag</th><th>Status</th><th>Freigegeben</th><th>Archiviert</th><th></th></tr></thead><tbody>
+    <?php foreach($rows as $o):?><tr><td><?=e($o['order_no'])?></td><td><?=e($o['title'])?></td><td><?=e($o['status'])?></td><td><?=money($o['released_amount']??0)?></td><td><?=e(date('d.m.Y H:i',strtotime($o['archived_at'])))?></td><td><a href="<?=e(url('/auftrag/'.$o['order_no']))?>">Ansehen</a></td></tr><?php endforeach;?>
+    </tbody></table></div><?php if(!$rows):?><div class="empty">Noch keine archivierten Aufträge.</div><?php endif;?><?php render('Archiv',ob_get_clean());exit;
+}
+
+if ($path==='/admin/archiv' && $method==='GET') {
+    require_admin();
+    $rows=db()->query("SELECT o.*,f.title,CONCAT(s.first_name,' ',s.last_name) seller_name FROM orders o JOIN offers f ON f.id=o.offer_id JOIN sellers s ON s.id=o.seller_id WHERE o.archived_at IS NOT NULL ORDER BY o.archived_at DESC")->fetchAll();
+    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Administration</div><h1>Auftragsarchiv</h1><p class="meta">Archivierte Aufträge sind schreibgeschützt. Endgültig abgelehnte Aufträge können nicht wiederhergestellt werden.</p></div><a class="btn secondary" href="<?=e(url('/admin/auftraege'))?>">Aktive Aufträge</a></div>
+    <div class="table-wrap"><table><thead><tr><th>Nr.</th><th>Verkäuferin</th><th>Auftrag</th><th>Status</th><th>Archiviert</th><th>Aktion</th></tr></thead><tbody>
+    <?php foreach($rows as $o):?><tr><td><?=e($o['order_no'])?></td><td><?=e($o['seller_name'])?></td><td><?=e($o['title'])?></td><td><?=e($o['status'])?></td><td><?=e(date('d.m.Y H:i',strtotime($o['archived_at'])))?></td><td><div class="actions"><a href="<?=e(url('/admin/auftrag/'.$o['order_no']))?>">Ansehen</a><?php if($o['status']!=='rejected'):?><form method="post" action="<?=e(url('/admin/auftrag/'.$o['order_no'].'/wiederherstellen'))?>"><?=csrf_field()?><button class="btn secondary">Wiederherstellen</button></form><?php endif;?></div></td></tr><?php endforeach;?>
+    </tbody></table></div><?php if(!$rows):?><div class="empty">Archiv ist leer.</div><?php endif;?><?php render('Auftragsarchiv',ob_get_clean());exit;
+}
+
+if (preg_match('#^/admin/auftrag/(\d{8})/archivieren$#',$path,$m) && $method==='POST') {
+    require_admin();
+    $q=db()->prepare("SELECT * FROM orders WHERE order_no=?");$q->execute([$m[1]]);$o=$q->fetch();if(!$o)not_found();
+    if(!in_array($o['status'],['completed','rejected'],true)){flash('error','Nur abgeschlossene oder endgültig abgelehnte Aufträge können archiviert werden.');redirect('/admin/auftrag/'.$o['order_no']);}
+    db()->prepare("UPDATE orders SET archived_at=COALESCE(archived_at,NOW()),updated_at=NOW() WHERE id=?")->execute([$o['id']]);
+    flash('success','Auftrag archiviert.');redirect('/admin/auftrag/'.$o['order_no']);
+}
+
+if (preg_match('#^/admin/auftrag/(\d{8})/wiederherstellen$#',$path,$m) && $method==='POST') {
+    require_admin();
+    $q=db()->prepare("SELECT * FROM orders WHERE order_no=?");$q->execute([$m[1]]);$o=$q->fetch();if(!$o)not_found();
+    if($o['status']==='rejected'){flash('error','Endgültig abgelehnte Aufträge können nicht wieder geöffnet werden.');redirect('/admin/auftrag/'.$o['order_no']);}
+    if($o['status']!=='completed'){flash('error','Nur abgeschlossene archivierte Aufträge können wiederhergestellt werden.');redirect('/admin/auftrag/'.$o['order_no']);}
+    db()->prepare("UPDATE orders SET archived_at=NULL,updated_at=NOW() WHERE id=?")->execute([$o['id']]);
+    db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system','Auftrag wurde durch den Admin aus dem Archiv wiederhergestellt.')")->execute([$o['id']]);
+    flash('success','Auftrag wurde wiederhergestellt und kann wieder bearbeitet werden.');redirect('/admin/auftrag/'.$o['order_no']);
+}
