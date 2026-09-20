@@ -18,6 +18,10 @@ if ($_SERVER['REQUEST_METHOD']==='POST') {
             $pdo=new PDO("mysql:host={$host};port={$port};dbname={$name};charset=utf8mb4",$user,$pass,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
             $sql=file_get_contents($root.'/database/schema.sql');
             $pdo->exec($sql);
+            foreach(glob($root.'/database/migrations/*.sql') ?: [] as $mf){
+                $mn=basename($mf,'.sql');
+                $pdo->prepare('INSERT IGNORE INTO migrations(migration) VALUES(?)')->execute([$mn]);
+            }
             $cats=['Getragene Socken','Schuhe','Slips','Tops','BHs','Strumpfhosen','Nylons','Feinstrümpfe','Kniestrümpfe','Overknees','Leggings','Shorts','Hotpants','Sportkleidung','T-Shirts','Pullover','Hoodies','Schlafkleidung','Pyjamas','Bodys','Bikinis','Badeanzüge','Handschuhe','Mützen','Caps','Schals','Einlegesohlen','Schnürsenkel','Arbeitskleidung','Berufskleidung','Kostüm-/Cosplay-Kleidung','Dessous','Persönliche Accessoires','Haare/Haarsträhnen','Spucke','Individuelle Sets','Digitale Inhalte','Wichsanleitung','Sonstiges'];
             $ins=$pdo->prepare('INSERT IGNORE INTO categories(name,slug,is_system,is_active,sort_order) VALUES(?,?,?,?,?)');
             foreach($cats as $i=>$c){$slug=strtolower(trim(preg_replace('/[^a-z0-9]+/i','-',strtr($c,['ä'=>'ae','ö'=>'oe','ü'=>'ue','ß'=>'ss','Ä'=>'Ae','Ö'=>'Oe','Ü'=>'Ue'])),'-'));$ins->execute([$c,$slug,1,1,$i+1]);}
