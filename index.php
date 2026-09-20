@@ -16,67 +16,77 @@ function legal_page(string $title,string $intro,array $sections): never {
 function not_found(): never { http_response_code(404); render('Nicht gefunden','<div class="empty"><h1>404</h1><p>Die angeforderte Seite wurde nicht gefunden.</p></div>'); exit; }
 
 if($path==='/'&&$method==='GET'){
- $offers=db()->query("SELECT o.*,c.name category_name FROM offers o JOIN categories c ON c.id=o.category_id WHERE o.status='active' AND o.visibility='public' ORDER BY o.created_at DESC LIMIT 6")->fetchAll();
+ $offers=db()->query("SELECT o.*,c.name category_name,
+   (SELECT COUNT(*) FROM orders x WHERE x.offer_id=o.id) accepted_count,
+   (SELECT COUNT(*) FROM orders x WHERE x.offer_id=o.id AND x.status IN('precheck','running','shipping','review','payout')) active_count
+   FROM offers o JOIN categories c ON c.id=o.category_id
+   WHERE o.status='active' AND o.visibility='public' ORDER BY o.created_at DESC LIMIT 6")->fetchAll();
  ob_start();?>
  <section class="hero"><div><div class="eyebrow">Diskrete Ankaufsplattform · 18+</div><h1>Du entscheidest, welche Aufträge zu dir passen.</h1><p>Konkrete Ankaufangebote, transparente Vergütung und ein geführter Ablauf von der Vorbereitung bis zur Auszahlung.</p><div class="actions"><a class="btn" href="<?=e(url('/angebote'))?>">Angebote entdecken</a><a class="btn secondary" href="<?=e(url('/registrieren'))?>">Als Verkäuferin registrieren</a></div></div><div class="panel"><h3>Kein klassischer Marktplatz</h3><p>Du musst keine Anzeigen erstellen und keine Käufer suchen. Der Betreiber veröffentlicht konkrete Aufträge.</p><div class="timeline"><div>✓ Keine öffentlichen Verkäuferprofile</div><div>✓ Anforderungen vor Annahme sichtbar</div><div>✓ Geschützte Nachweise</div><div>✓ Wallet & Auszahlung</div></div></div></section>
- <h2>Aktuelle Angebote</h2><div class="grid"><?php foreach($offers as $o):?><article class="card"><span class="badge"><?=e($o['category_name'])?></span><h3><?=e($o['title'])?></h3><p class="meta"><?=e(mb_strimwidth(strip_tags($o['description']),0,130,'…'))?></p><div class="price"><?=money($o['compensation'])?></div><a class="btn" href="<?=e(url('/angebot/'.$o['slug']))?>">Details</a></article><?php endforeach;?><?php if(!$offers):?><div class="empty">Aktuell sind noch keine Angebote veröffentlicht.</div><?php endif;?></div>
+ <h2>Aktuelle Angebote</h2><div class="grid"><?php foreach($offers as $o):?><article class="card"><span class="badge"><?=e($o['category_name'])?></span><h3><?=e($o['title'])?></h3><p class="meta"><?=e(mb_strimwidth(strip_tags($o['description']),0,130,'…'))?></p><div class="price"><?=money($o['compensation'])?></div><p class="meta"><?=e($o['accepted_count'])?>× angenommen · <?=e($o['active_count'])?> aktuell aktiv</p><a class="btn" href="<?=e(url('/angebot/'.$o['slug']))?>">Details</a></article><?php endforeach;?><?php if(!$offers):?><div class="empty">Aktuell sind noch keine Angebote veröffentlicht.</div><?php endif;?></div>
  <?php render('Startseite',ob_get_clean()); exit;
 }
 if($path==='/angebote'&&$method==='GET'){
- $q=trim((string)($_GET['q']??'')); $cat=(int)($_GET['category']??0);
- $sql="SELECT o.*,c.name category_name FROM offers o JOIN categories c ON c.id=o.category_id WHERE o.status='active' AND o.visibility='public'";$args=[];
+ $q=trim((string)($_GET['q']??''));$cat=(int)($_GET['category']??0);
+ $minComp=isset($_GET['min_comp'])&&$_GET['min_comp']!==''?(float)$_GET['min_comp']:null;
+ $maxComp=isset($_GET['max_comp'])&&$_GET['max_comp']!==''?(float)$_GET['max_comp']:null;
+ $maxDays=isset($_GET['max_days'])&&$_GET['max_days']!==''?(int)$_GET['max_days']:null;
+ $sql="SELECT o.*,c.name category_name,
+   (SELECT COUNT(*) FROM orders x WHERE x.offer_id=o.id) accepted_count,
+   (SELECT COUNT(*) FROM orders x WHERE x.offer_id=o.id AND x.status IN('precheck','running','shipping','review','payout')) active_count
+   FROM offers o JOIN categories c ON c.id=o.category_id WHERE o.status='active' AND o.visibility='public'";$args=[];
  if($q!==''){$sql.=" AND (o.title LIKE ? OR o.description LIKE ?)";$args[]="%$q%";$args[]="%$q%";}
  if($cat){$sql.=" AND o.category_id=?";$args[]=$cat;}
+ if($minComp!==null){$sql.=" AND o.compensation>=?";$args[]=$minComp;}
+ if($maxComp!==null){$sql.=" AND o.compensation<=?";$args[]=$maxComp;}
+ if($maxDays!==null){$sql.=" AND (o.duration_days IS NULL OR o.duration_days<=?)";$args[]=$maxDays;}
  $sql.=" ORDER BY o.created_at DESC";$st=db()->prepare($sql);$st->execute($args);$offers=$st->fetchAll();
  $cats=db()->query("SELECT id,name FROM categories WHERE is_active=1 ORDER BY sort_order,name")->fetchAll();
- ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Angebote</div><h1>Aktuelle Ankaufangebote</h1></div></div><form method="get" class="panel form-grid"><input name="q" value="<?=e($q)?>" placeholder="Angebote durchsuchen"><select name="category"><option value="">Alle Kategorien</option><?php foreach($cats as $c):?><option value="<?=$c['id']?>" <?=$cat===$c['id']?'selected':''?>><?=e($c['name'])?></option><?php endforeach;?></select><button class="btn">Filtern</button></form><br><div class="grid"><?php foreach($offers as $o):?><article class="card"><span class="badge"><?=e($o['category_name'])?></span><h3><?=e($o['title'])?></h3><p class="meta"><?=e(mb_strimwidth(strip_tags($o['description']),0,150,'…'))?></p><div class="price"><?=money($o['compensation'])?></div><p class="meta"><?=$o['duration_days']?e($o['duration_days']).' Tage':'Individueller Umfang'?></p><a class="btn" href="<?=e(url('/angebot/'.$o['slug']))?>">Ansehen</a></article><?php endforeach;?><?php if(!$offers):?><div class="empty">Keine passenden Angebote gefunden.</div><?php endif;?></div><?php render('Angebote',ob_get_clean());exit;
+ ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Angebote</div><h1>Aktuelle Ankaufangebote</h1></div></div>
+ <form method="get" class="panel"><div class="form-grid"><label>Suche<input name="q" value="<?=e($q)?>" placeholder="Angebote durchsuchen"></label><label>Kategorie<select name="category"><option value="">Alle Kategorien</option><?php foreach($cats as $catRow):?><option value="<?=$catRow['id']?>" <?=$cat===(int)$catRow['id']?'selected':''?>><?=e($catRow['name'])?></option><?php endforeach;?></select></label><label>Vergütung ab (€)<input type="number" step=".01" min="0" name="min_comp" value="<?=e($minComp??'')?>"></label><label>Vergütung bis (€)<input type="number" step=".01" min="0" name="max_comp" value="<?=e($maxComp??'')?>"></label><label>Maximale Dauer (Tage)<input type="number" min="1" name="max_days" value="<?=e($maxDays??'')?>"></label></div><button class="btn">Filtern</button></form><br>
+ <div class="grid"><?php foreach($offers as $o):?><article class="card"><span class="badge"><?=e($o['category_name'])?></span><h3><?=e($o['title'])?></h3><p class="meta"><?=e(mb_strimwidth(strip_tags($o['description']),0,150,'…'))?></p><div class="price"><?=money($o['compensation'])?></div><p class="meta"><?=$o['duration_days']?e($o['duration_days']).' Tage':'Individueller Umfang'?> · <?=e($o['accepted_count'])?>× angenommen · <?=e($o['active_count'])?> aktiv</p><a class="btn" href="<?=e(url('/angebot/'.$o['slug']))?>">Ansehen</a></article><?php endforeach;?><?php if(!$offers):?><div class="empty">Keine passenden Angebote gefunden.</div><?php endif;?></div><?php render('Angebote',ob_get_clean());exit;
 }
 if(preg_match('#^/angebot/([a-z0-9-]+)$#',$path,$m)&&$method==='GET'){
- $st=db()->prepare("SELECT o.*,c.name category_name FROM offers o JOIN categories c ON c.id=o.category_id WHERE o.slug=? AND o.status='active' AND o.visibility='public'");$st->execute([$m[1]]);$o=$st->fetch();if(!$o)not_found();
+ $st=db()->prepare("SELECT o.*,c.name category_name,
+   (SELECT COUNT(*) FROM orders x WHERE x.offer_id=o.id) accepted_count,
+   (SELECT COUNT(*) FROM orders x WHERE x.offer_id=o.id AND x.status IN('precheck','running','shipping','review','payout')) active_count
+   FROM offers o JOIN categories c ON c.id=o.category_id WHERE o.slug=? AND o.status='active' AND o.visibility='public'");
+ $st->execute([$m[1]]);$o=$st->fetch();if(!$o)not_found();
  $op=db()->prepare("SELECT * FROM offer_options WHERE offer_id=? AND active=1 ORDER BY id");$op->execute([$o['id']]);$options=$op->fetchAll();
  $rules=offer_evidence_rules($o);
- $taskSummary=offer_task_plan_summary((int)$o['id'],$o['duration_days']!==null?(int)$o['duration_days']:1);
- $ssq=db()->prepare("SELECT * FROM offer_shipping_steps WHERE offer_id=? AND active=1 ORDER BY sort_order,id");$ssq->execute([$o['id']]);$publicShippingSteps=$ssq->fetchAll();
- $duration=max(0,(int)($o['duration_days']??0));
- $dailyPerDay=(int)$rules['daily']['morning']+(int)$rules['daily']['midday']+(int)$rules['daily']['evening'];
- $dailyPhotos=$duration*$dailyPerDay;
- $precheckPhotos=max(1,(int)$rules['precheck_required_count']);
- $taskPhotos=(int)$taskSummary['required_photos'];
- $shippingPhotos=array_sum(array_map(fn($x)=>(int)$x['required_photos'],$publicShippingSteps));
- $plannedPhotos=$precheckPhotos+$dailyPhotos+$taskPhotos+$shippingPhotos;
+ $dailyCount=array_sum($rules['daily']);
+ $regularPhotos=(int)$rules['precheck_required_count']+($o['duration_days']?($dailyCount*(int)$o['duration_days']):0);
+ $planned=offer_planned_tasks_summary((int)$o['id'],$o['duration_days']!==null?(int)$o['duration_days']:null);
  $shipping=build_shipping_snapshot($o);
+ $shippingPhotos=array_sum(array_map(fn($x)=>(int)($x['required_photos']??0),$shipping['steps']??[]));
+ $knownPhotos=$regularPhotos+$shippingPhotos;
  $shippingLabel=$shipping['cost_mode']==='fixed'
    ? 'Fester Versandzuschuss: '.money($shipping['allowance'])
    : ($shipping['cost_mode']==='reimburse' ? 'Versandkosten werden gegen Nachweis erstattet.' : 'Versandkosten trägt die Verkäuferin.');
- $fixedShippingAllowance=$shipping['cost_mode']==='fixed'?max(0,(float)$shipping['allowance']):0.0;
- $fixedBaseTotal=(float)$o['compensation']+(float)$taskSummary['compensation']+$fixedShippingAllowance;
+ $baseKnown=(float)$o['compensation']+(float)$planned['compensation']+($shipping['cost_mode']==='fixed'?(float)$shipping['allowance']:0.0);
+ $currentSeller=seller();$isFirstOrder=false;
+ if($currentSeller){$fq=db()->prepare("SELECT COUNT(*) FROM orders WHERE seller_id=?");$fq->execute([$currentSeller['id']]);$isFirstOrder=(int)$fq->fetchColumn()===0;}
  ob_start();?><div class="eyebrow"><?=e($o['category_name'])?></div><h1><?=e($o['title'])?></h1>
-<div class="grid two">
-<section class="panel"><h2>Das erwartet dich</h2><p><?=nl2br(e($o['description']))?></p>
-<h3>Aufwand vor der Annahme</h3>
-<div class="timeline">
-  <div><strong>Durchführung</strong><br><span class="meta"><?= $duration?e($duration).' aufeinanderfolgende Tage':'Individueller / einmaliger Umfang' ?></span></div>
-  <div><strong>Vorabkontrolle</strong><br><span class="meta"><?=e($precheckPhotos)?> Pflichtfoto(s)</span></div>
-  <?php if($duration):?><div><strong>Regelmäßige Tagesnachweise</strong><br><span class="meta"><?=e($dailyPhotos)?> Foto(s) geplant · pro Tag morgens <?=e($rules['daily']['morning'])?>, mittags <?=e($rules['daily']['midday'])?>, abends <?=e($rules['daily']['evening'])?></span></div><?php endif;?>
-  <div><strong>Geplante Zusatzaufgaben</strong><br><span class="meta"><?=e($taskSummary['executions'])?> Ausführung(en) · <?=e($taskPhotos)?> Pflichtfoto(s) · Zusatzvergütung <?=money($taskSummary['compensation'])?></span></div>
-  <div><strong>Versand-/Endworkflow</strong><br><span class="meta"><?=e(count($publicShippingSteps))?> Schritt(e) · <?=e($shippingPhotos)?> Pflichtfoto(s)</span></div>
-  <div><strong>Planbare Pflichtfotos gesamt</strong><br><span class="meta"><?=e($plannedPhotos)?> Foto(s). Spontane Nachweise oder Neuaufnahmen können zusätzlich hinzukommen.</span></div>
-</div>
-<?php if($taskSummary['plans']):?><h3>Vorgeplante Aufgaben</h3><div class="timeline"><?php foreach($taskSummary['plans'] as $tp):?><div><strong><?=e($tp['title'])?></strong><br><span class="meta"><?php if($tp['schedule_type']==='interval'):?>ab Tag <?=e($tp['start_day'])?> alle <?=e($tp['interval_days'])?> Tage<?php else:?>an Tag <?=e($tp['day_no'])?><?php endif;?> · <?=e($tp['required_photos'])?> Foto(s) je Ausführung<?= $tp['compensation']>0?' · '.money($tp['compensation']).' je Ausführung':'' ?></span></div><?php endforeach;?></div><?php endif;?>
-<h3>Versand</h3><p><?=e($shippingLabel)?><?php if($shipping['preferred_carrier']):?><br>Bevorzugter Versanddienstleister: <?=e($shipping['preferred_carrier'])?><?php endif;?><?php if($shipping['instructions']):?><br><?=nl2br(e($shipping['instructions']))?><?php endif;?></p><p class="meta">Die konkrete Empfängeradresse wird erst in der Versandphase angezeigt.</p>
-<p class="meta">Bestätigte Verstöße können unbezahlte zusätzliche Durchführungstage auslösen. Spontane Nachweis- oder Zusatzaufgaben können während eines laufenden Auftrags hinzukommen.</p>
-</section>
-<aside class="panel"><div class="meta">Grundvergütung</div><div class="price"><?=money($o['compensation'])?></div>
-<?php if((float)$taskSummary['compensation']>0):?><p>Vorgeplante Aufgaben: <strong>+<?=money($taskSummary['compensation'])?></strong></p><?php endif;?>
-<?php if($fixedShippingAllowance>0):?><p>Fester Versandzuschuss: <strong>+<?=money($fixedShippingAllowance)?></strong></p><?php endif;?>
-<p><strong>Fester Wert vor gewählten Optionen: <?=money($fixedBaseTotal)?></strong></p>
-<?php if(seller()):?><form method="post" action="<?=e(url('/angebot/'.$o['slug'].'/annehmen'))?>"><?=csrf_field()?>
-<?php if($options):?><h3>Zusatzoptionen</h3><?php foreach($options as $opt):?><label style="display:flex;gap:10px;align-items:flex-start"><input style="width:auto;margin-top:5px" type="checkbox" name="option_ids[]" value="<?=e($opt['id'])?>"><span><?=e($opt['label'])?> <?php if((float)$opt['price']>0):?><strong>+<?=money($opt['price'])?></strong><?php else:?><strong>kostenlos</strong><?php endif;?></span></label><?php endforeach;?><?php endif;?>
-<hr><label style="display:flex;gap:10px;align-items:flex-start"><input type="checkbox" style="width:auto;margin-top:5px" name="confirm_summary" value="1" required><span>Ich habe Vergütung, Dauer, Nachweisfenster, geplante Aufgaben, Versandablauf und die mögliche Folge bestätigter Verstöße geprüft.</span></label>
-<label style="display:flex;gap:10px;align-items:flex-start"><input type="checkbox" style="width:auto;margin-top:5px" name="confirm_rules" value="1" required><span>Ich bestätige die Plattform-, Auftrags-, Dokumentations-, Versand- und Auszahlungsregeln für diesen Auftrag.</span></label>
-<button class="btn">Angebot verbindlich annehmen</button></form>
-<?php else:?><a class="btn" href="<?=e(url('/login'))?>">Einloggen & annehmen</a><?php endif;?></aside>
-</div><?php render($o['title'],ob_get_clean());exit;
+ <div class="grid two"><section class="panel"><h2>Das erwartet dich</h2><p><?=nl2br(e($o['description']))?></p>
+ <h3>Aufwand</h3><div class="timeline"><div><strong>Dauer:</strong> <?=$o['duration_days']?e($o['duration_days']).' Tage':'individuell / nicht tagegebunden'?></div><div><strong>Vorabnachweise:</strong> <?=e($rules['precheck_required_count'])?> Foto(s)</div><div><strong>Tägliche Regel-Nachweise:</strong> <?=e($dailyCount)?> Foto(s) pro Tag<?php if($o['duration_days']):?> · <?=e($dailyCount*(int)$o['duration_days'])?> insgesamt<?php endif;?></div><div><strong>Geplante Zusatzaufgaben:</strong> <?=e($planned['occurrences'])?> Ausführung(en)</div><div><strong>Versandschritte:</strong> <?=e(count($shipping['steps']??[]))?> · <?=e($shippingPhotos)?> bekannte Versandfoto(s)</div><div><strong>Bekannte Pflichtfotos:</strong> <?=e($knownPhotos)?><?php if(!$o['duration_days']):?> + variable Tagesnachweise<?php endif;?></div></div>
+ <p class="meta">Spontane Nachweise, Neuaufnahmen nach Beanstandungen oder bestätigte Verstöße können zusätzliche Nachweise bzw. zusätzliche Durchführungstage verursachen.</p>
+ <?php if($planned['tasks']):?><h3>Geplante Aufgaben</h3><div class="timeline"><?php foreach($planned['tasks'] as $pt):?><div><strong><?=e($pt['title'])?></strong> · <?=e($pt['occurrence_count'])?>× · <?=money((float)$pt['compensation']*(int)$pt['occurrence_count'])?><br><span class="meta"><?=e($pt['description']??'')?></span></div><?php endforeach;?></div><?php endif;?>
+ <h3>Versand</h3><p><?=e($shippingLabel)?><?php if($shipping['preferred_carrier']):?><br>Bevorzugter Versanddienstleister: <?=e($shipping['preferred_carrier'])?><?php endif;?><?php if($shipping['instructions']):?><br><?=nl2br(e($shipping['instructions']))?><?php endif;?></p><p class="meta">Die konkrete Empfängeradresse wird erst in der Versandphase angezeigt.</p>
+ <p class="meta"><?=e($o['accepted_count'])?> echte Annahme(n) insgesamt · <?=e($o['active_count'])?> aktuell aktive Auftrag/Aufträge.</p></section>
+ <aside class="panel"><div class="meta">Grundvergütung</div><div class="price"><?=money($o['compensation'])?></div>
+ <?php if($planned['compensation']>0):?><p>Geplante Aufgaben: <strong>+<?=money($planned['compensation'])?></strong></p><?php endif;?>
+ <?php if($shipping['cost_mode']==='fixed' && $shipping['allowance']>0):?><p>Versandzuschuss: <strong>+<?=money($shipping['allowance'])?></strong></p><?php endif;?>
+ <p><strong>Bekannter Wert vor Optionen: <?=money($baseKnown)?></strong></p>
+ <?php if($currentSeller):?><form method="post" action="<?=e(url('/angebot/'.$o['slug'].'/annehmen'))?>"><?=csrf_field()?>
+ <?php if($options):?><h3>Zusatzoptionen</h3><?php foreach($options as $opt):?><label style="display:flex;gap:10px;align-items:flex-start"><input style="width:auto;margin-top:5px" type="checkbox" name="option_ids[]" value="<?=e($opt['id'])?>"><span><?=e($opt['label'])?> <?php if((float)$opt['price']>0):?><strong>+<?=money($opt['price'])?></strong><?php else:?><strong>kostenlos</strong><?php endif;?></span></label><?php endforeach;?><?php endif;?>
+ <?php if($isFirstOrder):?><div class="card" style="margin-top:12px"><strong>Pflicht-Kurzbriefing vor deinem ersten Auftrag</strong><p class="meta">Du erfüllst den Auftrag ausschließlich selbst und mit eigenen Artikeln/Inhalten. Pflichtnachweise und Fristen sind verbindlich. Ein normaler Selbst-Storno ist nach Annahme nicht vorgesehen. Automatisch erkannte Verstöße werden zunächst geprüft; bestätigte Verstöße können unbezahlte Zusatztage auslösen. Versand- bzw. digitale Abschlussregeln gehören zum Auftrag.</p><label><input type="checkbox" style="width:auto" name="confirm_briefing" value="1" required> Kurzbriefing gelesen und verstanden</label></div><?php endif;?>
+ <h3>Verbindliche Bestätigung</h3>
+ <label><input type="checkbox" style="width:auto" name="confirm_personal" value="1" required> Ich erfülle diesen Auftrag persönlich; keine Fremdware und keine Leistung durch Dritte.</label>
+ <label><input type="checkbox" style="width:auto" name="confirm_effort" value="1" required> Ich habe Dauer, bekannte Nachweise, geplante Aufgaben, Optionen und Versandaufwand geprüft.</label>
+ <label><input type="checkbox" style="width:auto" name="confirm_rules" value="1" required> Ich akzeptiere die Plattformregeln und die Bedingungen dieser Angebotsversion.</label>
+ <label><input type="checkbox" style="width:auto" name="confirm_violation" value="1" required> Mir ist bekannt, dass bestätigte Verstöße zusätzliche unbezahlte Durchführungstage verursachen können.</label>
+ <button class="btn">Angebot verbindlich annehmen</button></form>
+ <?php else:?><a class="btn" href="<?=e(url('/login'))?>">Einloggen & annehmen</a><?php endif;?></aside></div><?php render($o['title'],ob_get_clean());exit;
 }
 if(preg_match('#^/angebot/([a-z0-9-]+)/annehmen$#',$path,$m)&&$method==='POST'){
  $s=require_seller(); if(!$s['email_verified_at']){flash('error','Bitte bestätige zuerst deine E-Mail-Adresse.');redirect('/dashboard');}
