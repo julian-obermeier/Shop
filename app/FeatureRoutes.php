@@ -1010,24 +1010,27 @@ if (preg_match('#^/individuelle-angebote/(\d+)/(annehmen|ablehnen)$#',$path,$m) 
     $dupe=db()->prepare("SELECT COUNT(*) FROM orders x JOIN offers ox ON ox.id=x.offer_id WHERE x.seller_id=? AND ox.category_id=? AND x.status IN('precheck','running','shipping','review','payout')");
     $dupe->execute([$s['id'],$a['category_id']]);if((int)$dupe->fetchColumn()>0){flash('error','In dieser Kategorie besteht bereits ein aktiver Auftrag.');redirect('/individuelle-angebote');}
 
+    $shippingSnapshot=build_shipping_snapshot($a);
+    $shippingAllowance=$shippingSnapshot['cost_mode']==='fixed' ? max(0,(float)$shippingSnapshot['allowance']) : 0.0;
+    $total=(float)$a['compensation']+$shippingAllowance;
     $no=order_number();
     db()->beginTransaction();
     try{
-        db()->prepare("INSERT INTO orders(order_no,seller_id,offer_id,offer_version,status,base_compensation,total_compensation,duration_days) VALUES(?,?,?,?, 'precheck',?,?,?)")
-          ->execute([$no,$s['id'],$a['offer_id'],$a['current_version'],$a['compensation'],$a['compensation'],$a['duration_days']]);
+        db()->prepare("INSERT INTO orders(order_no,seller_id,offer_id,offer_version,status,base_compensation,total_compensation,duration_days,shipping_snapshot_json) VALUES(?,?,?,?, 'precheck',?,?,?,?)")
+          ->execute([$no,$s['id'],$a['offer_id'],$a['current_version'],$a['compensation'],$total,$a['duration_days'],json_encode($shippingSnapshot,JSON_UNESCAPED_UNICODE)]);
         $oid=(int)db()->lastInsertId();
         db()->prepare("INSERT INTO order_runs(order_id,run_no,status) VALUES(?,1,'precheck')")->execute([$oid]);
-        db()->prepare("INSERT INTO wallet_entries(seller_id,order_id,entry_type,amount,description) VALUES(?,?,'reserved',?,'Individueller Auftragswert vorgemerkt')")->execute([$s['id'],$oid,$a['compensation']]);
+        db()->prepare("INSERT INTO wallet_entries(seller_id,order_id,entry_type,amount,description) VALUES(?,?,'reserved',?,'Individueller Auftragswert vorgemerkt')")->execute([$s['id'],$oid,$total]);
         if(in_array($a['fulfillment_type'],['digital','mixed'],true)){
             db()->prepare("INSERT INTO rights_acceptances(order_id,seller_id,terms_version,payload_json) VALUES(?,?,?,?)")
               ->execute([$oid,$s['id'],'v1',json_encode(['scope'=>'technical_processing_and_order_terms','private_offer'=>true],JSON_UNESCAPED_UNICODE)]);
         }
         db()->prepare("UPDATE offer_assignments SET status='accepted',updated_at=NOW() WHERE id=?")->execute([$a['assignment_id']]);
         db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")->execute([$oid,'Individuelles Angebot wurde angenommen. Auftrag '.$no.' wurde angelegt.']);
-        log_event('private_offer.accepted',(int)$s['id'],$oid,['assignment_id'=>(int)$a['assignment_id']]);
+        log_event('private_offer.accepted',(int)$s['id'],$oid,['assignment_id'=>(int)$a['assignment_id'],'shipping_allowance'=>$shippingAllowance,'total'=>$total]);
         db()->commit();
     }catch(Throwable $e){db()->rollBack();throw $e;}
-    flash('success','Individuelles Angebot angenommen. Auftrag '.$no.' wurde erstellt.');redirect('/auftrag/'.$no);
+    flash('success','Individuelles Angebot angenommen. Auftrag '.$no.' wurde erstellt. Gesamtwert: '.money($total).'.');redirect('/auftrag/'.$no);
 }
 
 
