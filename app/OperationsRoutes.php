@@ -745,3 +745,101 @@ if (preg_match('#^/admin/angebotsvorlage/(\d+)/umschalten$#',$path,$m) && $metho
     db()->prepare("UPDATE offer_templates SET active=IF(active=1,0,1),updated_at=NOW() WHERE id=?")->execute([(int)$m[1]]);
     flash('success','Vorlagenstatus geändert.');redirect('/admin/angebotsvorlagen');
 }
+
+
+if (preg_match('#^/admin/angebot/(\d+)/bestandteil$#',$path,$m) && $method==='POST') {
+    require_admin();
+    $q=db()->prepare("SELECT * FROM offers WHERE id=?");$q->execute([(int)$m[1]]);$offer=$q->fetch();if(!$offer)not_found();
+
+    $title=post('title');
+    $categoryId=(int)post('category_id');
+    $type=in_array(post('component_type'),['physical','digital'],true)?post('component_type'):'physical';
+    $comp=max(0,(float)post('compensation','0'));
+    $duration=post('duration_days')!==''?max(1,(int)post('duration_days')):null;
+    $required=isset($_POST['required'])?1:0;
+    $sort=(int)post('sort_order','10');
+
+    db()->beginTransaction();
+    try{
+        db()->prepare("INSERT INTO offer_components(offer_id,category_id,title,component_type,compensation,duration_days,required,sort_order,active) VALUES(?,?,?,?,?,?,?,?,1)")
+            ->execute([$offer['id'],$categoryId,$title,$type,$comp,$duration,$required,$sort]);
+        $newVersion=(int)$offer['current_version']+1;
+        db()->prepare("UPDATE offers SET current_version=?,updated_at=NOW() WHERE id=?")->execute([$newVersion,$offer['id']]);
+        $fresh=db()->prepare("SELECT * FROM offers WHERE id=?");$fresh->execute([$offer['id']]);$freshOffer=$fresh->fetch();
+        $snapshot=[
+            'reason'=>'component_added',
+            'title'=>$freshOffer['title'],
+            'category_id'=>(int)$freshOffer['category_id'],
+            'compensation'=>(float)$freshOffer['compensation'],
+            'duration_days'=>$freshOffer['duration_days']!==null?(int)$freshOffer['duration_days']:null,
+            'fulfillment_type'=>$freshOffer['fulfillment_type'],
+            'components'=>offer_component_definitions($freshOffer),
+        ];
+        db()->prepare("INSERT INTO offer_versions(offer_id,version_no,snapshot_json) VALUES(?,?,?)")
+            ->execute([$offer['id'],$newVersion,json_encode($snapshot,JSON_UNESCAPED_UNICODE)]);
+        db()->commit();
+    }catch(Throwable $e){if(db()->inTransaction())db()->rollBack();throw $e;}
+
+    flash('success','Kombi-Bestandteil hinzugefügt und Angebotsversion erhöht.');
+    redirect('/admin/angebot/'.$offer['id']);
+}
+
+if (preg_match('#^/admin/angebotsbestandteil/(\d+)/umschalten$#',$path,$m) && $method==='POST') {
+    require_admin();
+    $q=db()->prepare("SELECT oc.*,o.current_version,o.id offer_id,o.title offer_title,o.category_id primary_category,o.compensation offer_compensation,o.duration_days offer_duration,o.fulfillment_type FROM offer_components oc JOIN offers o ON o.id=oc.offer_id WHERE oc.id=?");
+    $q->execute([(int)$m[1]]);$component=$q->fetch();if(!$component)not_found();
+
+    db()->beginTransaction();
+    try{
+        db()->prepare("UPDATE offer_components SET active=IF(active=1,0,1) WHERE id=?")->execute([$component['id']]);
+        $newVersion=(int)$component['current_version']+1;
+        db()->prepare("UPDATE offers SET current_version=?,updated_at=NOW() WHERE id=?")->execute([$newVersion,$component['offer_id']]);
+        $fresh=db()->prepare("SELECT * FROM offers WHERE id=?");$fresh->execute([$component['offer_id']]);$freshOffer=$fresh->fetch();
+        $snapshot=[
+            'reason'=>'component_toggled',
+            'title'=>$freshOffer['title'],
+            'category_id'=>(int)$freshOffer['category_id'],
+            'compensation'=>(float)$freshOffer['compensation'],
+            'duration_days'=>$freshOffer['duration_days']!==null?(int)$freshOffer['duration_days']:null,
+            'fulfillment_type'=>$freshOffer['fulfillment_type'],
+            'components'=>offer_component_definitions($freshOffer),
+        ];
+        db()->prepare("INSERT INTO offer_versions(offer_id,version_no,snapshot_json) VALUES(?,?,?)")
+            ->execute([$component['offer_id'],$newVersion,json_encode($snapshot,JSON_UNESCAPED_UNICODE)]);
+        db()->commit();
+    }catch(Throwable $e){if(db()->inTransaction())db()->rollBack();throw $e;}
+
+    flash('success','Kombi-Bestandteil aktualisiert und neue Angebotsversion erzeugt.');
+    redirect('/admin/angebot/'.$component['offer_id']);
+}
+
+if (preg_match('#^/admin/auftragsbestandteil/(\d+)/status$#',$path,$m) && $method==='POST') {
+    require_admin();
+    $q=db()->prepare("SELECT oc.*,o.order_no,o.seller_id,o.status order_status FROM order_components oc JOIN orders o ON o.id=oc.order_id WHERE oc.id=?");
+    $q->execute([(int)$m[1]]);$component=$q->fetch();if(!$component)not_found();
+
+    $status=post('status');
+    if(!in_array($status,['preparation','execution','shipping','review','completed','rejected'],true)){flash('error','Ungültiger Komponentenstatus.');redirect('/admin/auftrag/'.$component['order_no']);}
+
+    db()->prepare("UPDATE order_components SET status=?,updated_at=NOW() WHERE id=?")->execute([$status,$component['id']]);
+    db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")
+        ->execute([$component['order_id'],'Kombi-Bestandteil „'.$component['title_snapshot'].'“: Status '.strtoupper($status).'.']);
+
+    if($status==='rejected' && (int)$component['required']===1 && !in_array($component['order_status'],['rejected','completed'],true)){
+        db()->beginTransaction();
+        try{
+            db()->prepare("UPDATE order_components SET status='rejected',updated_at=NOW() WHERE id=?")->execute([$component['id']]);
+            db()->prepare("UPDATE orders SET status='rejected',released_amount=0,rejection_reason=?,completed_at=NOW(),archived_at=NOW(),updated_at=NOW() WHERE id=?")
+                ->execute(['Pflichtbestandteil endgültig abgelehnt: '.$component['title_snapshot'],$component['order_id']]);
+            db()->prepare("UPDATE wallet_entries SET entry_type='cancelled',description='Kombi-Auftrag wegen abgelehntem Pflichtbestandteil beendet' WHERE order_id=? AND entry_type='reserved'")
+                ->execute([$component['order_id']]);
+            db()->commit();
+        }catch(Throwable $e){if(db()->inTransaction())db()->rollBack();throw $e;}
+        notify_seller((int)$component['seller_id'],'order.rejected','Kombi-Auftrag abgelehnt','Der Pflichtbestandteil „'.$component['title_snapshot'].'“ wurde abgelehnt. Dadurch gilt der gesamte Auftrag '.$component['order_no'].' als nicht erfüllt.','/auftrag/'.$component['order_no'],null,true);
+        flash('success','Pflichtbestandteil abgelehnt; der gesamte Kombi-Auftrag wurde endgültig geschlossen.');
+    }else{
+        notify_seller((int)$component['seller_id'],'component.status','Bestandteil aktualisiert','Der Status von „'.$component['title_snapshot'].'“ wurde auf '.$status.' gesetzt.','/auftrag/'.$component['order_no']);
+        flash('success','Bestandteilstatus aktualisiert.');
+    }
+    redirect('/admin/auftrag/'.$component['order_no']);
+}
