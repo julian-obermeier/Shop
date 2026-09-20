@@ -180,9 +180,43 @@ if (preg_match('#^/admin/beschaedigung/(\d+)/(anerkennen|ablehnen)$#',$path,$m)&
     flash('success','Beschädigungsvorgang entschieden.');redirect('/admin/auftrag/'.$d['order_no']);
 }
 if (preg_match('#^/admin/auftrag/(\d{8})/abschliessen$#',$path,$m)&&$method==='POST') {
-    require_admin();$st=db()->prepare("SELECT * FROM orders WHERE order_no=?");$st->execute([$m[1]]);$o=$st->fetch();if(!$o)not_found();$decision=post('decision');
-    if($decision==='accept'){db()->beginTransaction();try{db()->prepare("UPDATE orders SET status='completed',completed_at=NOW(),updated_at=NOW() WHERE id=?")->execute([$o['id']]);db()->prepare("UPDATE wallet_entries SET entry_type='available',description='Auftrag freigegeben' WHERE order_id=? AND entry_type='reserved'")->execute([$o['id']]);db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system','Auftrag wurde vollständig akzeptiert. Vergütung ist im Wallet verfügbar.')")->execute([$o['id']]);db()->commit();}catch(Throwable $e){db()->rollBack();throw $e;}}
-    elseif($decision==='reject'){db()->prepare("UPDATE orders SET status='rejected',rejection_reason=?,completed_at=NOW(),updated_at=NOW() WHERE id=?")->execute([post('reason'),$o['id']]);db()->prepare("UPDATE wallet_entries SET entry_type='cancelled',description='Auftrag abgelehnt' WHERE order_id=? AND entry_type='reserved'")->execute([$o['id']]);}
+    require_admin();
+    $st=db()->prepare("SELECT * FROM orders WHERE order_no=?");$st->execute([$m[1]]);$o=$st->fetch();if(!$o)not_found();
+    $decision=post('decision');$reason=post('reason');
+
+    if($decision==='accept'){
+        db()->beginTransaction();
+        try{
+            db()->prepare("UPDATE orders SET status='completed',released_amount=total_compensation,completed_at=NOW(),updated_at=NOW() WHERE id=?")->execute([$o['id']]);
+            db()->prepare("UPDATE wallet_entries SET entry_type='available',description='Auftrag vollständig freigegeben' WHERE order_id=? AND entry_type='reserved'")->execute([$o['id']]);
+            db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system','Auftrag wurde vollständig akzeptiert. Die vollständige Vergütung ist im Wallet verfügbar.')")->execute([$o['id']]);
+            db()->commit();
+        }catch(Throwable $e){db()->rollBack();throw $e;}
+        notify_seller((int)$o['seller_id'],'order.accepted_final','Auftrag vollständig akzeptiert','Auftrag '.$o['order_no'].' wurde vollständig akzeptiert. Die Vergütung ist verfügbar.','/wallet',null,true);
+    }elseif($decision==='partial'){
+        $amount=(float)post('partial_amount');
+        if($amount<0||$amount>(float)$o['total_compensation']){flash('error','Der Teilfreigabebetrag ist ungültig.');redirect('/admin/auftrag/'.$o['order_no']);}
+        db()->beginTransaction();
+        try{
+            db()->prepare("UPDATE orders SET status='completed',released_amount=?,completed_at=NOW(),rejection_reason=?,updated_at=NOW() WHERE id=?")->execute([$amount,$reason?:'Teilweise akzeptiert',$o['id']]);
+            db()->prepare("UPDATE wallet_entries SET entry_type='cancelled',description='Durch Teilfreigabe ersetzt' WHERE order_id=? AND entry_type='reserved'")->execute([$o['id']]);
+            if($amount>0) db()->prepare("INSERT INTO wallet_entries(seller_id,order_id,entry_type,amount,description) VALUES(?,?,'available',?,'Teilfreigabe Auftrag')")->execute([$o['seller_id'],$o['id'],$amount]);
+            db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")->execute([$o['id'],'Auftrag teilweise akzeptiert. Freigegebener Betrag: '.money($amount).($reason!==''?' · '.$reason:'')]);
+            db()->commit();
+        }catch(Throwable $e){db()->rollBack();throw $e;}
+        notify_seller((int)$o['seller_id'],'order.partial','Auftrag teilweise akzeptiert','Für Auftrag '.$o['order_no'].' wurden '.money($amount).' freigegeben.'.($reason!==''?' '.$reason:''),'/wallet',null,true);
+    }elseif($decision==='reject'){
+        db()->beginTransaction();
+        try{
+            db()->prepare("UPDATE orders SET status='rejected',released_amount=0,rejection_reason=?,completed_at=NOW(),archived_at=NOW(),updated_at=NOW() WHERE id=?")->execute([$reason,$o['id']]);
+            db()->prepare("UPDATE wallet_entries SET entry_type='cancelled',description='Auftrag endgültig abgelehnt' WHERE order_id=? AND entry_type='reserved'")->execute([$o['id']]);
+            db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")->execute([$o['id'],'Auftrag endgültig abgelehnt.'.($reason!==''?' Grund: '.$reason:'')]);
+            db()->commit();
+        }catch(Throwable $e){db()->rollBack();throw $e;}
+        notify_seller((int)$o['seller_id'],'order.rejected','Auftrag endgültig abgelehnt','Auftrag '.$o['order_no'].' wurde endgültig abgelehnt.'.($reason!==''?' Grund: '.$reason:''),'/auftrag/'.$o['order_no'],null,true);
+    }else{
+        flash('error','Unbekannte Abschlussentscheidung.');redirect('/admin/auftrag/'.$o['order_no']);
+    }
     flash('success','Abschlussentscheidung gespeichert.');redirect('/admin/auftrag/'.$o['order_no']);
 }
 if ($path==='/admin/einstellungen'&&$method==='GET') {
