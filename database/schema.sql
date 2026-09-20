@@ -234,6 +234,29 @@ CREATE TABLE IF NOT EXISTS evidences (
  INDEX(source_type,source_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS evidence_retake_requests (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ order_id BIGINT UNSIGNED NOT NULL,
+ seller_id BIGINT UNSIGNED NOT NULL,
+ original_evidence_id BIGINT UNSIGNED NOT NULL,
+ replacement_evidence_id BIGINT UNSIGNED NULL,
+ violation_id BIGINT UNSIGNED NULL,
+ instructions TEXT NOT NULL,
+ due_at DATETIME NOT NULL,
+ grace_ends_at DATETIME NOT NULL,
+ cure_violation_on_success TINYINT(1) NOT NULL DEFAULT 1,
+ status ENUM('requested','uploaded','accepted','rejected','missed') NOT NULL DEFAULT 'requested',
+ created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ reviewed_at DATETIME NULL,
+ FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE,
+ FOREIGN KEY(seller_id) REFERENCES sellers(id),
+ FOREIGN KEY(original_evidence_id) REFERENCES evidences(id),
+ FOREIGN KEY(replacement_evidence_id) REFERENCES evidences(id) ON DELETE SET NULL,
+ FOREIGN KEY(violation_id) REFERENCES violations(id) ON DELETE SET NULL,
+ INDEX(order_id,status,due_at),
+ INDEX(seller_id,status,due_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS violations (
  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
  order_id BIGINT UNSIGNED NOT NULL,
