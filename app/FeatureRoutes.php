@@ -678,6 +678,7 @@ if (preg_match('#^/admin/angebot/(\\d+)$#',$path,$m)&&$method==='GET') {
     require_admin();$st=db()->prepare("SELECT * FROM offers WHERE id=?");$st->execute([(int)$m[1]]);$o=$st->fetch();if(!$o)not_found();
     $rules=offer_evidence_rules($o);
     $cats=db()->query("SELECT id,name FROM categories WHERE is_active=1 ORDER BY sort_order,name")->fetchAll();$op=db()->prepare("SELECT * FROM offer_options WHERE offer_id=? ORDER BY id");$op->execute([$o['id']]);$options=$op->fetchAll();
+    $ocq=db()->prepare("SELECT oc.*,c.name category_name FROM offer_components oc JOIN categories c ON c.id=oc.category_id WHERE oc.offer_id=? ORDER BY oc.sort_order,oc.id");$ocq->execute([$o['id']]);$offerComponents=$ocq->fetchAll();
     $ss=db()->prepare("SELECT * FROM offer_shipping_steps WHERE offer_id=? ORDER BY sort_order,id");$ss->execute([$o['id']]);$shippingSteps=$ss->fetchAll();
     $tp=db()->prepare("SELECT * FROM offer_task_plans WHERE offer_id=? ORDER BY sort_order,id");$tp->execute([$o['id']]);$taskPlans=$tp->fetchAll();
     $taskTemplates=db()->query("SELECT * FROM task_library WHERE active=1 ORDER BY title")->fetchAll();
@@ -695,6 +696,21 @@ if (preg_match('#^/admin/angebot/(\\d+)$#',$path,$m)&&$method==='GET') {
 <p class="meta"><a href="<?=e(url('/admin/versandadressen'))?>">Empfängeradressen verwalten</a>. Die konkrete Adresse wird Verkäuferinnen erst in der Versandphase angezeigt.</p>
 <button class="btn">Als neue Version speichern</button></form>
     <section class="panel"><h2>Zusatzoptionen</h2><form method="post" action="<?=e(url('/admin/angebot/'.$o['id'].'/option'))?>"><?=csrf_field()?><label>Bezeichnung<input name="label" required></label><label>Aufpreis (€)<input type="number" step=".01" min="0" name="price" value="0" required></label><button class="btn">Option hinzufügen</button></form><div class="timeline" style="margin-top:18px"><?php foreach($options as $x):?><div><strong><?=e($x['label'])?></strong> · <?=money($x['price'])?> · <?=$x['active']?'aktiv':'inaktiv'?></div><?php endforeach;?></div>
+    <hr><h3>Kombi-Bestandteile</h3>
+    <p class="meta">Die Hauptkategorie ist der primäre Bestandteil. Zusätzliche Bestandteile blockieren ihre Kategorien ebenfalls und erhöhen den Auftragswert um ihre jeweilige Vergütung.</p>
+    <form method="post" action="<?=e(url('/admin/angebot/'.$o['id'].'/bestandteil'))?>"><?=csrf_field()?>
+      <div class="form-grid">
+        <label>Kategorie<select name="category_id"><?php foreach($cats as $cat):?><option value="<?=$cat['id']?>"><?=e($cat['name'])?></option><?php endforeach;?></select></label>
+        <label>Titel<input name="title" required placeholder="z. B. zusätzliches Paar Schuhe"></label>
+        <label>Art<select name="component_type"><option value="physical">Physisch</option><option value="digital">Digital</option></select></label>
+        <label>Zusätzliche Vergütung (€)<input type="number" step=".01" min="0" name="compensation" value="0"></label>
+        <label>Dauer Tage<input type="number" min="1" name="duration_days"></label>
+        <label>Sortierung<input type="number" name="sort_order" value="<?=e((string)((count($offerComponents)+1)*10))?>"></label>
+      </div>
+      <label><input type="checkbox" style="width:auto" name="required" value="1" checked> Pflichtbestandteil</label>
+      <button class="btn secondary">Bestandteil hinzufügen</button>
+    </form>
+    <div class="timeline" style="margin-top:14px"><?php foreach($offerComponents as $component):?><div><strong><?=e($component['title'])?></strong> · <?=e($component['category_name'])?> · <?=e($component['component_type'])?> · <?=money($component['compensation'])?> · <?=$component['required']?'Pflicht':'optional'?> · <?=$component['active']?'aktiv':'inaktiv'?><form method="post" action="<?=e(url('/admin/angebotsbestandteil/'.$component['id'].'/umschalten'))?>" style="margin-top:6px"><?=csrf_field()?><button class="btn secondary"><?=$component['active']?'Deaktivieren':'Aktivieren'?></button></form></div><?php endforeach;?><?php if(!$offerComponents):?><div class="meta">Keine zusätzlichen Kombi-Bestandteile.</div><?php endif;?></div>
     <hr><h3>Vorgeplante Zusatzaufgaben</h3>
     <form method="post" action="<?=e(url('/admin/angebot/'.$o['id'].'/aufgabenplan'))?>"><?=csrf_field()?>
       <label>Aus Bibliothek (optional)<select name="template_id"><option value="">Eigene Aufgabe</option><?php foreach($taskTemplates as $t):?><option value="<?=$t['id']?>"><?=e($t['title'])?> · <?=e($t['default_required_photos']??0)?> Foto(s) · <?=money($t['default_compensation'])?></option><?php endforeach;?></select></label>
@@ -742,7 +758,7 @@ if (preg_match('#^/admin/angebot/(\\d+)$#',$path,$m)&&$method==='POST') {
     $preferredCarrier=post('preferred_carrier')?:null;
     $shippingRules=['instructions'=>post('shipping_instructions')?:null];
     $shippingRulesJson=json_encode($shippingRules,JSON_UNESCAPED_UNICODE);
-    $snap=['title'=>post('title'),'category_id'=>(int)post('category_id'),'description'=>post('description'),'compensation'=>$comp,'duration_days'=>$days,'fulfillment_type'=>post('fulfillment_type'),'status'=>post('status'),'evidence_rules'=>$rules,'shipping'=>['address_id'=>$shippingAddressId,'cost_mode'=>$shippingCostMode,'allowance'=>$shippingAllowance,'preferred_carrier'=>$preferredCarrier,'instructions'=>$shippingRules['instructions']]];
+    $snap=['title'=>post('title'),'category_id'=>(int)post('category_id'),'description'=>post('description'),'compensation'=>$comp,'duration_days'=>$days,'fulfillment_type'=>post('fulfillment_type'),'status'=>post('status'),'evidence_rules'=>$rules,'shipping'=>['address_id'=>$shippingAddressId,'cost_mode'=>$shippingCostMode,'allowance'=>$shippingAllowance,'preferred_carrier'=>$preferredCarrier,'instructions'=>$shippingRules['instructions']],'components'=>offer_component_definitions($o)];
     db()->beginTransaction();try{
       db()->prepare("UPDATE offers SET category_id=?,title=?,description=?,compensation=?,duration_days=?,fulfillment_type=?,evidence_rules_json=?,shipping_rules_json=?,shipping_address_id=?,shipping_cost_mode=?,shipping_allowance=?,preferred_carrier=?,status=?,current_version=?,updated_at=NOW() WHERE id=?")->execute([$snap['category_id'],$snap['title'],$snap['description'],$comp,$days,$snap['fulfillment_type'],$rulesJson,$shippingRulesJson,$shippingAddressId,$shippingCostMode,$shippingAllowance,$preferredCarrier,$snap['status'],$newVersion,$o['id']]);
       db()->prepare("INSERT INTO offer_versions(offer_id,version_no,snapshot_json) VALUES(?,?,?)")->execute([$o['id'],$newVersion,json_encode($snap,JSON_UNESCAPED_UNICODE)]);
