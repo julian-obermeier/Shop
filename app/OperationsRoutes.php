@@ -237,24 +237,16 @@ if (preg_match('#^/digitale-datei/(\d+)/(\d+)$#',$path,$m) && $method==='GET') {
     $index=(int)$m[2];
     if(!array_key_exists($index,$assets) || !is_array($assets[$index]))not_found();
     $asset=$assets[$index];
-    $relative=(string)($asset['path']??'');
-    if($relative==='' || str_contains($relative,'..'))not_found();
+    $relative=ltrim((string)($asset['path']??''),'/');
+    if($relative==='' || str_contains($relative,'..') || str_contains($relative,"\0"))not_found();
 
-    $real=__DIR__.'/../storage/private/'.ltrim($relative,'/');
-    if(!is_file($real))not_found();
-
+    $real=__DIR__.'/../storage/private/'.$relative;
     $mime=(string)($asset['mime']??'application/octet-stream');
     if(!str_starts_with($mime,'audio/') && !str_starts_with($mime,'video/')){
         http_response_code(415);exit('Nicht unterstütztes Medienformat.');
     }
 
-    header('Content-Type: '.$mime);
-    header('Content-Length: '.filesize($real));
-    header('X-Content-Type-Options: nosniff');
-    header('Content-Disposition: inline');
-    header('Cache-Control: private, no-store, max-age=0');
-    header('Accept-Ranges: bytes');
-    readfile($real);exit;
+    stream_private_media($real,$mime,true);
 }
 
 if (preg_match('#^/digitale-datei/(\d+)$#',$path,$m) && $method==='GET') {
@@ -266,11 +258,13 @@ if (preg_match('#^/digitale-datei/(\d+)$#',$path,$m) && $method==='GET') {
     elseif(($s=seller()) && (int)$s['id']===(int)$d['seller_id'] && $d['order_status']!=='rejected') $allow=true;
     if(!$allow){http_response_code(403);exit('Zugriff verweigert.');}
 
-    $real=__DIR__.'/../storage/private/'.$d['file_path'];if(!is_file($real))not_found();
-    header('Content-Type: '.($d['mime_type']?:'application/octet-stream'));
-    header('Content-Length: '.filesize($real));header('X-Content-Type-Options: nosniff');
-    header('Content-Disposition: inline');header('Cache-Control: private, no-store, max-age=0');
-    readfile($real);exit;
+    $relative=ltrim((string)$d['file_path'],'/');
+    if($relative==='' || str_contains($relative,'..') || str_contains($relative,"\0"))not_found();
+    $mime=(string)($d['mime_type']?:'application/octet-stream');
+    if(!str_starts_with($mime,'audio/') && !str_starts_with($mime,'video/')){
+        http_response_code(415);exit('Nicht unterstütztes Medienformat.');
+    }
+    stream_private_media(__DIR__.'/../storage/private/'.$relative,$mime,true);
 }
 
 if (preg_match('#^/admin/revisionspunkt/(\d+)/(erledigt|unzureichend|erneut)$#',$path,$m) && $method==='POST') {
