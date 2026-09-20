@@ -278,6 +278,17 @@ if(preg_match('#^/admin/auftrag/(\\d{8})$#',$path,$m)&&$method==='GET'){
        <?php else:?><a class="btn secondary" target="_blank" href="<?=e($mediaUrl)?>">Datei öffnen</a><?php endif;?>
        
      <?php endif;?>
+     <?php if($dv['review_note']):?><p><strong>Prüfnotiz:</strong> <?=e($dv['review_note'])?></p><?php endif;?>
+     <?php if(!$o['archived_at']):?>
+       <form method="post" action="<?=e(url('/admin/digital-version/'.$dv['id'].'/pruefen'))?>" style="margin-top:12px">
+         <?=csrf_field()?>
+         <div class="form-grid">
+           <label>Bewertung<select name="decision"><option value="accepted">Akzeptiert</option><option value="revision_required">Revision erforderlich</option><option value="partial">Teilweise akzeptiert</option><option value="rejected">Abgelehnt</option></select></label>
+           <label>Prüfnotiz<input name="review_note" value="<?=e($dv['review_note']??'')?>"></label>
+         </div>
+         <button class="btn secondary">Version bewerten</button>
+       </form>
+     <?php endif;?>
    </article>
  <?php endforeach;?>
  <?php if(!$digitalVersions):?><div class="empty">Noch keine digitale Version eingereicht.</div><?php endif;?>
