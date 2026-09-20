@@ -363,11 +363,19 @@ if (preg_match('#^/auftrag/(\d{8})/versand$#',$path,$m)&&$method==='GET') {
     if($o['status']==='shipping') ensure_order_shipping_steps((int)$o['id']);
     $q=db()->prepare("SELECT * FROM order_shipping_steps WHERE order_id=? ORDER BY sort_order,id");$q->execute([$o['id']]);$steps=$q->fetchAll();
     $q=db()->prepare("SELECT * FROM shipments WHERE order_id=?");$q->execute([$o['id']]);$ship=$q->fetch();
+    $shippingSnapshot=order_shipping_snapshot($o);
+    $shippingAddress=is_array($shippingSnapshot['address']??null)?$shippingSnapshot['address']:null;
 
     ob_start();?>
     <div class="dashboard-head"><div><div class="eyebrow">Auftrag <?=e($o['order_no'])?></div><h1>Versandworkflow</h1><p class="meta">Die Schritte werden nacheinander freigeschaltet.</p></div><a class="btn secondary" href="<?=e(url('/auftrag/'.$o['order_no']))?>">Zum Auftrag</a></div>
 
-    <?php if($o['status']!=='shipping' && !$ship):?><div class="panel"><strong>Der Versand ist noch nicht freigeschaltet.</strong><p class="meta">Der Versandworkflow wird nach Abschluss der Durchführung automatisch geöffnet.</p></div><?php endif;?>
+    <?php if($o['status']!=='shipping' && !$ship):?><div class="panel"><strong>Der Versand ist noch nicht freigeschaltet.</strong><p class="meta">Der Versandworkflow wird nach Abschluss der Durchführung automatisch geöffnet. Die konkrete Empfängeradresse wird vorher nicht angezeigt.</p></div><?php endif;?>
+    <?php if($o['status']==='shipping' || $ship):?><section class="panel"><h2>Versandinformationen</h2>
+      <?php if($shippingAddress):?><p><strong><?=e($shippingAddress['recipient_name'])?></strong><br><?=e($shippingAddress['street'])?><?php if(!empty($shippingAddress['address_extra'])):?><br><?=e($shippingAddress['address_extra'])?><?php endif;?><br><?=e($shippingAddress['postal_code'].' '.$shippingAddress['city'])?><br><?=e(($shippingAddress['country_code']??'DE')==='DE'?'Deutschland':$shippingAddress['country_code'])?></p><?php else:?><p class="meta">Für diesen Auftrag ist keine feste Empfängeradresse hinterlegt. Bitte den Admin über den Auftragschat kontaktieren.</p><?php endif;?>
+      <p><span class="meta">Versandkosten</span><br><?php if(($shippingSnapshot['cost_mode']??'seller')==='fixed'):?>Fester Versandzuschuss: <?=money($shippingSnapshot['allowance']??0)?><?php elseif(($shippingSnapshot['cost_mode']??'seller')==='reimburse'):?>Volle Erstattung gegen vorgesehenen Nachweis<?php else:?>Versandkosten trägt die Verkäuferin<?php endif;?></p>
+      <?php if(!empty($shippingSnapshot['preferred_carrier'])):?><p><span class="meta">Bevorzugter Versanddienstleister</span><br><?=e($shippingSnapshot['preferred_carrier'])?></p><?php endif;?>
+      <?php if(!empty($shippingSnapshot['instructions'])):?><p><span class="meta">Verpackungs-/Versandhinweise</span><br><?=nl2br(e($shippingSnapshot['instructions']))?></p><?php endif;?>
+    </section><?php endif;?>
 
     <div class="timeline">
     <?php foreach($steps as $step):?>
