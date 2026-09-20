@@ -7,6 +7,7 @@ $basePath=parse_url((string)app_config('app.url',''),PHP_URL_PATH) ?: '';
 if ($basePath && $basePath!=='/' && str_starts_with($path,$basePath)) $path=substr($path,strlen($basePath)) ?: '/';
 $method=$_SERVER['REQUEST_METHOD']??'GET';
 if($method==='POST') csrf_verify();
+reject_if_archived_route($path,$method);
 
 function legal_page(string $title,string $intro,array $sections): never {
     ob_start(); ?><section class="legal"><div class="eyebrow">Information</div><h1><?=e($title)?></h1><p class="meta"><?=e($intro)?></p><?php foreach($sections as $h=>$p):?><h2><?=e($h)?></h2><p><?=e($p)?></p><?php endforeach;?></section><?php render($title,ob_get_clean()); exit;
