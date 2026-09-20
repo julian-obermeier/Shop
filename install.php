@@ -698,12 +698,22 @@ try {
         writeEnvironment($baseDir, $settings);
         $steps[] = '.env wurde erstellt.';
 
+        // Alte Laravel-Bootstrap-Caches dürfen nach dem Schreiben einer neuen .env
+        // nicht mehr geladen werden. Insbesondere config.php kann sonst weiterhin
+        // alte DB-Zugangsdaten enthalten. optimize:clear wird bewusst erst NACH den
+        // Migrationen verwendet, weil CACHE_STORE=database vorher noch keine
+        // cache-Tabelle haben muss.
+        foreach (glob($baseDir.'/bootstrap/cache/*.php') ?: [] as $cachedPhp) {
+            @unlink($cachedPhp);
+        }
+        $steps[] = 'Veraltete Laravel-Bootstrap-Caches wurden entfernt.';
+
         $artisan = escapeshellarg($php).' artisan';
 
         foreach ([
-            ['Laravel-Cache wird geleert …', 'optimize:clear'],
             ['Datenbankmigrationen werden ausgeführt …', 'migrate --force'],
             ['Grunddaten werden angelegt …', 'db:seed --force'],
+            ['Laravel-Caches werden bereinigt …', 'optimize:clear'],
         ] as [$label, $command]) {
             $steps[] = $label;
             [$status, $output] = runCommand($artisan.' '.$command, $baseDir);
