@@ -596,3 +596,96 @@ function reject_if_archived_route(string $path, string $method): void {
         if($archived){flash('error','Der archivierte Auftrag ist schreibgeschützt. Stelle ihn im Adminbereich zuerst wieder her.');redirect(str_starts_with($path,'/admin/')?'/admin/auftrag/'.$orderNo:'/auftrag/'.$orderNo);}
     }
 }
+
+
+function ensure_order_shipping_steps(int $orderId): void {
+    $q=db()->prepare('SELECT COUNT(*) FROM order_shipping_steps WHERE order_id=?');
+    $q->execute([$orderId]);
+    if((int)$q->fetchColumn()>0) return;
+
+    $q=db()->prepare('SELECT o.offer_id FROM orders o WHERE o.id=?');
+    $q->execute([$orderId]);
+    $offerId=(int)$q->fetchColumn();
+    if(!$offerId) return;
+
+    $q=db()->prepare('SELECT * FROM offer_shipping_steps WHERE offer_id=? AND active=1 ORDER BY sort_order,id');
+    $q->execute([$offerId]);
+    $steps=$q->fetchAll();
+
+    if(!$steps){
+        $steps=[
+            ['id'=>null,'sort_order'=>10,'title'=>'Nutzung beenden','instructions'=>'Beende die Nutzung des Artikels und bestätige den Schritt.','required_photos'=>0,'requires_text'=>0,'requires_checkbox'=>1,'is_dispatch_step'=>0,'deadline_hours'=>null],
+            ['id'=>null,'sort_order'=>20,'title'=>'Abschlusszustand dokumentieren','instructions'=>'Erstelle ein aktuelles Foto des Artikels unmittelbar vor dem Verpacken.','required_photos'=>1,'requires_text'=>0,'requires_checkbox'=>0,'is_dispatch_step'=>0,'deadline_hours'=>null],
+            ['id'=>null,'sort_order'=>30,'title'=>'Artikel verpacken','instructions'=>'Verpacke den Artikel entsprechend der Auftragsvorgaben und bestätige den Schritt.','required_photos'=>1,'requires_text'=>0,'requires_checkbox'=>1,'is_dispatch_step'=>0,'deadline_hours'=>null],
+            ['id'=>null,'sort_order'=>40,'title'=>'Versand durchführen','instructions'=>'Versende die Sendung und hinterlege Trackingnummer oder Einlieferungsnachweis.','required_photos'=>0,'requires_text'=>0,'requires_checkbox'=>1,'is_dispatch_step'=>1,'deadline_hours'=>24],
+        ];
+    }
+
+    $ins=db()->prepare("INSERT INTO order_shipping_steps(order_id,source_step_id,sort_order,title,instructions,required_photos,requires_text,requires_checkbox,is_dispatch_step,due_at,status)
+                        VALUES(?,?,?,?,?,?,?,?,?,?,?)");
+    $first=true;
+    foreach($steps as $step){
+        $due=null;
+        if(!empty($step['deadline_hours'])) $due=(new DateTimeImmutable('now'))->modify('+'.(int)$step['deadline_hours'].' hours')->format('Y-m-d H:i:s');
+        $ins->execute([
+            $orderId,
+            $step['id'] ?? null,
+            (int)$step['sort_order'],
+            (string)$step['title'],
+            $step['instructions'] ?? null,
+            (int)$step['required_photos'],
+            (int)$step['requires_text'],
+            (int)$step['requires_checkbox'],
+            (int)$step['is_dispatch_step'],
+            $due,
+            $first?'open':'locked',
+        ]);
+        $first=false;
+    }
+}
+
+function unlock_next_shipping_step(int $orderId, int $completedSortOrder): void {
+    $q=db()->prepare("SELECT id FROM order_shipping_steps WHERE order_id=? AND status='locked' AND sort_order>? ORDER BY sort_order,id LIMIT 1");
+    $q->execute([$orderId,$completedSortOrder]);
+    $id=$q->fetchColumn();
+    if($id!==false) db()->prepare("UPDATE order_shipping_steps SET status='open' WHERE id=?")->execute([(int)$id]);
+}
+
+function order_ready_for_shipping(int $orderId): bool {
+    $q=db()->prepare("SELECT COUNT(*) FROM evidence_windows WHERE order_id=? AND status IN('planned','open')");
+    $q->execute([$orderId]);
+    if((int)$q->fetchColumn()>0) return false;
+
+    $q=db()->prepare("SELECT COUNT(*) FROM violations WHERE order_id=? AND status IN('open','reviewed')");
+    $q->execute([$orderId]);
+    if((int)$q->fetchColumn()>0) return false;
+
+    $q=db()->prepare("SELECT COUNT(*) FROM spontaneous_requests WHERE order_id=? AND status NOT IN('reviewed','missed')");
+    $q->execute([$orderId]);
+    if((int)$q->fetchColumn()>0) return false;
+
+    $q=db()->prepare("SELECT COUNT(*) FROM order_tasks WHERE order_id=? AND status<>'accepted'");
+    $q->execute([$orderId]);
+    if((int)$q->fetchColumn()>0) return false;
+
+    $q=db()->prepare("SELECT COUNT(*) FROM damage_cases WHERE order_id=? AND status IN('reported','evidence_requested','review')");
+    $q->execute([$orderId]);
+    if((int)$q->fetchColumn()>0) return false;
+
+    return true;
+}
+
+function advance_order_to_shipping_if_ready(int $orderId): bool {
+    $q=db()->prepare("SELECT o.*,f.fulfillment_type FROM orders o JOIN offers f ON f.id=o.offer_id WHERE o.id=?");
+    $q->execute([$orderId]);
+    $o=$q->fetch();
+    if(!$o || $o['status']!=='running') return false;
+    if($o['fulfillment_type']==='digital') return false;
+    if(!order_ready_for_shipping($orderId)) return false;
+
+    db()->prepare("UPDATE orders SET status='shipping',updated_at=NOW() WHERE id=? AND status='running'")->execute([$orderId]);
+    ensure_order_shipping_steps($orderId);
+    db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system','Die Durchführung ist abgeschlossen. Der Versandworkflow wurde freigeschaltet.')")->execute([$orderId]);
+    notify_seller((int)$o['seller_id'],'shipping.open','Versand freigeschaltet','Die Durchführung von Auftrag '.$o['order_no'].' ist abgeschlossen. Der Versandworkflow ist jetzt verfügbar.','/auftrag/'.$o['order_no'].'/versand',null,true);
+    return true;
+}
