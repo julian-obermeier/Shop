@@ -41,9 +41,22 @@ class OrderController extends Controller
         $extensionDays=DB::table('extension_days')->where('order_id',$order->id)->orderBy('sequence_no')->get();
         $damageCases=DB::table('damage_cases')->where('order_id',$order->id)->latest('id')->get();
         $digitalComponent=DB::table('digital_components')->where('order_id',$order->id)->first();
+        $digitalVersions=$digitalComponent
+            ? DB::table('digital_versions')->where('digital_component_id',$digitalComponent->id)->orderByDesc('version_no')->get()
+            : collect();
+        $revisionRounds=$digitalComponent
+            ? DB::table('revision_rounds')->where('digital_component_id',$digitalComponent->id)->orderByDesc('round_no')->get()
+            : collect();
+        $revisionItems=$revisionRounds->isNotEmpty()
+            ? DB::table('revision_items')->whereIn('revision_round_id',$revisionRounds->pluck('id'))->orderBy('id')->get()->groupBy('revision_round_id')
+            : collect();
+        $damageEvidenceRequests=$damageCases->isNotEmpty()
+            ? DB::table('damage_evidence_requests')->whereIn('damage_case_id',$damageCases->pluck('id'))->orderBy('id')->get()->groupBy('damage_case_id')
+            : collect();
 
         return view('orders.show',compact(
-            'order','precheckSlots','precheckEvidence','violations','extensionDays','damageCases','digitalComponent'
+            'order','precheckSlots','precheckEvidence','violations','extensionDays','damageCases','digitalComponent',
+            'digitalVersions','revisionRounds','revisionItems','damageEvidenceRequests'
         ));
     }
 
