@@ -9,6 +9,7 @@ $grace=max(0,(int)setting_value('grace_minutes','60'));
 
 $pdo->prepare("DELETE FROM email_verifications WHERE expires_at < ?")->execute([$nowSql]);
 $pdo->prepare("DELETE FROM password_resets WHERE expires_at < ? OR used_at IS NOT NULL")->execute([$nowSql]);
+$pdo->prepare("DELETE FROM rate_limits WHERE blocked_until IS NULL AND window_started_at < DATE_SUB(?,INTERVAL 2 DAY) OR blocked_until < DATE_SUB(?,INTERVAL 1 DAY)")->execute([$nowSql,$nowSql]);
 
 function cron_provisional_violation(int $orderId, int $sellerId, string $sourceKey, string $type, string $reason): void {
     $q=db()->prepare("SELECT id FROM violations WHERE source_key=? LIMIT 1");$q->execute([$sourceKey]);
