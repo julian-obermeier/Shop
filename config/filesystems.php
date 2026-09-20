@@ -5,6 +5,8 @@ return [
         'local' => ['driver' => 'local', 'root' => storage_path('app/private'), 'throw' => false],
         'proofs' => ['driver' => 'local', 'root' => storage_path('app/private/proofs'), 'throw' => true],
         'prechecks' => ['driver' => 'local', 'root' => storage_path('app/private/prechecks'), 'throw' => true],
+        'damage' => ['driver' => 'local', 'root' => storage_path('app/private/damage'), 'throw' => true],
+        'digital' => ['driver' => 'local', 'root' => storage_path('app/private/digital'), 'throw' => true],
         'messages' => ['driver' => 'local', 'root' => storage_path('app/private/messages'), 'throw' => true],
         'shipments' => ['driver' => 'local', 'root' => storage_path('app/private/shipments'), 'throw' => true],
         'returns' => ['driver' => 'local', 'root' => storage_path('app/private/returns'), 'throw' => true],
