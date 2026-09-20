@@ -644,12 +644,14 @@ function ensure_order_shipping_steps(int $orderId): void {
         ];
     }
 
-    $ins=db()->prepare("INSERT INTO order_shipping_steps(order_id,source_step_id,sort_order,title,instructions,required_photos,requires_text,requires_checkbox,is_dispatch_step,due_at,status)
-                        VALUES(?,?,?,?,?,?,?,?,?,?,?)");
+    $ins=db()->prepare("INSERT INTO order_shipping_steps(order_id,source_step_id,sort_order,title,instructions,required_photos,requires_text,requires_checkbox,is_dispatch_step,deadline_hours,due_at,status)
+                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?)");
     $first=true;
     foreach($steps as $step){
-        $due=null;
-        if(!empty($step['deadline_hours'])) $due=(new DateTimeImmutable('now'))->modify('+'.(int)$step['deadline_hours'].' hours')->format('Y-m-d H:i:s');
+        $deadlineHours=!empty($step['deadline_hours']) ? (int)$step['deadline_hours'] : null;
+        $due=($first && $deadlineHours)
+            ? (new DateTimeImmutable('now',new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'))))->modify('+'.$deadlineHours.' hours')->format('Y-m-d H:i:s')
+            : null;
         $ins->execute([
             $orderId,
             $step['id'] ?? null,
@@ -660,6 +662,7 @@ function ensure_order_shipping_steps(int $orderId): void {
             (int)$step['requires_text'],
             (int)$step['requires_checkbox'],
             (int)$step['is_dispatch_step'],
+            $deadlineHours,
             $due,
             $first?'open':'locked',
         ]);
@@ -668,10 +671,14 @@ function ensure_order_shipping_steps(int $orderId): void {
 }
 
 function unlock_next_shipping_step(int $orderId, int $completedSortOrder): void {
-    $q=db()->prepare("SELECT id FROM order_shipping_steps WHERE order_id=? AND status='locked' AND sort_order>? ORDER BY sort_order,id LIMIT 1");
+    $q=db()->prepare("SELECT id,deadline_hours FROM order_shipping_steps WHERE order_id=? AND status='locked' AND sort_order>? ORDER BY sort_order,id LIMIT 1");
     $q->execute([$orderId,$completedSortOrder]);
-    $id=$q->fetchColumn();
-    if($id!==false) db()->prepare("UPDATE order_shipping_steps SET status='open' WHERE id=?")->execute([(int)$id]);
+    $step=$q->fetch();
+    if(!$step) return;
+    $due=!empty($step['deadline_hours'])
+        ? (new DateTimeImmutable('now',new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'))))->modify('+'.(int)$step['deadline_hours'].' hours')->format('Y-m-d H:i:s')
+        : null;
+    db()->prepare("UPDATE order_shipping_steps SET status='open',due_at=? WHERE id=?")->execute([$due,$step['id']]);
 }
 
 function order_ready_for_shipping(int $orderId): bool {
