@@ -641,8 +641,8 @@ if (preg_match('#^/admin/angebot/(\\d+)$#',$path,$m)&&$method==='GET') {
       <div class="form-grid">
         <label>Titel / Überschreibung<input name="title" placeholder="bei Vorlage optional"></label>
         <label>Antworttyp<select name="response_type"><option value="text">Freitext</option><option value="number">Zahl</option><option value="scale10">Skala 1–10</option><option value="boolean">Ja/Nein</option></select></label>
-        <label>Pflichtfotos<input type="number" min="0" max="20" name="required_photos" value="0"></label>
-        <label>Vergütung je Ausführung (€)<input type="number" step=".01" min="0" name="compensation" value="0"></label>
+        <label>Pflichtfotos<input type="number" min="0" max="20" name="required_photos" placeholder="Vorlagenwert übernehmen"></label>
+        <label>Vergütung je Ausführung (€)<input type="number" step=".01" min="0" name="compensation" placeholder="Vorlagenwert übernehmen"></label>
         <label>Planung<select name="schedule_type"><option value="day">Bestimmter Tag</option><option value="interval">Intervall</option></select></label>
         <label>Tag (bei bestimmtem Tag)<input type="number" min="1" name="day_no" value="1"></label>
         <label>Starttag (Intervall)<input type="number" min="1" name="start_day" value="1"></label>
