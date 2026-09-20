@@ -814,6 +814,10 @@ if ($path==='/heute' && $method==='GET') {
       WHERE o.seller_id=? AND o.status='running' AND r.status NOT IN('reviewed','missed') ORDER BY r.due_at");
     $q->execute([$s['id']]);$spontaneous=$q->fetchAll();
 
+    $q=db()->prepare("SELECT r.*,o.order_no FROM evidence_retake_requests r JOIN orders o ON o.id=r.order_id
+      WHERE r.seller_id=? AND o.status IN('precheck','running','review') AND r.status='requested' AND r.grace_ends_at>=NOW() ORDER BY r.due_at");
+    $q->execute([$s['id']]);$retakes=$q->fetchAll();
+
     $q=db()->prepare("SELECT t.*,o.order_no FROM order_tasks t JOIN orders o ON o.id=t.order_id
       WHERE o.seller_id=? AND o.status IN('running','review') AND t.status='open' ORDER BY COALESCE(t.due_at,'9999-12-31')");
     $q->execute([$s['id']]);$tasks=$q->fetchAll();
@@ -833,6 +837,11 @@ if ($path==='/heute' && $method==='GET') {
     foreach($spontaneous as $r){
         $due=new DateTimeImmutable($r['due_at'],$tz);
         $item=['kind'=>'spontaneous','title'=>'Spontane Fotoanforderung · '.$r['order_no'],'text'=>$r['instructions'].' · Frist '.$due->format('H:i').' Uhr','link'=>'/auftrag/'.$r['order_no'].'/spontan/'.$r['id']];
+        if($due<=$now->modify('+1 hour'))$nowItems[]=$item;else $nextItems[]=$item;
+    }
+    foreach($retakes as $r){
+        $due=new DateTimeImmutable($r['due_at'],$tz);
+        $item=['kind'=>'retake','title'=>'Neuaufnahme erforderlich · '.$r['order_no'],'text'=>$r['instructions'].' · Frist '.$due->format('d.m. H:i').' Uhr','link'=>'/auftrag/'.$r['order_no'].'/retake/'.$r['id']];
         if($due<=$now->modify('+1 hour'))$nowItems[]=$item;else $nextItems[]=$item;
     }
     foreach($tasks as $t){
