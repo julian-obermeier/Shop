@@ -1197,11 +1197,20 @@ if ($path==='/admin/einzelangebote' && $method==='POST') {
 }
 if ($path==='/individuelle-angebote' && $method==='GET') {
     $s=require_seller();
-    $q=db()->prepare("SELECT a.id assignment_id,a.acceptance_deadline,a.status assignment_status,a.decline_reason,a.created_at,f.id offer_id,f.title,f.description,f.compensation,f.duration_days,f.fulfillment_type FROM offer_assignments a JOIN offers f ON f.id=a.offer_id WHERE a.seller_id=? ORDER BY a.created_at DESC");
+    $q=db()->prepare("SELECT a.id assignment_id,a.acceptance_deadline,a.status assignment_status,a.decline_reason,a.created_at,f.* FROM offer_assignments a JOIN offers f ON f.id=a.offer_id WHERE a.seller_id=? ORDER BY a.created_at DESC");
     $q->execute([$s['id']]);$rows=$q->fetchAll();
+    $fq=db()->prepare("SELECT COUNT(*) FROM orders WHERE seller_id=?");$fq->execute([$s['id']]);$isFirstOrder=(int)$fq->fetchColumn()===0;
     ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Privat</div><h1>Individuelle Angebote</h1></div></div><div class="grid">
-    <?php foreach($rows as $r):?><article class="card"><span class="badge"><?=e($r['assignment_status'])?></span><h2><?=e($r['title'])?></h2><p><?=nl2br(e($r['description']))?></p><div class="price"><?=money($r['compensation'])?></div><p class="meta"><?=e($r['duration_days']?$r['duration_days'].' Tage':ucfirst($r['fulfillment_type']))?> · Annahmefrist <?=e(date('d.m.Y H:i',strtotime($r['acceptance_deadline'])))?></p>
-      <?php if($r['assignment_status']==='assigned'&&strtotime($r['acceptance_deadline'])>time()):?><div class="actions"><form method="post" action="<?=e(url('/individuelle-angebote/'.$r['assignment_id'].'/annehmen'))?>"><?=csrf_field()?><button class="btn">Verbindlich annehmen</button></form><form method="post" action="<?=e(url('/individuelle-angebote/'.$r['assignment_id'].'/ablehnen'))?>"><?=csrf_field()?><input name="reason" required placeholder="Grund für Ablehnung"><button class="btn secondary">Ablehnen</button></form></div><?php endif;?>
+    <?php foreach($rows as $r): $rRules=offer_evidence_rules($r);$rDaily=array_sum($rRules['daily']);$rTasks=offer_task_plan_summary((int)$r['offer_id'],$r['duration_days']!==null?(int)$r['duration_days']:1);$rShipping=build_shipping_snapshot($r);$rAllowance=($rShipping['cost_mode']??'seller')==='fixed'?(float)($rShipping['allowance']??0):0.0;$rComponentExtra=offer_component_extra_total($r);$rTotal=(float)$r['compensation']+$rComponentExtra+(float)$rTasks['compensation']+$rAllowance;?><article class="card"><span class="badge"><?=e($r['assignment_status'])?></span><h2><?=e($r['title'])?></h2><p><?=nl2br(e($r['description']))?></p><div class="price"><?=money($rTotal)?></div><p class="meta"><?=e($r['duration_days']?$r['duration_days'].' Tage':ucfirst($r['fulfillment_type']))?> · Annahmefrist <?=e(date('d.m.Y H:i',strtotime($r['acceptance_deadline'])))?></p>
+      <div class="timeline"><div>Vorabnachweise: <strong><?=e($rRules['precheck_required_count'])?></strong></div><div>Regel-Nachweise: <strong><?=e($rDaily)?> pro Tag</strong></div><div>Geplante Zusatzaufgaben: <strong><?=e($rTasks['executions'])?></strong></div><div>Versand-/Endschritte: <strong><?=e(count($rShipping['steps']??[]))?></strong></div><?php if($rComponentExtra>0):?><div>Kombi-/Zusatzbestandteile: <strong>+<?=money($rComponentExtra)?></strong></div><?php endif;?><?php if($rTasks['compensation']>0):?><div>Geplante Aufgaben: <strong>+<?=money($rTasks['compensation'])?></strong></div><?php endif;?><?php if($rAllowance>0):?><div>Versandzuschuss: <strong>+<?=money($rAllowance)?></strong></div><?php endif;?></div>
+      <p class="meta">Spontane Nachweise, Neuaufnahmen und bestätigte Verstöße können zusätzlichen Aufwand bzw. unbezahlte Zusatztage verursachen.</p>
+      <?php if($r['assignment_status']==='assigned'&&strtotime($r['acceptance_deadline'])>time()):?><div class="grid two"><form method="post" action="<?=e(url('/individuelle-angebote/'.$r['assignment_id'].'/annehmen'))?>"><?=csrf_field()?>
+        <?php if($isFirstOrder):?><label><input type="checkbox" style="width:auto" name="confirm_briefing" value="1" required> Pflicht-Kurzbriefing gelesen und verstanden</label><?php endif;?>
+        <label><input type="checkbox" style="width:auto" name="confirm_personal" value="1" required> Ich erfülle den Auftrag persönlich und mit eigenen Artikeln/Inhalten.</label>
+        <label><input type="checkbox" style="width:auto" name="confirm_effort" value="1" required> Ich habe Aufwand, Nachweise, Aufgaben, Bestandteile und Versand geprüft.</label>
+        <label><input type="checkbox" style="width:auto" name="confirm_rules" value="1" required> Ich akzeptiere die Bedingungen dieser Angebotsversion.</label>
+        <label><input type="checkbox" style="width:auto" name="confirm_violation" value="1" required> Mir sind mögliche unbezahlte Zusatztage bei bestätigten Verstößen bekannt.</label>
+        <button class="btn">Verbindlich annehmen</button></form><form method="post" action="<?=e(url('/individuelle-angebote/'.$r['assignment_id'].'/ablehnen'))?>"><?=csrf_field()?><label>Ablehnungsgrund<input name="reason" required></label><button class="btn secondary">Ablehnen</button></form></div><?php endif;?>
       <?php if($r['assignment_status']==='declined'&&$r['decline_reason']):?><p class="meta">Ablehnungsgrund: <?=e($r['decline_reason'])?></p><?php endif;?>
     </article><?php endforeach;?><?php if(!$rows):?><div class="empty">Keine individuellen Angebote.</div><?php endif;?></div><?php render('Individuelle Angebote',ob_get_clean());exit;
 }
@@ -1216,6 +1225,11 @@ if (preg_match('#^/individuelle-angebote/(\d+)/(annehmen|ablehnen)$#',$path,$m) 
         log_event('private_offer.declined',(int)$s['id'],null,['assignment_id'=>(int)$a['assignment_id'],'reason'=>$reason]);
         flash('success','Individuelles Angebot abgelehnt.');redirect('/individuelle-angebote');
     }
+    foreach(['confirm_personal','confirm_effort','confirm_rules','confirm_violation'] as $requiredConfirm){
+        if(($_POST[$requiredConfirm]??'')!=='1'){flash('error','Bitte bestätige alle Pflichtpunkte vor der Annahme.');redirect('/individuelle-angebote');}
+    }
+    $firstQ=db()->prepare("SELECT COUNT(*) FROM orders WHERE seller_id=?");$firstQ->execute([$s['id']]);$isFirstOrder=(int)$firstQ->fetchColumn()===0;
+    if($isFirstOrder && ($_POST['confirm_briefing']??'')!=='1'){flash('error','Vor dem ersten Auftrag muss das Kurzbriefing bestätigt werden.');redirect('/individuelle-angebote');}
     if(!$s['email_verified_at']){flash('error','Bitte bestätige zuerst deine E-Mail-Adresse.');redirect('/individuelle-angebote');}
     $blockedCategories=offer_blocked_category_ids($a);
     if(seller_has_category_conflict((int)$s['id'],$blockedCategories)){flash('error','Mindestens eine in diesem individuellen Angebot enthaltene Kategorie ist bereits durch einen aktiven Auftrag belegt.');redirect('/individuelle-angebote');}
@@ -1223,15 +1237,32 @@ if (preg_match('#^/individuelle-angebote/(\d+)/(annehmen|ablehnen)$#',$path,$m) 
     $shippingSnapshot=build_shipping_snapshot($a);
     $shippingAllowance=$shippingSnapshot['cost_mode']==='fixed' ? max(0,(float)$shippingSnapshot['allowance']) : 0.0;
     $componentExtra=offer_component_extra_total($a);
-    $total=(float)$a['compensation']+$componentExtra+$shippingAllowance;
+    $taskSummary=offer_task_plan_summary((int)$a['offer_id'],$a['duration_days']!==null?(int)$a['duration_days']:1);
+    $plannedTaskCompensation=(float)$taskSummary['compensation'];
+    $acceptanceRules=offer_evidence_rules($a);
+    $total=(float)$a['compensation']+$componentExtra+$plannedTaskCompensation+$shippingAllowance;
     $no=order_number();
     db()->beginTransaction();
     try{
         db()->prepare("INSERT INTO orders(order_no,seller_id,offer_id,offer_version,status,base_compensation,total_compensation,duration_days,shipping_snapshot_json) VALUES(?,?,?,?, 'precheck',?,?,?,?)")
           ->execute([$no,$s['id'],$a['offer_id'],$a['current_version'],$a['compensation'],$total,$a['duration_days'],json_encode($shippingSnapshot,JSON_UNESCAPED_UNICODE)]);
         $oid=(int)db()->lastInsertId();
+        $confirmationPayload=[
+          'order_no'=>$no,'accepted_at'=>date(DATE_ATOM),'private_offer'=>true,
+          'personal_fulfillment'=>true,'effort_reviewed'=>true,'rules_accepted'=>true,'violation_consequences_acknowledged'=>true,'first_order_briefing'=>$isFirstOrder,
+          'offer_id'=>(int)$a['offer_id'],'offer_version'=>(int)$a['current_version'],'title'=>(string)$a['title'],'description'=>(string)$a['description'],
+          'category_id'=>(int)$a['category_id'],'fulfillment_type'=>(string)$a['fulfillment_type'],'duration_days'=>$a['duration_days']!==null?(int)$a['duration_days']:null,
+          'base_compensation'=>(float)$a['compensation'],'component_extra_compensation'=>$componentExtra,'options_total'=>0.0,'selected_options'=>[],
+          'evidence_rules'=>$acceptanceRules,'precheck_photos'=>(int)$acceptanceRules['precheck_required_count'],'daily_photos_per_day'=>array_sum($acceptanceRules['daily']),
+          'planned_task_executions'=>(int)$taskSummary['executions'],'planned_task_photos'=>(int)$taskSummary['required_photos'],'planned_task_compensation'=>$plannedTaskCompensation,
+          'shipping_step_count'=>count($shippingSnapshot['steps']??[]),'shipping_cost_mode'=>$shippingSnapshot['cost_mode']??'seller','shipping_allowance'=>$shippingAllowance,
+          'preferred_carrier'=>$shippingSnapshot['preferred_carrier']??null,'shipping_instructions'=>$shippingSnapshot['instructions']??null,'total_compensation'=>$total,
+        ];
+        db()->prepare("INSERT INTO order_acceptance_confirmations(order_id,seller_id,offer_version,payload_json) VALUES(?,?,?,?)")
+          ->execute([$oid,$s['id'],$a['current_version'],json_encode($confirmationPayload,JSON_UNESCAPED_UNICODE)]);
         db()->prepare("INSERT INTO order_runs(order_id,run_no,status) VALUES(?,1,'precheck')")->execute([$oid]);
         snapshot_order_components($oid,$a);
+        snapshot_offer_task_plans((int)$a['offer_id'],$oid);
         db()->prepare("INSERT INTO wallet_entries(seller_id,order_id,entry_type,amount,description) VALUES(?,?,'reserved',?,'Individueller Auftragswert vorgemerkt')")->execute([$s['id'],$oid,$total]);
         if(in_array($a['fulfillment_type'],['digital','mixed'],true)){
             db()->prepare("INSERT INTO rights_acceptances(order_id,seller_id,terms_version,payload_json) VALUES(?,?,?,?)")
@@ -1239,10 +1270,25 @@ if (preg_match('#^/individuelle-angebote/(\d+)/(annehmen|ablehnen)$#',$path,$m) 
         }
         db()->prepare("UPDATE offer_assignments SET status='accepted',updated_at=NOW() WHERE id=?")->execute([$a['assignment_id']]);
         db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")->execute([$oid,'Individuelles Angebot wurde angenommen. Auftrag '.$no.' wurde angelegt.']);
-        log_event('private_offer.accepted',(int)$s['id'],$oid,['assignment_id'=>(int)$a['assignment_id'],'shipping_allowance'=>$shippingAllowance,'component_extra_compensation'=>$componentExtra,'blocked_category_ids'=>$blockedCategories,'total'=>$total]);
+        log_event('private_offer.accepted',(int)$s['id'],$oid,['assignment_id'=>(int)$a['assignment_id'],'shipping_allowance'=>$shippingAllowance,'component_extra_compensation'=>$componentExtra,'planned_task_compensation'=>$plannedTaskCompensation,'planned_task_executions'=>$taskSummary['executions'],'blocked_category_ids'=>$blockedCategories,'total'=>$total]);
         db()->commit();
     }catch(Throwable $e){db()->rollBack();throw $e;}
-    flash('success','Individuelles Angebot angenommen. Auftrag '.$no.' wurde erstellt. Gesamtwert: '.money($total).'.');redirect('/auftrag/'.$no);
+    $shippingText=($shippingSnapshot['cost_mode']??'seller')==='fixed'
+      ? 'Fester Versandzuschuss: '.money($shippingAllowance)
+      : ((($shippingSnapshot['cost_mode']??'seller')==='reimburse')?'Versandkosten: Erstattung gegen Nachweis':'Versandkosten trägt die Verkäuferin');
+    send_app_mail(
+      (string)$s['email'],
+      'Auftragsbestätigung '.$no,
+      '<h1>Auftragsbestätigung '.$no.'</h1><p>Du hast das individuelle Angebot <strong>'.e($a['title']).'</strong> verbindlich angenommen.</p>'.
+      '<p>Angebotsversion: <strong>V'.e($a['current_version']).'</strong><br>Grundvergütung: <strong>'.money($a['compensation']).'</strong><br>'.
+      ($componentExtra>0?'Kombi-/Zusatzbestandteile: <strong>+'.money($componentExtra).'</strong><br>':'').
+      ($plannedTaskCompensation>0?'Geplante Aufgaben: <strong>+'.money($plannedTaskCompensation).'</strong><br>':'').
+      ($shippingAllowance>0?'Versandzuschuss: <strong>+'.money($shippingAllowance).'</strong><br>':'').
+      'Gesamtwert bei Annahme: <strong>'.money($total).'</strong></p>'.
+      '<p>Dauer: '.($a['duration_days']!==null?e($a['duration_days']).' Tage':'individueller Umfang').'<br>Vorabnachweise: '.e($acceptanceRules['precheck_required_count']).' Foto(s)<br>Regel-Nachweise pro Tag: '.e(array_sum($acceptanceRules['daily'])).' Foto(s)<br>Geplante Zusatzaufgaben: '.e($taskSummary['executions']).'<br>Versand: '.e($shippingText).'</p>'.
+      '<p><a href="'.e(url('/auftrag/'.$no)).'">Auftragsbestätigung in der Plattform öffnen</a></p>'
+    );
+    flash('success','Individuelles Angebot angenommen. Auftrag '.$no.' wurde erstellt. Gesamtwert: '.money($total).'. Eine Auftragsbestätigung wurde per E-Mail versendet.');redirect('/auftrag/'.$no);
 }
 
 
