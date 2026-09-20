@@ -1421,6 +1421,38 @@ function apply_system_outage(int $outageId): array {
         }
 
         try{
+            $qShipping=$pdo->prepare("SELECT o.id,o.seller_id,o.order_no,o.shipping_due_at
+                FROM orders o
+                WHERE o.status='shipping'
+                  AND o.shipping_due_at IS NOT NULL
+                  AND o.shipping_due_at>=?
+                  AND EXISTS (
+                    SELECT 1 FROM order_shipping_steps st
+                    WHERE st.order_id=o.id AND st.created_at<=?
+                  )");
+            $qShipping->execute([$start->format('Y-m-d H:i:s'),$end->format('Y-m-d H:i:s')]);
+            foreach($qShipping->fetchAll() as $shipOrder){
+                $newDue=outage_shift_datetime($shipOrder['shipping_due_at'],$seconds);
+                $pdo->prepare("UPDATE orders SET shipping_due_at=?,updated_at=NOW() WHERE id=?")
+                    ->execute([$newDue,$shipOrder['id']]);
+
+                $vq=$pdo->prepare("SELECT id FROM violations WHERE source_key=? AND status IN('open','reviewed','confirmed')");
+                $vq->execute(['shipping-overall-'.$shipOrder['id'].'-missed']);
+                foreach($vq->fetchAll() as $vr){
+                    $pdo->prepare("UPDATE violations SET status='discarded',reviewed_at=NOW() WHERE id=?")->execute([$vr['id']]);
+                    $pdo->prepare("UPDATE extra_days SET status='cancelled' WHERE source_type='violation' AND source_id=? AND status IN('provisional','confirmed')")
+                        ->execute([$vr['id']]);
+                }
+
+                $recordImpact->execute([$outageId,'shipping_overall_deadline',$shipOrder['id'],$seconds]);
+                $impactedOrders[(int)$shipOrder['id']]=[(int)$shipOrder['seller_id'],$shipOrder['order_no']];
+                $entityCount++;
+            }
+        }catch(PDOException){
+            // Optional column may not exist before the related migration.
+        }
+
+        try{
             $qa=$pdo->prepare("SELECT a.*,s.id seller_id FROM offer_assignments a JOIN sellers s ON s.id=a.seller_id
                 WHERE a.status='assigned' AND a.acceptance_deadline>=? AND a.created_at<=?");
             $qa->execute([$start->format('Y-m-d H:i:s'),$end->format('Y-m-d H:i:s')]);
