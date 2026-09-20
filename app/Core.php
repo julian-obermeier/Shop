@@ -209,3 +209,102 @@ function try_start_order_after_precheck(int $orderId): bool {
         db()->commit();return true;
     }catch(Throwable $e){db()->rollBack();throw $e;}
 }
+
+
+function setting_value(string $key, mixed $default=null): mixed {
+    static $cache=[];
+    if(array_key_exists($key,$cache)) return $cache[$key];
+    try{
+        $q=db()->prepare('SELECT setting_value FROM settings WHERE setting_key=?');
+        $q->execute([$key]);
+        $v=$q->fetchColumn();
+        return $cache[$key]=($v===false?$default:$v);
+    }catch(Throwable){ return $default; }
+}
+
+function current_run_id(int $orderId): ?int {
+    $q=db()->prepare('SELECT id FROM order_runs WHERE order_id=? ORDER BY run_no DESC LIMIT 1');
+    $q->execute([$orderId]);
+    $id=$q->fetchColumn();
+    return $id===false?null:(int)$id;
+}
+
+function parse_window_setting(string $key, string $fallback): array {
+    $value=(string)setting_value($key,$fallback);
+    $parts=array_map('trim',explode('-',$value,2));
+    if(count($parts)!==2 || !preg_match('/^\\d{2}:\\d{2}$/',$parts[0]) || !preg_match('/^\\d{2}:\\d{2}$/',$parts[1])){
+        $parts=explode('-',$fallback,2);
+    }
+    return $parts;
+}
+
+function schedule_order_days(int $orderId, DateTimeImmutable $startedAt): void {
+    $q=db()->prepare('SELECT duration_days FROM orders WHERE id=?');
+    $q->execute([$orderId]);
+    $duration=(int)$q->fetchColumn();
+    if($duration<1) return;
+
+    $runId=current_run_id($orderId);
+    if(!$runId) return;
+
+    $exists=db()->prepare('SELECT COUNT(*) FROM order_days WHERE order_id=? AND order_run_id=?');
+    $exists->execute([$orderId,$runId]);
+    if((int)$exists->fetchColumn()>0) return;
+
+    $windows=[
+        'morning'=>parse_window_setting('window_morning','06:00-10:00'),
+        'midday'=>parse_window_setting('window_midday','12:00-16:00'),
+        'evening'=>parse_window_setting('window_evening','18:00-23:59'),
+    ];
+    $grace=max(0,(int)setting_value('grace_minutes','60'));
+    $tz=new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'));
+    $startedAt=$startedAt->setTimezone($tz);
+    $sameDate=$startedAt->format('Y-m-d');
+
+    $futureSameDay=[];
+    foreach($windows as $key=>$range){
+        $ws=new DateTimeImmutable($sameDate.' '.$range[0].':00',$tz);
+        if($ws>$startedAt) $futureSameDay[$key]=$range;
+    }
+    $firstDate=$futureSameDay ? new DateTimeImmutable($sameDate.' 00:00:00',$tz) : (new DateTimeImmutable($sameDate.' 00:00:00',$tz))->modify('+1 day');
+
+    $dayIns=db()->prepare("INSERT INTO order_days(order_id,order_run_id,day_no,day_type,calendar_date,status) VALUES(?,?,?,'regular',?,'planned')");
+    $winIns=db()->prepare("INSERT INTO evidence_windows(order_id,order_run_id,day_no,window_key,starts_at,ends_at,grace_ends_at,required_count,status) VALUES(?,?,?,?,?,?,?,?,?)");
+
+    for($day=1;$day<=$duration;$day++){
+        $date=$firstDate->modify('+'.($day-1).' day');
+        $dayIns->execute([$orderId,$runId,$day,$date->format('Y-m-d')]);
+        $use=($day===1 && $firstDate->format('Y-m-d')===$sameDate)?$futureSameDay:$windows;
+        foreach($use as $key=>$range){
+            $start=new DateTimeImmutable($date->format('Y-m-d').' '.$range[0].':00',$tz);
+            $end=new DateTimeImmutable($date->format('Y-m-d').' '.$range[1].':00',$tz);
+            $graceEnd=$end->modify('+'.$grace.' minutes');
+            $status=$start<=new DateTimeImmutable('now',$tz)?'open':'planned';
+            $winIns->execute([$orderId,$runId,$day,$key,$start->format('Y-m-d H:i:s'),$end->format('Y-m-d H:i:s'),$graceEnd->format('Y-m-d H:i:s'),1,$status]);
+        }
+    }
+}
+
+function notify_seller(int $sellerId, string $type, string $title, string $body, ?string $link=null, ?string $dedupeKey=null, bool $email=false): void {
+    try{
+        $q=db()->prepare('INSERT INTO notifications(seller_id,notification_type,title,body,link,dedupe_key) VALUES(?,?,?,?,?,?)');
+        $q->execute([$sellerId,$type,$title,$body,$link,$dedupeKey]);
+    }catch(PDOException $e){
+        if($dedupeKey!==null && ($e->errorInfo[1]??null)===1062) return;
+        try{
+            $q=db()->prepare('INSERT INTO notifications(seller_id,notification_type,title,body,link) VALUES(?,?,?,?,?)');
+            $q->execute([$sellerId,$type,$title,$body,$link]);
+        }catch(Throwable){}
+    }
+    if($email){
+        $q=db()->prepare('SELECT email FROM sellers WHERE id=? AND deleted_at IS NULL');
+        $q->execute([$sellerId]);
+        $to=$q->fetchColumn();
+        if($to) send_app_mail((string)$to,$title,'<p>'.e($body).'</p>'.($link?'<p><a href="'.e(url($link)).'">In der Plattform öffnen</a></p>':''));
+    }
+}
+
+function log_event(string $type, ?int $sellerId=null, ?int $orderId=null, array $payload=[]): void {
+    db()->prepare('INSERT INTO system_events(seller_id,order_id,event_type,payload_json) VALUES(?,?,?,?)')
+        ->execute([$sellerId,$orderId,$type,$payload?json_encode($payload,JSON_UNESCAPED_UNICODE):null]);
+}
