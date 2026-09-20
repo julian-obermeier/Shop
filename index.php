@@ -8,8 +8,8 @@ if ($basePath && $basePath!=='/' && str_starts_with($path,$basePath)) $path=subs
 $method=$_SERVER['REQUEST_METHOD']??'GET';
 if($method==='POST') csrf_verify();
 
-function legal_page(string $title,string $intro,array $sections): void {
-    ob_start(); ?><section class="legal"><div class="eyebrow">Information</div><h1><?=e($title)?></h1><p class="meta"><?=e($intro)?></p><?php foreach($sections as $h=>$p):?><h2><?=e($h)?></h2><p><?=e($p)?></p><?php endforeach;?></section><?php render($title,ob_get_clean());
+function legal_page(string $title,string $intro,array $sections): never {
+    ob_start(); ?><section class="legal"><div class="eyebrow">Information</div><h1><?=e($title)?></h1><p class="meta"><?=e($intro)?></p><?php foreach($sections as $h=>$p):?><h2><?=e($h)?></h2><p><?=e($p)?></p><?php endforeach;?></section><?php render($title,ob_get_clean()); exit;
 }
 function not_found(): never { http_response_code(404); render('Nicht gefunden','<div class="empty"><h1>404</h1><p>Die angeforderte Seite wurde nicht gefunden.</p></div>'); exit; }
 
