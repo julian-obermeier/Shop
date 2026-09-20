@@ -679,7 +679,7 @@ if ($path==='/admin/versandadressen' && $method==='GET') {
       <button class="btn">Versandadresse anlegen</button>
     </form><br>
     <div class="table-wrap"><table><thead><tr><th>Bezeichnung</th><th>Empfänger</th><th>Adresse</th><th>Status</th><th>Aktion</th></tr></thead><tbody>
-    <?php foreach($rows as $r):?><tr><td><?=e($r['label'])?></td><td><?=e($r['recipient_name'])?></td><td><?=e($r['street'])?><?= $r['address_extra']?'<br>'.e($r['address_extra']):'' ?><br><?=e($r['postal_code'].' '.$r['city'])?></td><td><?=$r['active']?'Aktiv':'Inaktiv'?></td><td><form method="post" action="<?=e(url('/admin/versandadresse/'.$r['id'].'/umschalten'))?>"><?=csrf_field()?><button class="btn secondary"><?=$r['active']?'Deaktivieren':'Aktivieren'?></button></form></td></tr><?php endforeach;?>
+    <?php foreach($rows as $r):?><tr><td><?=e($r['label'])?></td><td><?=e($r['recipient_name'])?></td><td><?=e($r['street'])?><?= $r['address_extra']?'<br>'.e($r['address_extra']):'' ?><br><?=e($r['postal_code'].' '.$r['city'])?></td><td><?=$r['active']?'Aktiv':'Inaktiv'?></td><td><div class="actions"><a class="btn secondary" href="<?=e(url('/admin/versandadresse/'.$r['id']))?>">Bearbeiten</a><form method="post" action="<?=e(url('/admin/versandadresse/'.$r['id'].'/umschalten'))?>"><?=csrf_field()?><button class="btn secondary"><?=$r['active']?'Deaktivieren':'Aktivieren'?></button></form></div></td></tr><?php endforeach;?>
     </tbody></table></div><?php if(!$rows):?><div class="empty">Noch keine Versandadresse hinterlegt.</div><?php endif;?>
     <?php render('Versandadressen',ob_get_clean());exit;
 }
@@ -689,6 +689,56 @@ if ($path==='/admin/versandadressen' && $method==='POST') {
     db()->prepare("INSERT INTO shipping_addresses(label,recipient_name,street,address_extra,postal_code,city,country_code) VALUES(?,?,?,?,?,?,'DE')")
       ->execute([post('label'),post('recipient_name'),post('street'),post('address_extra')?:null,post('postal_code'),post('city')]);
     flash('success','Versandadresse angelegt.');redirect('/admin/versandadressen');
+}
+
+
+if (preg_match('#^/admin/versandadresse/(\d+)$#',$path,$m) && $method==='GET') {
+    require_admin();
+    $q=db()->prepare("SELECT * FROM shipping_addresses WHERE id=?");$q->execute([(int)$m[1]]);$r=$q->fetch();if(!$r)not_found();
+    $q=db()->prepare("SELECT COUNT(*) FROM offers WHERE shipping_address_id=?");$q->execute([$r['id']]);$used=(int)$q->fetchColumn();
+
+    ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Versandadresse</div><h1><?=e($r['label'])?></h1><p class="meta"><?=$used?> Angebot(e) verwenden diese Adresse aktuell.</p></div><a class="btn secondary" href="<?=e(url('/admin/versandadressen'))?>">Zur Übersicht</a></div>
+    <div class="grid two">
+      <form class="panel" method="post"><?=csrf_field()?><h2>Adresse bearbeiten</h2>
+        <div class="form-grid">
+          <label>Bezeichnung<input name="label" value="<?=e($r['label'])?>" required></label>
+          <label>Empfängername<input name="recipient_name" value="<?=e($r['recipient_name'])?>" required></label>
+          <label>Straße / Hausnummer<input name="street" value="<?=e($r['street'])?>" required></label>
+          <label>Adresszusatz<input name="address_extra" value="<?=e($r['address_extra']??'')?>"></label>
+          <label>PLZ<input name="postal_code" value="<?=e($r['postal_code'])?>" required></label>
+          <label>Ort<input name="city" value="<?=e($r['city'])?>" required></label>
+          <label>Land<select name="country_code"><option value="DE" <?=($r['country_code']??'DE')==='DE'?'selected':''?>>Deutschland</option></select></label>
+          <label>Status<select name="active"><option value="1" <?=$r['active']?'selected':''?>>Aktiv</option><option value="0" <?=!$r['active']?'selected':''?>>Inaktiv</option></select></label>
+        </div>
+        <button class="btn">Änderungen speichern</button>
+      </form>
+      <section class="panel"><h2>Löschen</h2>
+        <p>Bereits angenommene Aufträge sind nicht betroffen, weil sie ihre Empfängeradresse als unveränderlichen Snapshot speichern.</p>
+        <?php if($used===0):?><form method="post" action="<?=e(url('/admin/versandadresse/'.$r['id'].'/loeschen'))?>" data-confirm="Versandadresse wirklich löschen?"><?=csrf_field()?><button class="btn danger">Adresse löschen</button></form>
+        <?php else:?><p class="meta">Solange aktive/archivierte Angebotsdefinitionen auf diese Adresse verweisen, kann sie nicht gelöscht werden. Deaktiviere sie stattdessen oder weise den Angeboten eine andere Adresse zu.</p><?php endif;?>
+      </section>
+    </div>
+    <?php render('Versandadresse bearbeiten',ob_get_clean());exit;
+}
+
+if (preg_match('#^/admin/versandadresse/(\d+)$#',$path,$m) && $method==='POST') {
+    require_admin();
+    $q=db()->prepare("SELECT * FROM shipping_addresses WHERE id=?");$q->execute([(int)$m[1]]);$r=$q->fetch();if(!$r)not_found();
+
+    db()->prepare("UPDATE shipping_addresses SET label=?,recipient_name=?,street=?,address_extra=?,postal_code=?,city=?,country_code='DE',active=?,updated_at=NOW() WHERE id=?")
+      ->execute([post('label'),post('recipient_name'),post('street'),post('address_extra')?:null,post('postal_code'),post('city'),(int)post('active','1'),$r['id']]);
+
+    flash('success','Versandadresse gespeichert. Bereits angenommene Aufträge behalten ihren bisherigen Snapshot.');
+    redirect('/admin/versandadresse/'.$r['id']);
+}
+
+if (preg_match('#^/admin/versandadresse/(\d+)/loeschen$#',$path,$m) && $method==='POST') {
+    require_admin();
+    $q=db()->prepare("SELECT * FROM shipping_addresses WHERE id=?");$q->execute([(int)$m[1]]);$r=$q->fetch();if(!$r)not_found();
+    $q=db()->prepare("SELECT COUNT(*) FROM offers WHERE shipping_address_id=?");$q->execute([$r['id']]);$used=(int)$q->fetchColumn();
+    if($used>0){flash('error','Die Adresse wird noch von '.$used.' Angebot(en) verwendet und kann nicht gelöscht werden.');redirect('/admin/versandadresse/'.$r['id']);}
+    db()->prepare("DELETE FROM shipping_addresses WHERE id=?")->execute([$r['id']]);
+    flash('success','Versandadresse gelöscht.');redirect('/admin/versandadressen');
 }
 
 if (preg_match('#^/admin/versandadresse/(\d+)/umschalten$#',$path,$m) && $method==='POST') {
