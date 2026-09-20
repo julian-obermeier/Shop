@@ -88,6 +88,7 @@ if (preg_match('#^/admin/verkaeuferin/(\d+)$#',$path,$m) && $method==='GET') {
     require_admin();
     $q=db()->prepare("SELECT * FROM sellers WHERE id=?");$q->execute([(int)$m[1]]);$s=$q->fetch();if(!$s)not_found();
     $q=db()->prepare("SELECT o.*,f.title FROM orders o JOIN offers f ON f.id=o.offer_id WHERE o.seller_id=? ORDER BY o.created_at DESC");$q->execute([$s['id']]);$orders=$q->fetchAll();
+    $wb=db()->prepare("SELECT COALESCE(SUM(CASE WHEN entry_type='available' THEN amount WHEN entry_type='adjustment' THEN amount WHEN entry_type='paid' THEN -amount ELSE 0 END),0) FROM wallet_entries WHERE seller_id=?");$wb->execute([$s['id']]);$walletBalance=(float)$wb->fetchColumn();
 
     ob_start();?><div class="dashboard-head"><div><div class="eyebrow">Verkäuferinnenakte</div><h1><?=e($s['first_name'].' '.$s['last_name'])?></h1><p class="meta">Registriert <?=e(date('d.m.Y H:i',strtotime($s['created_at'])))?> · E-Mail <?=$s['email_verified_at']?'bestätigt':'offen'?><?=$s['deleted_at']?' · Konto anonymisiert':''?></p></div><a class="btn secondary" href="<?=e(url('/admin/verkaeuferinnen'))?>">Zur Übersicht</a></div>
     <div class="grid two">
@@ -98,6 +99,8 @@ if (preg_match('#^/admin/verkaeuferin/(\d+)$#',$path,$m) && $method==='GET') {
       </form>
       <section class="panel"><h2>Kontoverwaltung</h2><p>Bei einer Kontolöschung werden personenbezogene Profildaten und Auszahlungsdaten anonymisiert. Historische Auftrags-, Zahlungs- und Nachweisdaten bleiben erhalten.</p>
         <?php if(!$s['deleted_at']):?><form method="post" action="<?=e(url('/admin/verkaeuferin/'.$s['id'].'/loeschen'))?>" data-confirm="Verkäuferinnenkonto wirklich anonymisieren?"><?=csrf_field()?><button class="btn danger">Konto anonymisieren / löschen</button></form><?php else:?><span class="badge">ANONYMISIERT</span><?php endif;?>
+        <hr><h3>Wallet-Korrektur</h3><p>Aktuell verfügbar: <strong><?=money($walletBalance)?></strong></p>
+        <?php if(!$s['deleted_at']):?><form method="post" action="<?=e(url('/admin/verkaeuferin/'.$s['id'].'/wallet-korrektur'))?>"><?=csrf_field()?><div class="form-grid"><label>Richtung<select name="direction"><option value="credit">Gutschrift</option><option value="debit">Belastung</option></select></label><label>Betrag (€)<input type="number" name="amount" min=".01" step=".01" required></label></div><p class="meta">Die Verkäuferin sieht nur den daraus resultierenden Wallet-Saldo, nicht diese interne Korrekturbuchung.</p><button class="btn secondary">Saldo korrigieren</button></form><?php endif;?>
       </section>
     </div>
     <h2>Aufträge</h2><div class="table-wrap"><table><thead><tr><th>Nr.</th><th>Auftrag</th><th>Status</th><th>Archiv</th><th></th></tr></thead><tbody><?php foreach($orders as $x):?><tr><td><?=e($x['order_no'])?></td><td><?=e($x['title'])?></td><td><?=e($x['status'])?></td><td><?=$x['archived_at']?'Ja':'Nein'?></td><td><a href="<?=e(url('/admin/auftrag/'.$x['order_no']))?>">Öffnen</a></td></tr><?php endforeach;?></tbody></table></div>
