@@ -371,3 +371,48 @@ if (preg_match('#^/admin/startdatum/(\d+)/(genehmigen|ablehnen)$#',$path,$m) && 
     }
     redirect('/admin/auftrag/'.$r['order_no']);
 }
+
+
+if (preg_match('#^/admin/auftrag/(\d{8})/optionen$#',$path,$m) && $method==='POST') {
+    require_admin();
+    $q=db()->prepare("SELECT * FROM orders WHERE order_no=?");$q->execute([$m[1]]);$o=$q->fetch();if(!$o)not_found();
+    if(!in_array($o['status'],['precheck','running','shipping','review','payout'],true) || $o['archived_at']){
+        flash('error','Optionen können bei diesem Auftrag nicht mehr geändert werden.');redirect('/admin/auftrag/'.$o['order_no']);
+    }
+
+    $requested=array_values(array_unique(array_map('intval',(array)($_POST['option_ids']??[]))));
+    $selected=[];
+    if($requested){
+        $ph=implode(',',array_fill(0,count($requested),'?'));
+        $args=array_merge([$o['offer_id']],$requested);
+        $q=db()->prepare("SELECT * FROM offer_options WHERE offer_id=? AND id IN ($ph) ORDER BY id");
+        $q->execute($args);$selected=$q->fetchAll();
+        if(count($selected)!==count($requested)){flash('error','Mindestens eine Option gehört nicht zu diesem Angebot.');redirect('/admin/auftrag/'.$o['order_no']);}
+    }
+
+    $oldQ=db()->prepare("SELECT COALESCE(SUM(price_snapshot),0) FROM order_options WHERE order_id=?");$oldQ->execute([$o['id']]);$oldTotal=(float)$oldQ->fetchColumn();
+    $newTotal=0.0;foreach($selected as $opt)$newTotal+=(float)$opt['price'];
+    $delta=round($newTotal-$oldTotal,2);
+
+    db()->beginTransaction();
+    try{
+        db()->prepare("DELETE FROM order_options WHERE order_id=?")->execute([$o['id']]);
+        foreach($selected as $opt){
+            db()->prepare("INSERT INTO order_options(order_id,offer_option_id,label_snapshot,price_snapshot) VALUES(?,?,?,?)")
+              ->execute([$o['id'],$opt['id'],$opt['label'],$opt['price']]);
+        }
+        if(abs($delta)>0.0001){
+            db()->prepare("UPDATE orders SET total_compensation=total_compensation+?,updated_at=NOW() WHERE id=?")->execute([$delta,$o['id']]);
+            db()->prepare("INSERT INTO wallet_entries(seller_id,order_id,entry_type,amount,description) VALUES(?,?,'reserved',?,'Optionsänderung durch Admin')")
+              ->execute([$o['seller_id'],$o['id'],$delta]);
+        }
+        db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")
+          ->execute([$o['id'],'Zusatzoptionen wurden durch den Admin geändert. Änderung des Auftragswerts: '.money($delta).'.']);
+        log_event('order.options_changed_by_admin',(int)$o['seller_id'],(int)$o['id'],['option_ids'=>$requested,'old_options_total'=>$oldTotal,'new_options_total'=>$newTotal,'delta'=>$delta]);
+        db()->commit();
+    }catch(Throwable $e){db()->rollBack();throw $e;}
+
+    notify_seller((int)$o['seller_id'],'order.options_changed','Zusatzoptionen geändert','Die Zusatzoptionen für Auftrag '.$o['order_no'].' wurden angepasst. Neuer Auftragswert: '.money((float)$o['total_compensation']+$delta).'.','/auftrag/'.$o['order_no'],null,true);
+    flash('success','Zusatzoptionen aktualisiert. Neuer Auftragswert: '.money((float)$o['total_compensation']+$delta).'.');
+    redirect('/admin/auftrag/'.$o['order_no']);
+}
