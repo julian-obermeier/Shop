@@ -5,7 +5,6 @@
 <div class="admin-stats">
 <a href="{{ route('admin.orders.index') }}"><span>Aktive Aufträge</span><strong>{{ $stats['active_orders'] }}</strong></a>
 <a href="{{ route('admin.proofs.index') }}"><span>Nachweise</span><strong>{{ $stats['proofs_pending'] }}</strong></a>
-<a href="{{ route('admin.verifications.index') }}"><span>Verifizierungen</span><strong>{{ $stats['verifications_pending'] }}</strong></a>
 <a href="{{ route('admin.prechecks.index') }}"><span>Vorprüfungen</span><strong>{{ $stats['prechecks_pending'] }}</strong></a>
 <a href="{{ route('admin.messages.index') }}"><span>Nachrichten</span><strong>{{ $stats['messages_open'] }}</strong></a>
 <div><span>Auszahlungen offen</span><strong>{{ $stats['payouts_pending'] }}</strong></div>
