@@ -1,18 +1,18 @@
 {
   "name": "Private Ankauf",
   "short_name": "Ankauf",
-  "start_url": "/",
+  "start_url": "./",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#f7f5f8",
   "theme_color": "#17151b",
+  "lang": "de-DE",
   "icons": [
     {
-      "src": "/assets/icon.svg",
+      "src": "assets/icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any maskable"
     }
-  ],
-  "scope": "/",
-  "lang": "de-DE"
+  ]
 }
