@@ -1,1 +1,1 @@
-ALTER TABLE extra_days ADD COLUMN status ENUM('provisional','confirmed','cancelled') NOT NULL DEFAULT 'confirmed' AFTER source_id;
+-- Status für provisorische Zusatztage wird bereits in 20260920_02_operations.sql angelegt.
