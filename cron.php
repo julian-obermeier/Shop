@@ -71,6 +71,33 @@ foreach($spontaneous as $r){
     }
 }
 
+/* Neuaufnahmen nach Beanstandungen: Fristablauf überwachen. */
+$retakes=$pdo->query("SELECT r.*,o.order_no FROM evidence_retake_requests r JOIN orders o ON o.id=r.order_id WHERE r.status='requested'")->fetchAll();
+foreach($retakes as $r){
+    if(strtotime($r['grace_ends_at']) < $now->getTimestamp()){
+        $violationId=$r['violation_id'] ? (int)$r['violation_id'] : null;
+        if(!$violationId){
+            $violationId=ensure_provisional_violation(
+                (int)$r['order_id'],
+                'retake-'.$r['id'].'-missed',
+                'retake_missing',
+                'Angeforderte Neuaufnahme wurde nicht fristgerecht eingereicht.'
+            );
+            $pdo->prepare("UPDATE evidence_retake_requests SET violation_id=? WHERE id=?")->execute([$violationId,$r['id']]);
+        }
+        $pdo->prepare("UPDATE evidence_retake_requests SET status='missed',reviewed_at=NOW() WHERE id=? AND status='requested'")->execute([$r['id']]);
+        notify_seller(
+            (int)$r['seller_id'],
+            'evidence.retake_missed',
+            'Neuaufnahme nicht fristgerecht eingereicht',
+            'Die Frist einschließlich Nachfrist für eine angeforderte Neuaufnahme in Auftrag '.$r['order_no'].' ist abgelaufen.',
+            '/auftrag/'.$r['order_no'],
+            'retake-'.$r['id'].'-missed',
+            true
+        );
+    }
+}
+
 /* Zusatzaufgaben: die gesamte Aufgabe zählt bei Nichterfüllung höchstens als ein möglicher Verstoß. */
 $tasks=$pdo->query("SELECT t.*,o.seller_id,o.order_no FROM order_tasks t JOIN orders o ON o.id=t.order_id WHERE t.status='open' AND t.due_at IS NOT NULL AND t.violation_enabled=1")->fetchAll();
 foreach($tasks as $t){
