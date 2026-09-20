@@ -262,15 +262,15 @@ if (preg_match('#^/auftrag/(\d{8})/tagesnachweis$#',$path,$m)&&$method==='POST')
     if($submitted>=(int)$w['required_count']){flash('error','Für dieses Zeitfenster wurden bereits alle Pflichtnachweise eingereicht.');redirect('/auftrag/'.$o['order_no']);}
 
     try{
+        $late=strtotime($w['ends_at'])<time();
         $up=private_image_upload($_FILES['evidence']??[],'order-'.$o['id'].'/daily');
-        db()->prepare("INSERT INTO evidences(order_id,order_run_id,seller_id,evidence_type,day_no,window_key,source_type,source_id,file_path,mime_type,file_size,sha256,metadata_json,quality_flags_json) VALUES(?,?,?,'daily',?,?,'window',?,?,?,?,?,?,?)")
-          ->execute([$o['id'],$runId,$s['id'],$w['day_no'],$w['window_key'],$w['id'],$up['path'],$up['mime'],$up['size'],$up['sha256'],upload_metadata_json($up),upload_quality_flags_json($up)]);
+        db()->prepare("INSERT INTO evidences(order_id,order_run_id,seller_id,evidence_type,day_no,window_key,source_type,source_id,file_path,mime_type,file_size,sha256,metadata_json,quality_flags_json,is_late) VALUES(?,?,?,'daily',?,?,'window',?,?,?,?,?,?,?,?)")
+          ->execute([$o['id'],$runId,$s['id'],$w['day_no'],$w['window_key'],$w['id'],$up['path'],$up['mime'],$up['size'],$up['sha256'],upload_metadata_json($up),upload_quality_flags_json($up),$late?1:0]);
 
         $submitted++;
         if($submitted>=(int)$w['required_count']) db()->prepare("UPDATE evidence_windows SET status='submitted' WHERE id=?")->execute([$w['id']]);
         elseif($w['status']==='planned') db()->prepare("UPDATE evidence_windows SET status='open' WHERE id=?")->execute([$w['id']]);
 
-        $late=strtotime($w['ends_at'])<time();
         log_event('evidence.daily.submitted',(int)$s['id'],(int)$o['id'],['window_id'=>(int)$w['id'],'day_no'=>(int)$w['day_no'],'window_key'=>$w['window_key'],'late'=>$late]);
         flash('success','Tagesnachweis gespeichert.'.($late?' Einreichung erfolgte innerhalb der Nachfrist.':''));
     }catch(Throwable $e){flash('error',$e->getMessage());}
@@ -1533,9 +1533,11 @@ if (preg_match('#^/auftrag/(\d{8})/spontan/(\d+)$#',$path,$m) && $method==='POST
     $tz=new DateTimeZone((string)app_config('app.timezone','Europe/Berlin'));
     if(new DateTimeImmutable('now',$tz)>new DateTimeImmutable($r['grace_ends_at'],$tz)){flash('error','Die Nachfrist ist abgelaufen.');redirect('/auftrag/'.$r['order_no'].'/spontan/'.$r['id']);}
     try{
+        $late=strtotime($r['due_at'])<time();
         $up=private_image_upload($_FILES['evidence']??[],'order-'.$r['order_id'].'/spontaneous');
-        db()->prepare("INSERT INTO evidences(order_id,order_run_id,seller_id,evidence_type,source_type,source_id,file_path,mime_type,file_size,sha256,metadata_json,quality_flags_json) VALUES(?,?,?,'spontaneous','spontaneous',?,?,?,?,?,?,?)")
-          ->execute([$r['order_id'],current_run_id((int)$r['order_id']),$s['id'],$r['id'],$up['path'],$up['mime'],$up['size'],$up['sha256'],upload_metadata_json($up),upload_quality_flags_json($up)]);
+        db()->prepare("INSERT INTO evidences(order_id,order_run_id,seller_id,evidence_type,source_type,source_id,file_path,mime_type,file_size,sha256,metadata_json,quality_flags_json,is_late) VALUES(?,?,?,'spontaneous','spontaneous',?,?,?,?,?,?,?,?)")
+          ->execute([$r['order_id'],current_run_id((int)$r['order_id']),$s['id'],$r['id'],$up['path'],$up['mime'],$up['size'],$up['sha256'],upload_metadata_json($up),upload_quality_flags_json($up),$late?1:0]);
+        log_event('evidence.spontaneous.submitted',(int)$s['id'],(int)$r['order_id'],['request_id'=>(int)$r['id'],'late'=>$late]);
         $cnt=db()->prepare("SELECT COUNT(*) FROM evidences WHERE order_id=? AND evidence_type='spontaneous' AND source_type='spontaneous' AND source_id=? AND status IN('submitted','accepted')");
         $cnt->execute([$r['order_id'],$r['id']]);$submitted=(int)$cnt->fetchColumn();
         if($submitted >= (int)$r['required_count'])db()->prepare("UPDATE spontaneous_requests SET status='uploaded' WHERE id=?")->execute([$r['id']]);
