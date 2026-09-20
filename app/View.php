@@ -15,8 +15,8 @@
     <a href="<?= e(url('/angebote')) ?>">Angebote</a>
     <a href="<?= e(url('/so-funktioniert-es')) ?>">So funktioniert's</a>
     <a href="<?= e(url('/faq')) ?>">FAQ</a>
-    <?php if ($seller): ?><a href="<?= e(url('/dashboard')) ?>">Dashboard</a><a href="<?= e(url('/logout')) ?>">Abmelden</a>
-    <?php elseif ($admin): ?><a href="<?= e(url('/admin')) ?>">Admin</a><a href="<?= e(url('/admin/logout')) ?>">Abmelden</a>
+    <?php if ($seller): ?><a href="<?= e(url('/dashboard')) ?>">Dashboard</a><a href="<?= e(url('/wallet')) ?>">Wallet</a><a href="<?= e(url('/profil')) ?>">Profil</a><a href="<?= e(url('/logout')) ?>">Abmelden</a>
+    <?php elseif ($admin): ?><a href="<?= e(url('/admin')) ?>">Admin</a><a href="<?= e(url('/admin/auftraege')) ?>">Aufträge</a><a href="<?= e(url('/admin/verkaeuferinnen')) ?>">Verkäuferinnen</a><a href="<?= e(url('/admin/auszahlungen')) ?>">Auszahlungen</a><a href="<?= e(url('/admin/einstellungen')) ?>">Einstellungen</a><a href="<?= e(url('/admin/logout')) ?>">Abmelden</a>
     <?php else: ?><a href="<?= e(url('/login')) ?>">Login</a><a class="nav-cta" href="<?= e(url('/registrieren')) ?>">Registrieren</a><?php endif; ?>
   </nav>
 </header>
