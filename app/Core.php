@@ -492,6 +492,8 @@ function start_order_on_planned_date(int $orderId, ?DateTimeImmutable $now = nul
         if ($runId) {
             $pdo->prepare("UPDATE order_runs SET status='running',started_at=COALESCE(started_at,?) WHERE id=?")
                 ->execute([$planned->format('Y-m-d H:i:s'), $runId]);
+            $pdo->prepare("UPDATE order_items SET locked_at=COALESCE(locked_at,?) WHERE order_id=? AND order_run_id<=>?")
+                ->execute([$planned->format('Y-m-d H:i:s'), $orderId, $runId]);
         }
 
         schedule_order_days($orderId, $planned);
