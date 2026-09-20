@@ -250,7 +250,54 @@ if (preg_match('#^/admin/auftrag/(\d{8})/verstoss$#',$path,$m)&&$method==='POST'
 if (preg_match('#^/admin/beschaedigung/(\d+)/(anerkennen|ablehnen)$#',$path,$m)&&$method==='POST') {
     require_admin();$st=db()->prepare("SELECT d.*,o.order_no,o.id order_id,o.seller_id FROM damage_cases d JOIN orders o ON o.id=d.order_id WHERE d.id=?");$st->execute([(int)$m[1]]);$d=$st->fetch();if(!$d)not_found();
     if($m[2]==='ablehnen'){db()->prepare("UPDATE damage_cases SET status='rejected',decided_at=NOW() WHERE id=?")->execute([$d['id']]);db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system','Beschädigung nicht anerkannt. Der Auftrag wird mit demselben Artikel fortgeführt.')")->execute([$d['order_id']]);}
-    else {db()->beginTransaction();try{$rn=(int)db()->query("SELECT COALESCE(MAX(run_no),0)+1 FROM order_runs WHERE order_id=".(int)$d['order_id'])->fetchColumn();db()->prepare("UPDATE damage_cases SET status='restarted',decided_at=NOW() WHERE id=?")->execute([$d['id']]);db()->prepare("UPDATE order_runs SET status='restarted',ended_at=NOW() WHERE order_id=? AND status='running'")->execute([$d['order_id']]);db()->prepare("INSERT INTO order_runs(order_id,run_no,status,restart_reason) VALUES(?,?,'precheck',?)")->execute([$d['order_id'],$rn,$d['reason']]);db()->prepare("UPDATE orders SET status='precheck',started_at=NULL,updated_at=NOW() WHERE id=?")->execute([$d['order_id']]);db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")->execute([$d['order_id'],'Beschädigung anerkannt. Neuer Durchlauf '.$rn.' – neue Vorabkontrolle erforderlich.']);db()->commit();}catch(Throwable $e){db()->rollBack();throw $e;}}
+    else {
+        db()->beginTransaction();
+        try{
+            $oldRunId=current_run_id((int)$d['order_id']);
+            $rn=(int)db()->query("SELECT COALESCE(MAX(run_no),0)+1 FROM order_runs WHERE order_id=".(int)$d['order_id'])->fetchColumn();
+
+            db()->prepare("UPDATE damage_cases SET status='restarted',decided_at=NOW() WHERE id=?")->execute([$d['id']]);
+
+            if($oldRunId){
+                db()->prepare("UPDATE order_runs SET status='restarted',ended_at=NOW() WHERE id=?")->execute([$oldRunId]);
+                db()->prepare("UPDATE evidence_windows SET status='waived' WHERE order_id=? AND order_run_id=? AND status IN('planned','open')")
+                    ->execute([$d['order_id'],$oldRunId]);
+                db()->prepare("UPDATE order_days SET status='completed' WHERE order_id=? AND order_run_id=? AND status IN('planned','active')")
+                    ->execute([$d['order_id'],$oldRunId]);
+            }
+
+            db()->prepare("INSERT INTO order_runs(order_id,run_no,status,restart_reason) VALUES(?,?,'precheck',?)")
+                ->execute([$d['order_id'],$rn,$d['reason']]);
+
+            db()->prepare("UPDATE orders
+                           SET status='precheck',
+                               planned_start_date=NULL,
+                               precheck_approved_at=NULL,
+                               started_at=NULL,
+                               updated_at=NOW()
+                           WHERE id=?")
+                ->execute([$d['order_id']]);
+
+            db()->prepare("UPDATE order_start_date_requests SET status='rejected',decided_at=NOW(),admin_note='Durch Neustart nach anerkannter Beschädigung überholt'
+                           WHERE order_id=? AND status='pending'")
+                ->execute([$d['order_id']]);
+
+            db()->prepare("INSERT INTO chat_messages(order_id,sender_type,message) VALUES(?,'system',?)")
+                ->execute([$d['order_id'],'Beschädigung anerkannt. Neuer Durchlauf '.$rn.' wurde vollständig neu angelegt. Vorabkontrolle und Startdatum müssen erneut festgelegt werden.']);
+
+            log_event('damage.restart',(int)$d['seller_id'],(int)$d['order_id'],[
+                'damage_case_id'=>(int)$d['id'],
+                'old_run_id'=>$oldRunId,
+                'new_run_no'=>$rn,
+                'reason'=>$d['reason'],
+            ]);
+
+            db()->commit();
+        }catch(Throwable $e){
+            if(db()->inTransaction()) db()->rollBack();
+            throw $e;
+        }
+    }
     flash('success','Beschädigungsvorgang entschieden.');redirect('/admin/auftrag/'.$d['order_no']);
 }
 if (preg_match('#^/admin/auftrag/(\d{8})/abschliessen$#',$path,$m)&&$method==='POST') {
