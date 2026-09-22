@@ -135,6 +135,18 @@ function run_migrations(): void {
             INDEX(status,due_date)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
+        $pdo->exec("UPDATE order_day_events SET window_start='06:00:00',window_end='12:00:00',all_day=0 WHERE label='Morgens' AND window_start IS NULL");
+        $pdo->exec("UPDATE order_day_events SET window_start='13:00:00',window_end='16:00:00',all_day=0 WHERE label='Mittags' AND window_start IS NULL");
+        $pdo->exec("UPDATE order_day_events SET window_start='15:00:00',window_end='17:00:00',all_day=0 WHERE label='Nachmittags' AND window_start IS NULL");
+        $pdo->exec("UPDATE order_day_events SET window_start='18:00:00',window_end='22:00:00',all_day=0 WHERE label='Abends' AND window_start IS NULL");
+        $pdo->exec("UPDATE order_day_events SET window_start='00:00:00',window_end='23:59:00',all_day=1 WHERE window_start IS NULL");
+
+        $pdo->exec("INSERT IGNORE INTO seller_wallet_entries(seller_id,order_id,amount,status,available_at)
+            SELECT seller_id,id,compensation,
+                CASE WHEN status='completed' THEN 'available' ELSE 'reserved' END,
+                CASE WHEN status='completed' THEN COALESCE(completed_at,NOW()) ELSE NULL END
+            FROM orders");
+
         mark_migration($pdo,$key);
     }
 }
