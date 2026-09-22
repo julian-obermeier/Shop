@@ -151,3 +151,16 @@
 .select-all-row{margin-top:8px}
 @media(max-width:900px){.evidence-viewer{grid-template-columns:1fr}.evidence-viewer-side{position:static}.attention-summary{grid-template-columns:1fr}}
 @media(max-width:640px){.notification-item{grid-template-columns:auto 1fr}.notification-actions{grid-column:1/-1}.notification-head{flex-direction:column;gap:3px}.message-bubble{max-width:94%}.payout-entry{grid-template-columns:auto 1fr}.payout-entry>b{grid-column:2}.viewer-nav{flex-direction:column}.viewer-nav .btn{width:100%}}
+
+.seller-due-stats{max-width:none!important;margin-top:-4px}
+.due-now-stat{border-color:#93c5fd;background:#eff6ff}
+.due-now-stat strong{color:#1d4ed8}
+.due-missed-stat{border-color:#fecaca;background:#fff7f7}
+.due-missed-stat strong{color:#b91c1c}
+.seller-due-panel{border-color:#dbeafe}
+.due-now-panel{border-color:#93c5fd;box-shadow:0 16px 45px rgba(37,99,235,.09)}
+.due-now-panel .section-head h2{color:#1d4ed8}
+.due-missed-panel{border-color:#fecaca}
+.due-missed-panel .section-head h2{color:#b91c1c}
+.due-task-row{background:#f8fbff;border-radius:12px;padding-left:12px;padding-right:12px}
+@media(max-width:640px){.seller-due-stats{grid-template-columns:1fr!important}}
