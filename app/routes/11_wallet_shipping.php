@@ -197,25 +197,42 @@ if (preg_match('#^/seller/order/(\d+)/confirm-shipment$#',$path,$m) && $method==
     $s=require_seller();$orderId=(int)$m[1];
     $q=db()->prepare('SELECT * FROM orders WHERE id=? AND seller_id=?');$q->execute([$orderId,$s['id']]);$o=$q->fetch();if(!$o)not_found();
     $shipment=shipment_for_order($orderId);
-    if($o['status']!=='shipping'||!$shipment||$shipment['status']!=='pending'){flash('error','Für diesen Auftrag ist keine Versandbestätigung offen.');redirect('/seller/order/'.$orderId);}
-    if(post('confirm_shipped')!=='1'){flash('error','Bitte den Versand verbindlich bestätigen.');redirect('/seller/order/'.$orderId);}
-    if(new DateTimeImmutable('today')<new DateTimeImmutable($shipment['due_date'])){flash('error','Der Versand kann erst am vorgesehenen Versandtag bestätigt werden.');redirect('/seller/order/'.$orderId);}
+    if($o['status']!=='shipping'||!$shipment||$shipment['status']!=='pending'){flash('error','Für dieses Angebot ist keine Versandbestätigung offen.');redirect('/seller/order/'.$orderId);}
+    if(!offer_ready_for_shipping((int)$o['offer_id'])){flash('error','Der gemeinsame Versand wird erst freigeschaltet, wenn alle Positionen des Angebots abgeschlossen sind.');redirect('/seller/order/'.$orderId);}
+    if(post('confirm_shipped')!=='1'){flash('error','Bitte den gemeinsamen Versand verbindlich bestätigen.');redirect('/seller/order/'.$orderId);}
+    $due=offer_shipping_due_date((int)$o['offer_id']);
+    if(!$due||new DateTimeImmutable('today')<$due){flash('error','Der Versand kann erst am vorgesehenen gemeinsamen Versandtag bestätigt werden.');redirect('/seller/order/'.$orderId);}
     if(!$shipment['address_keyword']||!$shipment['address_name']||!$shipment['street']||!$shipment['postal_code']||!$shipment['city']){flash('error','Die Versandadresse ist noch nicht vollständig hinterlegt.');redirect('/seller/order/'.$orderId);}
+
+    $reference=post('tracking_number')?:null;$note=post('seller_note')?:null;
+    $sumQ=db()->prepare("SELECT COALESCE(SUM(w.amount),0)
+        FROM seller_wallet_entries w JOIN orders x ON x.id=w.order_id
+        WHERE x.offer_id=? AND w.status='reserved'");
+    $sumQ->execute([$o['offer_id']]);$amount=(float)$sumQ->fetchColumn();
 
     db()->beginTransaction();
     try{
-        db()->prepare("UPDATE order_shipments SET status='confirmed',confirmed_at=NOW(),tracking_number=?,seller_note=?,updated_at=NOW() WHERE id=?")
-            ->execute([post('tracking_number')?:null,post('seller_note')?:null,$shipment['id']]);
-        db()->prepare("UPDATE orders SET status='completed',completed_at=NOW(),updated_at=NOW() WHERE id=?")->execute([$orderId]);
-        db()->prepare("UPDATE seller_wallet_entries SET status='available',available_at=NOW(),updated_at=NOW() WHERE order_id=? AND status='reserved'")->execute([$orderId]);
+        db()->prepare("UPDATE order_shipments sh
+            JOIN orders x ON x.id=sh.order_id
+            SET sh.status='confirmed',sh.confirmed_at=NOW(),sh.tracking_number=?,sh.seller_note=?,sh.updated_at=NOW()
+            WHERE x.offer_id=? AND sh.status='pending'")
+            ->execute([$reference,$note,$o['offer_id']]);
+        db()->prepare("UPDATE orders SET status='completed',completed_at=NOW(),updated_at=NOW()
+            WHERE offer_id=? AND status='shipping'")->execute([$o['offer_id']]);
+        db()->prepare("UPDATE seller_wallet_entries w
+            JOIN orders x ON x.id=w.order_id
+            SET w.status='available',w.available_at=NOW(),w.updated_at=NOW()
+            WHERE x.offer_id=? AND w.status='reserved'")
+            ->execute([$o['offer_id']]);
         db()->commit();
     }catch(Throwable $e){
         if(db()->inTransaction())db()->rollBack();
         flash('error',$e->getMessage());redirect('/seller/order/'.$orderId);
     }
-    log_event((int)$o['offer_id'],$orderId,'shipment.confirmed',['tracking_number'=>post('tracking_number')?:null]);
-    log_event((int)$o['offer_id'],$orderId,'wallet.available',['amount'=>(float)$o['compensation']]);
+
+    log_event((int)$o['offer_id'],$orderId,'shipment.confirmed_group',['tracking_number'=>$reference]);
+    log_event((int)$o['offer_id'],$orderId,'wallet.available_group',['amount'=>$amount]);
     sync_offer_status((int)$o['offer_id']);
-    flash('success','Versand bestätigt. Der Auftrag ist abgeschlossen und die Vergütung ist jetzt auszahlbar.');
+    flash('success','Gemeinsamer Versand bestätigt. Das Angebot ist abgeschlossen und die gesamte vorgemerkte Vergütung ist jetzt auszahlbar.');
     redirect('/seller/order/'.$orderId);
 }
