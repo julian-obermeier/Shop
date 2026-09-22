@@ -77,3 +77,14 @@ Enthalten sind:
 Die drei 14-Tage-Hauptpositionen teilen sich einen gemeinsamen Start. Kürzere Endpositionen verschieben sich automatisch mit, wenn sich das späteste Ende einer Hauptposition durch Verlängerung nach hinten verschiebt. Bei einer Verschiebung bleiben Nachweise erhalten, deren Kalendertag weiterhin innerhalb des neuen Endfensters liegt.
 
 Der Versand wird erst freigegeben, wenn alle Positionen abgeschlossen sind. Danach gibt es genau eine gemeinsame Versandbestätigung; erst anschließend wird die gesamte vorgemerkte Vergütung auszahlbar.
+
+
+## Duftproben / Duftbewertungen
+- Die Plattformverwaltung kann unabhängig von Angeboten jederzeit eine Duftprobe bei einer Verkäuferin anfragen.
+- Die Anfrage enthält eine frei benennbare Probe bzw. einen Gegenstand und optional eine genauere Frage.
+- Die Verkäuferin muss jede offene Anfrage mit einem Wert von **1 bis 10** beantworten.
+- 1 steht standardmäßig für sehr geringe und 10 für sehr starke Duftintensität.
+- Ein optionaler Kommentar kann zusammen mit der Bewertung übermittelt werden.
+- Antworten werden mit Zeitstempel gespeichert und in der Admin-Historie angezeigt.
+- Offene Duftproben können vor der Antwort widerrufen werden.
+- Offene Anfragen erscheinen direkt im Verkäuferinnen-Dashboard.
