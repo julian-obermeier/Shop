@@ -57,7 +57,8 @@ if (preg_match('#^/seller/order/(\d+)$#',$path,$m) && $method==='GET') {
         <h2>2. Durchführung</h2>
         <p><strong>Je Nachweisvorgang:</strong><br><?=nl2br(e($o['daily_instructions']))?></p>
         <p class="muted"><?=e($o['daily_photo_count'])?> getrennte Nachweisvorgänge pro Tag · jeweils genau 1 Foto · nur im jeweiligen Zeitfenster</p>
-        <?php if($o['started_at']):?><div class="notice"><strong><?=!empty($o['align_to_offer_end'])?'Synchronisierter Zeitraum ab':'Geplanter Start'?>:</strong> <?=e(date_de(scheduled_order_day_date($o,1)))?><?php if(!empty($o['align_to_offer_end'])):?><br><span>Diese Position endet gemeinsam mit den längsten Basispositionen und verschiebt sich bei deren Verlängerung automatisch mit.</span><?php endif;?></div><?php endif;?>
+        <?php if($o['started_at']):?><div class="notice"><strong><?=!empty($o['align_to_offer_end'])?'Synchronisierter Zeitraum ab':'Geplanter Start'?>:</strong> <?=e(date_de(scheduled_order_day_date($o,1)))?><?php if(!empty($o['align_to_offer_end'])):?><br><span>Diese Position endet gemeinsam mit den längsten Basispositionen und verschiebt sich bei deren Verlängerung automatisch mit.</span><?php endif;?></div>
+        <?php elseif($o['status']==='running'&&!empty($o['align_to_offer_end'])):?><div class="notice"><strong>Von der Plattform freigegeben.</strong><br>Der konkrete Durchführungstag wird automatisch festgelegt, sobald der Endtermin der mehrtägigen Basisposition berechenbar ist.</div><?php endif;?>
 
         <?php if($o['status']==='running' && $current):?>
             <div class="current-day">
