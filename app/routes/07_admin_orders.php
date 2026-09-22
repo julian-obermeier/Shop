@@ -383,6 +383,11 @@ if (preg_match('#^/admin/order/(\d+)/approve-precheck$#',$path,$m) && $method===
     ]);
     sync_end_aligned_positions((int)$o['offer_id']);
     sync_offer_status((int)$o['offer_id']);
+    notify_seller((int)$o['seller_id'],'evidence','Auftrag freigegeben',
+        $pendingSchedule
+            ?$o['order_no'].' wurde freigegeben. Der konkrete Termin wird automatisch gesetzt.'
+            :$o['order_no'].' wurde freigegeben. Start: '.$start->format('d.m.Y').'.',
+        '/seller/order/'.$id,'precheck-approved:'.$id.':'.time());
     flash('success',$pendingSchedule
         ?'Auftrag wurde freigegeben. Der Durchführungstag wird automatisch gesetzt, sobald die mehrtägige Basisposition gestartet wurde.'
         :'Auftrag freigegeben. Start: '.date_de($start).'.');
@@ -409,6 +414,8 @@ if (preg_match('#^/admin/order/(\d+)/reject-precheck$#',$path,$m) && $method==='
         }
     }
     log_event((int)$o['offer_id'],$id,'precheck.rejected',['reason'=>$reason]);
+    notify_seller((int)$o['seller_id'],'evidence','Vorabkontrolle erneut erforderlich',$o['order_no'].":
+".$reason,'/seller/order/'.$id,'precheck-rejected:'.$id.':'.time());
     flash('success','Vorabkontrolle zurückgewiesen. Die Verkäuferin kann die Fotos neu einreichen.');
     redirect(post('return_to')==='reviews'?'/admin/reviews':'/admin/order/'.$id);
 }
@@ -417,7 +424,7 @@ if (preg_match('#^/admin/order/(\d+)/reject-precheck$#',$path,$m) && $method==='
 if (preg_match('#^/admin/day/(\d+)/request-evidence$#',$path,$m) && $method==='POST') {
     $a=require_admin();$dayId=(int)$m[1];$note=post('late_submission_note');
 
-    $q=db()->prepare("SELECT d.*,o.offer_id,o.id order_id,o.status order_status,o.started_at,
+    $q=db()->prepare("SELECT d.*,o.offer_id,o.id order_id,o.order_no,o.seller_id,o.status order_status,o.started_at,
         o.required_success_days,o.align_to_offer_end,o.is_final_day_position
         FROM order_days d JOIN orders o ON o.id=d.order_id WHERE d.id=?");
     $q->execute([$dayId]);$d=$q->fetch();if(!$d)not_found();
@@ -448,6 +455,10 @@ if (preg_match('#^/admin/day/(\d+)/request-evidence$#',$path,$m) && $method==='P
         'missing_events'=>array_map(static fn(array $x)=>['id'=>(int)$x['id'],'event_no'=>(int)$x['event_no'],'label'=>$x['label']],$missing),
         'note'=>$note?:null
     ]);
+    notify_seller((int)$d['seller_id'],'evidence','Fehlende Nachweise nachreichen',
+        $d['order_no'].' · Tag '.$d['day_no'].($note!==''?":
+".$note:' wurde zur Nachreichung freigegeben.'),
+        '/seller/order/'.$d['order_id'],'day-evidence-requested:'.$dayId.':'.time());
     flash('success','Die fehlenden Nachweise wurden zur Nachreichung freigegeben.');
     redirect(post('return_to')==='reviews'?'/admin/reviews':'/admin/order/'.$d['order_id']);
 }
@@ -457,7 +468,7 @@ if (preg_match('#^/admin/day/(\d+)/review$#',$path,$m) && $method==='POST') {
     $a=require_admin();$dayId=(int)$m[1];$decision=post('decision');
     if(!in_array($decision,['fulfilled','fulfilled_override','not_fulfilled'],true)){flash('error','Ungültige Entscheidung.');redirect('/admin/orders');}
 
-    $q=db()->prepare("SELECT d.*,o.offer_id,o.daily_photo_count,o.required_success_days,o.started_at AS order_started_at,o.status AS order_status,o.is_final_day_position,o.align_to_offer_end
+    $q=db()->prepare("SELECT d.*,o.offer_id,o.seller_id,o.order_no,o.daily_photo_count,o.required_success_days,o.started_at AS order_started_at,o.status AS order_status,o.is_final_day_position,o.align_to_offer_end
         FROM order_days d JOIN orders o ON o.id=d.order_id WHERE d.id=?");
     $q->execute([$dayId]);$d=$q->fetch();if(!$d)not_found();
 
@@ -500,6 +511,12 @@ if (preg_match('#^/admin/day/(\d+)/review$#',$path,$m) && $method==='POST') {
     ]);
     if($storedDecision==='not_fulfilled' && empty($d['align_to_offer_end']))sync_end_aligned_positions((int)$d['offer_id']);
     sync_order_progress((int)$d['order_id']);
+    $sellerReviewText=$decision==='fulfilled_override'
+        ?$d['order_no'].' · Tag '.$d['day_no'].' wurde trotz fehlender Nachweise als erfüllt bestätigt.'
+        :($storedDecision==='fulfilled'
+            ?$d['order_no'].' · Tag '.$d['day_no'].' wurde als erfüllt bestätigt.'
+            :$d['order_no'].' · Tag '.$d['day_no'].' wurde als nicht erfüllt bewertet; ein zusätzlicher Tag wurde angehängt.');
+    notify_seller((int)$d['seller_id'],'evidence','Tagesprüfung abgeschlossen',$sellerReviewText,'/seller/order/'.$d['order_id'],'day-reviewed:'.$dayId.':'.time());
     flash('success',$decision==='fulfilled_override'
         ?'Tag wurde trotz fehlender Nachweise als erfüllt bestätigt.'
         :($storedDecision==='fulfilled'?'Tag als erfüllt bestätigt.':'Tag nicht erfüllt: ein zusätzlicher Tag wurde angehängt.'));
