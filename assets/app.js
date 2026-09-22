@@ -19,3 +19,10 @@ document.addEventListener('click',async e=>{
     document.execCommand('copy');
   }
 });
+
+
+document.addEventListener('change',e=>{
+  const master=e.target.closest('[data-select-all]');
+  if(!master)return;
+  document.querySelectorAll(master.getAttribute('data-select-all')).forEach(el=>{el.checked=master.checked;});
+});
