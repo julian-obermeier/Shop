@@ -11,9 +11,11 @@ Komplett neue, schlanke PHP/MySQL-Anwendung für Direktangebote zwischen Admin/K
 6. Verkäuferin lädt positionsbezogene Vorabfotos hoch.
 7. Admin gibt die Vorabkontrolle frei.
 8. Durchführungstage werden automatisch erzeugt.
-9. Verkäuferin lädt pro Tag die festgelegte Anzahl Fotos hoch.
-10. Admin entscheidet `Erfüllt` oder `Nicht erfüllt`.
-11. `Nicht erfüllt` erzeugt automatisch genau einen zusätzlichen Durchführungstag.
+9. Pro Durchführungstag entstehen getrennte Nachweisvorgänge. Bei 3 Vorgängen: `Morgens`, `Mittags`, `Abends`.
+10. Jeder Nachweisvorgang wird separat und der Reihe nach mit genau einem Foto eingereicht.
+11. Erst wenn alle Nachweisvorgänge des Tages vorliegen, geht der gesamte Tag an den Admin zur Prüfung.
+12. Admin entscheidet für den Tag `Erfüllt` oder `Nicht erfüllt`.
+13. `Nicht erfüllt` erzeugt automatisch genau einen zusätzlichen Durchführungstag mit denselben Nachweisvorgängen.
 
 ## Anforderungen
 - PHP 8.2+
