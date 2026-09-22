@@ -312,13 +312,6 @@ function day_is_missed(array $day,array $order): bool {
     foreach($events as $ev)if(event_window_state($ev,$date)==='closed' && ($ev['status']??'')!=='submitted')return true;
     return false;
 }
-function latest_precheck_rejection(int $orderId): ?string {
-    $q=db()->prepare("SELECT payload_json FROM activity_log WHERE order_id=? AND event_type='precheck.rejected' ORDER BY id DESC LIMIT 1");
-    $q->execute([$orderId]);$raw=$q->fetchColumn();
-    if(!$raw)return null;
-    $payload=json_decode((string)$raw,true);$reason=is_array($payload)?trim((string)($payload['reason']??'')):'';
-    return $reason!==''?$reason:null;
-}
 function wallet_status_label(string $s): string {
     return match($s){'reserved'=>'Vorgemerkt','available'=>'Auszahlbar','paid'=>'Ausgezahlt','cancelled'=>'Storniert',default=>$s};
 }
