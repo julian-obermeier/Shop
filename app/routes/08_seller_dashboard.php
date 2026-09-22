@@ -8,7 +8,7 @@ if ($path==='/seller' && $method==='GET') {
     $q=db()->prepare("SELECT COUNT(*) FROM orders WHERE seller_id=? AND status='running'");$q->execute([$s['id']]);$running=(int)$q->fetchColumn();
     $q=db()->prepare("SELECT COUNT(*) FROM orders WHERE seller_id=? AND status='shipping'");$q->execute([$s['id']]);$shipping=(int)$q->fetchColumn();
 
-    $q=db()->prepare("SELECT d.*,o.title_snapshot,o.order_no,o.started_at,o.daily_photo_count
+    $q=db()->prepare("SELECT d.*,o.title_snapshot,o.order_no,o.started_at,o.daily_photo_count,o.offer_id,o.is_final_day_position
         FROM order_days d
         JOIN orders o ON o.id=d.order_id
         WHERE o.seller_id=? AND o.status='running' AND d.status IN('planned','submitted')
@@ -38,7 +38,7 @@ if ($path==='/seller' && $method==='GET') {
 
     <section class="panel"><h2>Als Nächstes</h2><div class="list">
     <?php foreach($today as $d):
-        $scheduled=order_day_date($d['started_at'],$d['day_no']);
+        $scheduled=scheduled_order_day_date($d,(int)$d['day_no']);
         $isFuture=$scheduled && $scheduled>new DateTimeImmutable('today');
         $nextLabel=null;$window=null;$windowState=null;
         if($d['status']==='planned'){
@@ -82,5 +82,5 @@ if ($path==='/seller/offers' && $method==='GET') {
 
 if ($path==='/seller/orders' && $method==='GET') {
     $s=require_seller();$q=db()->prepare("SELECT * FROM orders WHERE seller_id=? ORDER BY FIELD(status,'running','shipping','precheck','completed','cancelled'),created_at DESC");$q->execute([$s['id']]);$orders=$q->fetchAll();
-    ob_start();?><div class="page-head"><div><span class="eyebrow">Aufträge</span><h1>Meine Aufträge</h1></div></div><div class="list"><?php foreach($orders as $o):?><a class="list-row" href="<?=e(url('/seller/order/'.$o['id']))?>"><div><strong><?=e($o['order_no'].' · '.$o['title_snapshot'])?></strong><span><?=e($o['successful_days'])?>/<?=e($o['required_success_days'])?> erfolgreich · +<?=e($o['extension_days'])?> Tag(e)<?php if($o['started_at']):?> · Start <?=e(date_de(order_day_date($o['started_at'],1)))?><?php endif;?></span></div><span class="status status-<?=e($o['status'])?>"><?=e(order_status_label($o['status']))?></span></a><?php endforeach;?><?php if(!$orders):?><div class="empty">Noch keine Aufträge vorhanden.</div><?php endif;?></div><?php render('Meine Aufträge',ob_get_clean());exit;
+    ob_start();?><div class="page-head"><div><span class="eyebrow">Aufträge</span><h1>Meine Aufträge</h1></div></div><div class="list"><?php foreach($orders as $o):?><a class="list-row" href="<?=e(url('/seller/order/'.$o['id']))?>"><div><strong><?=e($o['order_no'].' · '.$o['title_snapshot'])?></strong><span><?=e($o['successful_days'])?>/<?=e($o['required_success_days'])?> erfolgreich · +<?=e($o['extension_days'])?> Tag(e)<?php if($o['started_at']):?> · <?=!empty($o['is_final_day_position'])?'Termin':'Start'?> <?=e(date_de(scheduled_order_day_date($o,1)))?><?php endif;?></span></div><span class="status status-<?=e($o['status'])?>"><?=e(order_status_label($o['status']))?></span></a><?php endforeach;?><?php if(!$orders):?><div class="empty">Noch keine Aufträge vorhanden.</div><?php endif;?></div><?php render('Meine Aufträge',ob_get_clean());exit;
 }
