@@ -93,7 +93,7 @@ if ($path === '/admin/sellers' && $method === 'GET') {
         <div class="list">
         <?php foreach($sellers as $s):?>
             <div class="list-row static">
-                <div><strong><?=e($s['first_name'].' '.$s['last_name'])?></strong><span><?=e($s['email'])?></span></div>
+                <div><a class="seller-name-link" href="<?=e(url('/admin/seller/'.$s['id']))?>"><strong><?=e($s['first_name'].' '.$s['last_name'])?></strong></a><span><?=e($s['email'])?></span></div>
                 <div class="seller-row-actions">
                     <?php if((int)$s['active']):?>
                         <a class="btn ghost" href="<?=e(url('/admin/scent-requests').'?seller_id='.$s['id'])?>">Duftprobe anfragen</a>
