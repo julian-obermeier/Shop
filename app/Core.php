@@ -323,15 +323,19 @@ function refresh_due_notifications(array $user): void {
             $start=!empty($ev['all_day'])?new DateTimeImmutable($date->format('Y-m-d').' 00:00:00'):new DateTimeImmutable($date->format('Y-m-d').' '.substr((string)$ev['window_start'],0,5).':00');
             $seconds=$start->getTimestamp()-$now->getTimestamp();
             if($seconds>=0&&$seconds<=3600){
-                notify_seller($sellerId,'upcoming','Nachweis beginnt bald',$ev['label'].' für '.$ev['order_no'].' beginnt um '.$start->format('H:i').' Uhr.','/seller/order/'.$ev['order_id'],'event-upcoming:'.$ev['id']);
+                notify_seller($sellerId,'upcoming','Nachweis beginnt bald',$ev['label'].' für '.$ev['order_no'].' beginnt um '.$start->format('H:i').' Uhr.','/seller/order/'.$ev['order_id'],'event-upcoming:'.$ev['id'].':'.$start->format('YmdHi'));
             }
 
             $state=event_window_state($ev,$date,$now);
             $lateAllowed=event_late_submission_allowed($ev,$ev,$date);
             if($state==='closed'&&!$lateAllowed){
                 $body=$ev['order_no'].' · Tag '.$ev['day_no'].' · '.$ev['label'].' wurde nicht innerhalb von '.event_window_text($ev).' eingereicht.';
-                notify_seller($sellerId,'overdue','Nachweisfrist verpasst',$body,'/seller/order/'.$ev['order_id'],'event-missed:'.$ev['id']);
-                notify_admins('overdue','Nachweisfrist verpasst',$body,'/admin/order/'.$ev['order_id'],'admin-event-missed:'.$ev['id']);
+                $end=!empty($ev['all_day'])
+                    ?new DateTimeImmutable($date->format('Y-m-d').' 23:59:59')
+                    :new DateTimeImmutable($date->format('Y-m-d').' '.substr((string)$ev['window_end'],0,5).':59');
+                $windowKey=$end->format('YmdHi');
+                notify_seller($sellerId,'overdue','Nachweisfrist verpasst',$body,'/seller/order/'.$ev['order_id'],'event-missed:'.$ev['id'].':'.$windowKey);
+                notify_admins('overdue','Nachweisfrist verpasst',$body,'/admin/order/'.$ev['order_id'],'admin-event-missed:'.$ev['id'].':'.$windowKey);
             }
         }
     }elseif($user['role']==='admin'){
