@@ -193,6 +193,13 @@ function notify_admins(string $type,string $title,?string $body=null,?string $ta
     $ids=db()->query('SELECT id FROM admins')->fetchAll(PDO::FETCH_COLUMN);
     foreach($ids as $id)notify_user('admin',(int)$id,$type,$title,$body,$targetUrl,$dedupeKey);
 }
+function notify_sent_offer_change(int $offerId,string $detail): void {
+    $q=db()->prepare("SELECT status,seller_id,title FROM offers WHERE id=?");$q->execute([$offerId]);$o=$q->fetch();
+    if(!$o||$o['status']!=='sent')return;
+    notify_seller((int)$o['seller_id'],'offer','Angebot wurde aktualisiert',
+        'Das Angebot „'.$o['title'].'“ wurde geändert. '.$detail.' Bitte prüfe vor der Annahme den aktuellen Stand.',
+        '/seller/offer/'.$offerId,'offer-position-change:'.$offerId.':'.microtime(true));
+
 function notification_unread_count(array $user): int {
     $q=db()->prepare('SELECT COUNT(*) FROM notifications WHERE user_role=? AND user_id=? AND read_at IS NULL');
     $q->execute([$user['role'],$user['id']]);return (int)$q->fetchColumn();
