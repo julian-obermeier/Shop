@@ -240,4 +240,18 @@ function run_migrations(): void {
         mark_migration($pdo,$key);
     }
 
+    $key='20260922_07_synced_base_start';
+    if(!migration_applied($pdo,$key)){
+        if(!column_exists($pdo,'offer_positions','sync_start_with_offer')){
+            $pdo->exec("ALTER TABLE offer_positions ADD COLUMN sync_start_with_offer TINYINT(1) NOT NULL DEFAULT 0 AFTER align_to_offer_end");
+        }
+        if(!column_exists($pdo,'orders','sync_start_with_offer')){
+            $pdo->exec("ALTER TABLE orders ADD COLUMN sync_start_with_offer TINYINT(1) NOT NULL DEFAULT 0 AFTER align_to_offer_end");
+        }
+        if(!index_exists($pdo,'orders','idx_offer_synced_start')){
+            $pdo->exec("ALTER TABLE orders ADD INDEX idx_offer_synced_start(offer_id,sync_start_with_offer,status)");
+        }
+        mark_migration($pdo,$key);
+    }
+
 }
