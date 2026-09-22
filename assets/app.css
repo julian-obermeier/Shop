@@ -40,3 +40,31 @@
 @media(max-width:900px){.evidence-events{grid-template-columns:1fr}}
 
 .field-hint{display:block;margin-top:6px;color:var(--muted);font-size:12px;font-weight:600}
+
+.status-shipping{background:#fef3c7;color:#92400e!important}
+.window-list{display:grid;gap:7px;margin-top:14px}
+.window-list>div{display:flex;justify-content:space-between;gap:12px;padding:9px 10px;border-radius:10px;background:#f9fafb}
+.window-list strong{font-size:13px}
+.window-list span{font-size:12px;color:var(--muted)}
+.event-config{margin:18px 0;padding:14px;border:1px solid var(--line);border-radius:14px;background:#fafafa}
+.event-config h4{margin:0 0 12px}
+.event-config-row{display:grid;grid-template-columns:1.3fr .7fr .7fr .7fr;gap:10px;align-items:end;padding:10px 0;border-top:1px solid var(--line)}
+.event-config-row:first-of-type{border-top:0}
+.event-all-day{margin-bottom:14px}
+.window-time{display:block;color:var(--muted);font-size:12px;font-weight:700;margin-top:3px}
+.window-closed{background:#fffbeb;border-color:#fde68a}
+.shipping-panel{border-color:#fde68a}
+.shipping-address{font-style:normal;line-height:1.65;padding:14px;border-radius:12px;background:#fafafa;border:1px solid var(--line)}
+.wallet-inline{align-items:flex-end!important;gap:2px}
+.wallet-inline strong{font-size:14px}
+.wallet-help{display:grid;gap:12px}
+.wallet-help>div{padding:14px;border-radius:12px;background:#f9fafb}
+.wallet-help strong,.wallet-help span{display:block}
+.wallet-help span{color:var(--muted);font-size:13px;margin-top:4px}
+.event-review-list,.event-mini-list{display:grid;gap:8px;margin:14px 0}
+.event-review-row,.event-mini-list>div{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px;border:1px solid var(--line);border-radius:10px;background:#fafafa}
+.event-review-row>div{display:flex;flex-direction:column}
+.event-review-row>div span,.event-mini-list>div>span:first-child{font-size:12px;color:var(--muted)}
+.event-review-row img{width:76px;height:76px;object-fit:cover;border-radius:9px;border:1px solid var(--line)}
+@media(max-width:900px){.event-config-row{grid-template-columns:1fr 1fr}.event-all-day{margin-bottom:14px}}
+@media(max-width:640px){.event-config-row{grid-template-columns:1fr}.event-review-row,.event-mini-list>div{align-items:flex-start;flex-direction:column}.wallet-inline{align-items:flex-start!important}}
