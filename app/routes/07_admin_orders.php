@@ -3,13 +3,12 @@ declare(strict_types=1);
 // ADMIN REVIEW CENTER
 if ($path==='/admin/reviews' && $method==='GET') {
     require_admin();
-    $pre=db()->query("SELECT o.*,s.first_name,s.last_name,COUNT(p.id) photo_count
+    $pre=db()->query("SELECT o.*,s.first_name,s.last_name,
+        (SELECT COUNT(*) FROM precheck_uploads p WHERE p.order_id=o.id) photo_count
         FROM orders o
         JOIN sellers s ON s.id=o.seller_id
-        LEFT JOIN precheck_uploads p ON p.order_id=o.id
         WHERE o.status='precheck'
-        GROUP BY o.id
-        HAVING photo_count>=o.precheck_photo_count
+          AND (SELECT COUNT(*) FROM precheck_uploads p2 WHERE p2.order_id=o.id)>=o.precheck_photo_count
         ORDER BY o.created_at")->fetchAll();
     $days=db()->query("SELECT d.*,o.order_no,o.title_snapshot,o.started_at,o.offer_id,s.first_name,s.last_name
         FROM order_days d
