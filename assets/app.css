@@ -164,3 +164,40 @@
 .due-missed-panel .section-head h2{color:#b91c1c}
 .due-task-row{background:#f8fbff;border-radius:12px;padding-left:12px;padding-right:12px}
 @media(max-width:640px){.seller-due-stats{grid-template-columns:1fr!important}}
+
+.seller-task-hero{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:26px;margin:0 0 20px;border-radius:22px;border:1px solid var(--line);background:#fff;box-shadow:var(--shadow)}
+.task-hero-now{border-color:#93c5fd;background:linear-gradient(135deg,#eff6ff 0%,#fff 70%)}
+.task-hero-next{border-color:#dbeafe;background:#fbfdff}
+.task-hero-tomorrow{background:#fafafa}
+.task-hero-clear{border-color:#bbf7d0;background:#f0fdf4}
+.task-hero-copy h2{font-size:28px;line-height:1.1;margin:5px 0 8px}
+.task-hero-copy p{margin:0;color:var(--muted)}
+.task-countdown{display:flex;align-items:baseline;gap:10px;margin-top:16px}
+.task-countdown span{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.task-countdown strong{font-size:32px;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.task-hero-button{flex:0 0 auto}
+.task-done-mark{display:grid;place-items:center;width:62px;height:62px;border-radius:50%;background:#dcfce7;color:#166534;font-size:30px;font-weight:900}
+.seller-today-timeline{padding-bottom:10px}
+.task-timeline{display:flex;flex-direction:column}
+.task-timeline-row{display:grid;grid-template-columns:58px 18px minmax(0,1fr) auto;gap:10px;align-items:center;padding:13px 0;text-decoration:none;color:inherit;border-bottom:1px solid var(--line)}
+.task-timeline-row:last-child{border-bottom:0}
+.task-time{font-size:13px;font-weight:800;color:#374151;font-variant-numeric:tabular-nums}
+.task-timeline-dot{width:10px;height:10px;border-radius:50%;background:#d1d5db;justify-self:center}
+.timeline-done .task-timeline-dot{background:#16a34a}
+.timeline-open .task-timeline-dot{background:#2563eb;box-shadow:0 0 0 5px rgba(37,99,235,.12)}
+.timeline-closed .task-timeline-dot{background:#dc2626}
+.task-timeline-copy{display:flex;flex-direction:column;min-width:0}
+.task-timeline-copy span{font-size:12px;color:var(--muted)}
+.seller-missed-summary{margin-bottom:18px}
+.seller-tomorrow .list-row>div{min-width:0}
+.cron-ok{border-color:#bbf7d0;background:#f0fdf4}
+.cron-stale{border-color:#fde68a;background:#fffbeb}
+@media(max-width:700px){
+  .seller-task-hero{align-items:stretch;flex-direction:column;padding:20px}
+  .task-hero-button{width:100%}
+  .task-hero-copy h2{font-size:24px}
+  .task-countdown{justify-content:space-between}
+  .task-countdown strong{font-size:27px}
+  .task-timeline-row{grid-template-columns:46px 14px minmax(0,1fr)}
+  .task-timeline-row>.status{grid-column:3;margin-top:3px}
+}
