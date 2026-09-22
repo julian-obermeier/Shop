@@ -16,6 +16,8 @@ if (preg_match('#^/seller/order/(\d+)$#',$path,$m) && $method==='GET') {
         if(!$currentEvents && $current['status']==='planned')$currentEvents=ensure_day_events((int)$current['id'],(int)$current['required_photo_count']);
     }
     $shipment=shipment_for_order($id);
+    $offerShippingReady=$shipment?offer_ready_for_shipping((int)$o['offer_id']):false;
+    $offerShipDue=$shipment?offer_shipping_due_date((int)$o['offer_id']):null;
     $q=db()->prepare('SELECT * FROM seller_wallet_entries WHERE order_id=?');$q->execute([$id]);$wallet=$q->fetch();
 
     ob_start();?>
@@ -131,7 +133,14 @@ if (preg_match('#^/seller/order/(\d+)$#',$path,$m) && $method==='GET') {
 
     <?php if(in_array($o['status'],['shipping','completed'],true) && $shipment):?>
     <section class="panel shipping-panel">
-        <div class="section-head"><h2>3. Versand</h2><span class="status status-<?=e($shipment['status']==='confirmed'?'fulfilled':'shipping')?>"><?=e($shipment['status']==='confirmed'?'Versendet':'Versand offen')?></span></div>
+        <div class="section-head"><h2>3. Gemeinsamer Versand</h2><span class="status status-<?=e($shipment['status']==='confirmed'?'fulfilled':'shipping')?>"><?=e($shipment['status']==='confirmed'?'Versendet':'Versand offen')?></span></div>
+
+        <?php if($o['status']==='shipping' && !$offerShippingReady):?>
+            <div class="notice"><strong>Diese Position ist bereits fertig.</strong><br>Die Versandadresse wird erst freigeschaltet, wenn auch alle übrigen Positionen dieses Angebots abgeschlossen sind. Anschließend wird alles gemeinsam versendet.</div>
+        <?php else:
+            $displayDue=$offerShipDue??new DateTimeImmutable($shipment['due_date']);
+        ?>
+        <div class="notice success"><strong>Alle Positionen sind versandbereit.</strong><br>Die Sachen aus diesem Angebot werden gemeinsam in einer Sendung verschickt.</div>
         <div class="grid two">
             <div>
                 <h3>Versandadresse</h3>
@@ -147,23 +156,24 @@ if (preg_match('#^/seller/order/(\d+)$#',$path,$m) && $method==='GET') {
                 <?php else:?><div class="notice warning">Die Versandadresse wird von der Plattform noch vervollständigt.</div><?php endif;?>
             </div>
             <div>
-                <h3>Versandtermin</h3>
-                <p><strong><?=e(date_de(new DateTimeImmutable($shipment['due_date'])))?></strong></p>
+                <h3>Gemeinsamer Versandtermin</h3>
+                <p><strong><?=e(date_de($displayDue))?></strong></p>
                 <?php if($shipment['status']==='confirmed'):?>
-                    <div class="notice success">Versand bestätigt am <?=e(date('d.m.Y H:i',strtotime($shipment['confirmed_at'])))?> Uhr.</div>
+                    <div class="notice success">Gemeinsamer Versand bestätigt am <?=e(date('d.m.Y H:i',strtotime($shipment['confirmed_at'])))?> Uhr.</div>
                     <?php if($shipment['tracking_number']):?><p>Sendungsnummer: <strong><?=e($shipment['tracking_number'])?></strong></p><?php endif;?>
-                <?php elseif(new DateTimeImmutable('today')<new DateTimeImmutable($shipment['due_date'])):?>
-                    <div class="notice">Die Versandbestätigung wird am vorgesehenen Versandtag freigeschaltet.</div>
+                <?php elseif(new DateTimeImmutable('today')<$displayDue):?>
+                    <div class="notice">Die gemeinsame Versandbestätigung wird am vorgesehenen Versandtag freigeschaltet.</div>
                 <?php elseif($shipment['address_keyword']&&$shipment['address_name']&&$shipment['street']&&$shipment['postal_code']&&$shipment['city']):?>
                     <form method="post" action="<?=e(url('/seller/order/'.$id.'/confirm-shipment'))?>">
-                        <label class="check"><input type="checkbox" name="confirm_shipped" value="1" required><span>Ich bestätige verbindlich, dass ich alles aus diesem Auftrag an die angegebene Versandadresse versendet habe.</span></label>
+                        <label class="check"><input type="checkbox" name="confirm_shipped" value="1" required><span>Ich bestätige verbindlich, dass ich alle für dieses Angebot vorgesehenen Sachen gemeinsam an die angegebene Versandadresse versendet habe.</span></label>
                         <label>Sendungsnummer (optional)<input name="tracking_number" maxlength="190"></label>
                         <label>Versandhinweis (optional)<textarea name="seller_note" rows="3"></textarea></label>
-                        <button class="btn full">Versand bestätigen</button>
+                        <button class="btn full">Gemeinsamen Versand bestätigen</button>
                     </form>
                 <?php endif;?>
             </div>
         </div>
+        <?php endif;?>
     </section>
     <?php endif;?>
 
