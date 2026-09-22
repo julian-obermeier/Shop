@@ -36,12 +36,14 @@ if (($path==='/admin/notifications' || $path==='/seller/notifications') && $meth
 
 if (preg_match('#^/(admin|seller)/notifications/read-all$#',$path,$m) && $method==='POST') {
     $u=require_login();if($u['role']!==$m[1]){http_response_code(403);exit('Zugriff verweigert.');}
+    if($u['role']==='seller'&&is_seller_impersonation()){flash('error','In der Verkäuferinnen-Vorschau werden Benachrichtigungen nicht als gelesen markiert.');redirect('/seller/notifications');}
     db()->prepare("UPDATE notifications SET read_at=COALESCE(read_at,NOW()) WHERE user_role=? AND user_id=?")->execute([$u['role'],$u['id']]);
     redirect('/'.$u['role'].'/notifications');
 }
 
 if (preg_match('#^/(admin|seller)/notifications/(\d+)/(open|read)$#',$path,$m) && $method==='POST') {
     $u=require_login();if($u['role']!==$m[1]){http_response_code(403);exit('Zugriff verweigert.');}
+    if($u['role']==='seller'&&is_seller_impersonation()){flash('error','In der Verkäuferinnen-Vorschau werden Benachrichtigungen nicht verändert.');redirect('/seller/notifications');}
     $q=db()->prepare("SELECT * FROM notifications WHERE id=? AND user_role=? AND user_id=?");
     $q->execute([(int)$m[2],$u['role'],$u['id']]);$n=$q->fetch();if(!$n)not_found();
     db()->prepare("UPDATE notifications SET read_at=COALESCE(read_at,NOW()) WHERE id=?")->execute([$n['id']]);
