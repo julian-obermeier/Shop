@@ -132,8 +132,16 @@ if (preg_match('#^/admin/offer/(\d+)$#',$path,$m) && $method==='GET') {
     <?php if($o['status']==='draft'):?>
     <section class="panel action-panel">
         <div><h2>Angebot versenden</h2><p>Nach dem Versenden bleibt das Angebot bis zur Annahme weiterhin bearbeitbar.</p></div>
-        <form method="post" action="<?=e(url('/admin/offer/'.$id.'/send'))?>"><button class="btn" <?=!$positions?'disabled':''?>>An Verkäuferin senden</button></form>
+        <div class="head-actions">
+            <form method="post" action="<?=e(url('/admin/offer/'.$id.'/delete'))?>">
+                <button class="btn ghost danger">Entwurf löschen</button>
+            </form>
+            <form method="post" action="<?=e(url('/admin/offer/'.$id.'/send'))?>">
+                <button class="btn" <?=!$positions?'disabled':''?>>An Verkäuferin senden</button>
+            </form>
+        </div>
     </section>
+    <div class="notice warning"><strong>Entwurf löschen:</strong> Das Angebot und alle dazugehörigen Positionen werden dauerhaft gelöscht. Diese Aktion ist nur möglich, solange das Angebot noch Entwurf ist.</div>
     <?php else:?>
     <section class="panel action-panel">
         <div>
@@ -241,6 +249,45 @@ if (preg_match('#^/admin/offer/(\d+)/position/(\d+)/delete$#',$path,$m) && $meth
 }
 
 
+
+
+
+if (preg_match('#^/admin/offer/(\d+)/delete$#',$path,$m) && $method==='POST') {
+    require_admin();$id=(int)$m[1];
+
+    db()->beginTransaction();
+    try{
+        $q=db()->prepare('SELECT id,offer_no,title,status FROM offers WHERE id=? FOR UPDATE');
+        $q->execute([$id]);$offer=$q->fetch();
+        if(!$offer)throw new RuntimeException('Angebot wurde nicht gefunden.');
+        if($offer['status']!=='draft')throw new RuntimeException('Nur Entwürfe können gelöscht werden.');
+
+        $q=db()->prepare('SELECT COUNT(*) FROM offer_acceptances WHERE offer_id=?');
+        $q->execute([$id]);$acceptances=(int)$q->fetchColumn();
+        $q=db()->prepare('SELECT COUNT(*) FROM orders WHERE offer_id=?');
+        $q->execute([$id]);$orders=(int)$q->fetchColumn();
+        if($acceptances>0||$orders>0)throw new RuntimeException('Dieser Entwurf besitzt bereits verknüpfte Auftragsdaten und kann nicht gelöscht werden.');
+
+        $q=db()->prepare('SELECT COUNT(*) FROM offer_positions WHERE offer_id=?');
+        $q->execute([$id]);$positions=(int)$q->fetchColumn();
+
+        log_event($id,null,'offer.deleted',[
+            'offer_no'=>$offer['offer_no'],
+            'title'=>$offer['title'],
+            'positions'=>$positions
+        ]);
+
+        db()->prepare('DELETE FROM offers WHERE id=? AND status=\'draft\'')->execute([$id]);
+        db()->commit();
+
+        flash('success','Entwurf '.$offer['offer_no'].' wurde dauerhaft gelöscht.');
+        redirect('/admin/offers');
+    }catch(Throwable $e){
+        if(db()->inTransaction())db()->rollBack();
+        flash('error',$e->getMessage());
+        redirect('/admin/offer/'.$id);
+    }
+}
 
 if (preg_match('#^/admin/offer/(\d+)/withdraw$#',$path,$m) && $method==='POST') {
     require_admin();$id=(int)$m[1];
