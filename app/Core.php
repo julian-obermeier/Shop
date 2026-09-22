@@ -13,6 +13,54 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
 
 const APP_ROOT = __DIR__ . '/..';
 
+function secure_key(): string {
+    static $key=null;
+    if($key!==null)return $key;
+    $dir=APP_ROOT.'/storage/private';
+    if(!is_dir($dir)&&!@mkdir($dir,0700,true)&&!is_dir($dir))throw new RuntimeException('Privater Speicher konnte nicht erstellt werden.');
+    $file=$dir.'/.app-key';
+    if(!is_file($file)){
+        $raw=random_bytes(32);
+        if(file_put_contents($file,base64_encode($raw),LOCK_EX)===false)throw new RuntimeException('Verschlüsselungsschlüssel konnte nicht gespeichert werden.');
+        @chmod($file,0600);
+        $key=$raw;
+        return $key;
+    }
+    $raw=base64_decode(trim((string)file_get_contents($file)),true);
+    if($raw===false||strlen($raw)!==32)throw new RuntimeException('Ungültiger Verschlüsselungsschlüssel.');
+    return $key=$raw;
+}
+function secure_encrypt(?string $value): ?string {
+    if($value===null||$value==='')return null;
+    if(!function_exists('openssl_encrypt'))throw new RuntimeException('OpenSSL wird für verschlüsselte Auszahlungsdaten benötigt.');
+    $iv=random_bytes(12);$tag='';
+    $cipher=openssl_encrypt($value,'aes-256-gcm',secure_key(),OPENSSL_RAW_DATA,$iv,$tag,'',16);
+    if($cipher===false)throw new RuntimeException('Verschlüsselung fehlgeschlagen.');
+    return 'v1:'.base64_encode($iv.$tag.$cipher);
+}
+function secure_decrypt(?string $value): ?string {
+    if($value===null||$value==='')return null;
+    if(!str_starts_with($value,'v1:'))return $value;
+    $raw=base64_decode(substr($value,3),true);
+    if($raw===false||strlen($raw)<29)return null;
+    $iv=substr($raw,0,12);$tag=substr($raw,12,16);$cipher=substr($raw,28);
+    $plain=openssl_decrypt($cipher,'aes-256-gcm',secure_key(),OPENSSL_RAW_DATA,$iv,$tag);
+    return $plain===false?null:$plain;
+}
+function mask_email(?string $email): string {
+    $email=(string)$email;if(!str_contains($email,'@'))return $email!==''?'••••':'–';
+    [$local,$domain]=explode('@',$email,2);
+    $visible=mb_substr($local,0,1);
+    return $visible.str_repeat('•',max(3,mb_strlen($local)-1)).'@'.$domain;
+}
+function mask_iban(?string $iban): string {
+    $iban=preg_replace('/\s+/','',(string)$iban)??'';
+    if($iban==='')return '–';
+    if(strlen($iban)<=8)return str_repeat('•',max(4,strlen($iban)-2)).substr($iban,-2);
+    return substr($iban,0,4).' '.str_repeat('•',max(4,strlen($iban)-8)).' '.substr($iban,-4);
+}
+
+
 function config(): array {
     static $config;
     if ($config !== null) return $config;
@@ -128,6 +176,82 @@ function stop_seller_impersonation(): ?int {
     return $adminId;
 }
 
+
+function notify_user(string $role,int $userId,string $type,string $title,?string $body=null,?string $targetUrl=null,?string $dedupeKey=null): void {
+    if(!in_array($role,['admin','seller'],true)||$userId<1)return;
+    try{
+        db()->prepare("INSERT INTO notifications(user_role,user_id,type,title,body,target_url,dedupe_key)
+            VALUES(?,?,?,?,?,?,?)")->execute([$role,$userId,$type,$title,$body,$targetUrl,$dedupeKey]);
+    }catch(PDOException $e){
+        if((string)$e->getCode()!=='23000')throw $e;
+    }
+}
+function notify_seller(int $sellerId,string $type,string $title,?string $body=null,?string $targetUrl=null,?string $dedupeKey=null): void {
+    notify_user('seller',$sellerId,$type,$title,$body,$targetUrl,$dedupeKey);
+}
+function notify_admins(string $type,string $title,?string $body=null,?string $targetUrl=null,?string $dedupeKey=null): void {
+    $ids=db()->query('SELECT id FROM admins')->fetchAll(PDO::FETCH_COLUMN);
+    foreach($ids as $id)notify_user('admin',(int)$id,$type,$title,$body,$targetUrl,$dedupeKey);
+}
+function notification_unread_count(array $user): int {
+    $q=db()->prepare('SELECT COUNT(*) FROM notifications WHERE user_role=? AND user_id=? AND read_at IS NULL');
+    $q->execute([$user['role'],$user['id']]);return (int)$q->fetchColumn();
+}
+function order_messages(int $orderId): array {
+    $q=db()->prepare('SELECT * FROM order_messages WHERE order_id=? ORDER BY created_at,id');
+    $q->execute([$orderId]);return $q->fetchAll();
+}
+function mark_order_messages_read(int $orderId,string $role): void {
+    if($role==='admin')db()->prepare("UPDATE order_messages SET read_by_admin_at=COALESCE(read_by_admin_at,NOW()) WHERE order_id=? AND sender_role='seller'")->execute([$orderId]);
+    elseif($role==='seller')db()->prepare("UPDATE order_messages SET read_by_seller_at=COALESCE(read_by_seller_at,NOW()) WHERE order_id=? AND sender_role='admin'")->execute([$orderId]);
+}
+function refresh_due_notifications(array $user): void {
+    $now=new DateTimeImmutable('now');$today=$now->format('Y-m-d');
+    if($user['role']==='seller'){
+        $sellerId=(int)$user['id'];
+        $q=db()->prepare("SELECT id,subject FROM scent_requests WHERE seller_id=? AND status='pending' AND requested_at<DATE_SUB(NOW(),INTERVAL 24 HOUR)");
+        $q->execute([$sellerId]);foreach($q->fetchAll() as $r)notify_seller($sellerId,'reminder','Duftprobe noch offen','Bitte beantworte die Duftbewertung „'.$r['subject'].'“ mit 1 bis 10.','/seller/scent-requests','scent-reminder:'.$r['id']);
+
+        $q=db()->prepare("SELECT d.id,d.day_no,o.id order_id,o.order_no FROM order_days d JOIN orders o ON o.id=d.order_id
+            WHERE o.seller_id=? AND o.status='running' AND d.status='planned' AND d.late_submission_allowed=1
+              AND d.late_submission_requested_at<DATE_SUB(NOW(),INTERVAL 24 HOUR)");
+        $q->execute([$sellerId]);foreach($q->fetchAll() as $r)notify_seller($sellerId,'reminder','Nachweise noch nachzureichen','Für '.$r['order_no'].' · Tag '.$r['day_no'].' fehlen weiterhin angeforderte Nachweise.','/seller/order/'.$r['order_id'],'late-reminder:'.$r['id']);
+
+        $q=db()->prepare("SELECT o.id,o.order_no,o.precheck_photo_count,(SELECT COUNT(*) FROM precheck_uploads p WHERE p.order_id=o.id) cnt
+            FROM orders o WHERE o.seller_id=? AND o.status='precheck' AND o.precheck_photo_count>0 AND o.created_at<DATE_SUB(NOW(),INTERVAL 24 HOUR)");
+        $q->execute([$sellerId]);foreach($q->fetchAll() as $r)if((int)$r['cnt']<(int)$r['precheck_photo_count'])notify_seller($sellerId,'reminder','Vorabfotos fehlen noch','Für '.$r['order_no'].' fehlen noch Vorabfotos.','/seller/order/'.$r['id'],'precheck-reminder:'.$r['id']);
+
+        $q=db()->prepare("SELECT sh.id,sh.due_date,o.id order_id,o.order_no FROM order_shipments sh JOIN orders o ON o.id=sh.order_id
+            WHERE o.seller_id=? AND sh.status='pending' AND sh.due_date<CURDATE()");
+        $q->execute([$sellerId]);foreach($q->fetchAll() as $r)notify_seller($sellerId,'overdue','Versand überfällig',$r['order_no'].' war am '.date('d.m.Y',strtotime($r['due_date'])).' zum Versand vorgesehen.','/seller/order/'.$r['order_id'],'shipping-overdue:'.$r['id']);
+
+        $q=db()->prepare("SELECT e.*,d.day_no,d.id day_id,d.status day_status,o.id order_id,o.offer_id,o.started_at,o.required_success_days,o.align_to_offer_end
+            FROM order_day_events e JOIN order_days d ON d.id=e.day_id JOIN orders o ON o.id=d.order_id
+            WHERE o.seller_id=? AND o.status='running' AND d.status='planned' AND e.status='planned' ORDER BY d.day_no,e.event_no LIMIT 40");
+        $q->execute([$sellerId]);
+        foreach($q->fetchAll() as $ev){
+            $date=scheduled_order_day_date($ev,(int)$ev['day_no']);if(!$date)continue;
+            $start=!empty($ev['all_day'])?new DateTimeImmutable($date->format('Y-m-d').' 00:00:00'):new DateTimeImmutable($date->format('Y-m-d').' '.substr((string)$ev['window_start'],0,5).':00');
+            $seconds=$start->getTimestamp()-$now->getTimestamp();
+            if($seconds>=0&&$seconds<=3600)notify_seller($sellerId,'upcoming','Nachweis beginnt bald',$ev['label'].' für Auftrag '.($ev['order_id']??'').' beginnt um '.$start->format('H:i').' Uhr.','/seller/order/'.$ev['order_id'],'event-upcoming:'.$ev['id']);
+        }
+    }elseif($user['role']==='admin'){
+        $q=db()->query("SELECT sh.id,sh.due_date,o.id order_id,o.order_no,s.first_name,s.last_name
+            FROM order_shipments sh JOIN orders o ON o.id=sh.order_id JOIN sellers s ON s.id=o.seller_id
+            WHERE sh.status='pending' AND sh.due_date<CURDATE()");
+        foreach($q->fetchAll() as $r)notify_admins('overdue','Versand überfällig',$r['order_no'].' · '.$r['first_name'].' '.$r['last_name'],'/admin/order/'.$r['order_id'],'admin-shipping-overdue:'.$r['id']);
+
+        $q=db()->query("SELECT d.id,d.day_no,o.id order_id,o.order_no,s.first_name,s.last_name FROM order_days d
+            JOIN orders o ON o.id=d.order_id JOIN sellers s ON s.id=o.seller_id
+            WHERE d.status='planned' AND d.late_submission_allowed=1 AND d.late_submission_requested_at<DATE_SUB(NOW(),INTERVAL 24 HOUR)");
+        foreach($q->fetchAll() as $r)notify_admins('reminder','Nachforderung seit 24 Stunden offen',$r['order_no'].' · Tag '.$r['day_no'].' · '.$r['first_name'].' '.$r['last_name'],'/admin/order/'.$r['order_id'],'admin-late-reminder:'.$r['id']);
+
+        $q=db()->query("SELECT r.id,r.subject,s.first_name,s.last_name FROM scent_requests r JOIN sellers s ON s.id=r.seller_id
+            WHERE r.status='pending' AND r.requested_at<DATE_SUB(NOW(),INTERVAL 24 HOUR)");
+        foreach($q->fetchAll() as $r)notify_admins('reminder','Duftprobe noch unbeantwortet',$r['subject'].' · '.$r['first_name'].' '.$r['last_name'],'/admin/scent-requests','admin-scent-reminder:'.$r['id']);
+    }
+}
+
 function render(string $title, string $content): void {
     // Every rendered POST form gets a CSRF token automatically. This keeps route views concise
     // while ensuring all state-changing form submissions pass the global CSRF check.
@@ -137,6 +261,8 @@ function render(string $title, string $content): void {
         $content
     ) ?? $content;
     $user = current_user();
+    if($user)refresh_due_notifications($user);
+    $notificationUnread=$user?notification_unread_count($user):0;
     $impersonator = impersonating_admin();
     $flashes = pull_flashes();
     require APP_ROOT . '/app/View.php';
@@ -671,8 +797,13 @@ function wallet_summary(int $sellerId): array {
     $q->execute([$sellerId]);return $q->fetch()?:['reserved'=>0,'available'=>0,'paid'=>0];
 }
 function payout_profile(int $sellerId): array {
-    $q=db()->prepare('SELECT * FROM seller_payout_profiles WHERE seller_id=?');$q->execute([$sellerId]);
-    return $q->fetch()?:['seller_id'=>$sellerId,'payout_method'=>null,'paypal_email'=>null,'bank_holder'=>null,'bank_iban'=>null,'bank_bic'=>null];
+    $q=db()->prepare('SELECT * FROM seller_payout_profiles WHERE seller_id=?');$q->execute([$sellerId]);$row=$q->fetch();
+    if(!$row)return ['seller_id'=>$sellerId,'payout_method'=>null,'paypal_email'=>null,'bank_holder'=>null,'bank_iban'=>null,'bank_bic'=>null];
+    $row['paypal_email']=secure_decrypt($row['paypal_email_enc']??null)??($row['paypal_email']??null);
+    $row['bank_holder']=secure_decrypt($row['bank_holder_enc']??null)??($row['bank_holder']??null);
+    $row['bank_iban']=secure_decrypt($row['bank_iban_enc']??null)??($row['bank_iban']??null);
+    $row['bank_bic']=secure_decrypt($row['bank_bic_enc']??null)??($row['bank_bic']??null);
+    return $row;
 }
 function create_wallet_entry(int $sellerId,int $orderId,float $amount): void {
     db()->prepare("INSERT IGNORE INTO seller_wallet_entries(seller_id,order_id,amount,status) VALUES(?,?,?,'reserved')")
