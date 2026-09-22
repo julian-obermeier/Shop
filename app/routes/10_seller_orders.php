@@ -1,6 +1,6 @@
 <?php
 declare(strict_types=1);
-// SELLER ORDER DETAIL + UPLOADS
+// SELLER ORDER DETAIL + SEPARATE EVIDENCE EVENTS
 if (preg_match('#^/seller/order/(\d+)$#',$path,$m) && $method==='GET') {
     $s=require_seller();$id=(int)$m[1];
     $q=db()->prepare('SELECT * FROM orders WHERE id=? AND seller_id=?');$q->execute([$id,$s['id']]);$o=$q->fetch();if(!$o)not_found();
@@ -11,6 +11,13 @@ if (preg_match('#^/seller/order/(\d+)$#',$path,$m) && $method==='GET') {
     $currentDate=$current?order_day_date($o['started_at'],$current['day_no']):null;
     $today=new DateTimeImmutable('today');
     $canSubmit=$currentDate && $currentDate<=$today;
+    $currentEvents=[];
+    if($current){
+        $currentEvents=day_events((int)$current['id']);
+        if(!$currentEvents && $current['status']==='planned'){
+            $currentEvents=ensure_day_events((int)$current['id'],(int)$current['required_photo_count']);
+        }
+    }
 
     ob_start();?>
     <div class="page-head"><div><span class="eyebrow">Auftrag <?=e($o['order_no'])?></span><h1><?=e($o['title_snapshot'])?></h1><p><?=money($o['compensation'])?></p></div><span class="status status-<?=e($o['status'])?>"><?=e(order_status_label($o['status']))?></span></div>
@@ -39,7 +46,8 @@ if (preg_match('#^/seller/order/(\d+)$#',$path,$m) && $method==='GET') {
     <?php if(in_array($o['status'],['running','completed'],true)):?>
     <section class="panel">
         <h2>2. Durchführung</h2>
-        <p><?=nl2br(e($o['daily_instructions']))?></p>
+        <p><strong>Je Nachweisvorgang:</strong><br><?=nl2br(e($o['daily_instructions']))?></p>
+        <p class="muted"><?=e($o['daily_photo_count'])?> getrennte Nachweisvorgänge pro Tag · jeweils genau 1 Foto</p>
         <?php if($o['started_at']):?><div class="notice"><strong>Geplanter Start:</strong> <?=e(date_de(order_day_date($o['started_at'],1)))?></div><?php endif;?>
 
         <?php if($o['status']==='completed'):?>
@@ -48,31 +56,61 @@ if (preg_match('#^/seller/order/(\d+)$#',$path,$m) && $method==='GET') {
             <div class="current-day">
                 <span class="eyebrow"><?=((int)$current['is_extension'])?'Verlängerungstag':'Aktueller Tag'?></span>
                 <h3>Tag <?=e($current['day_no'])?> · <?=e(date_de($currentDate))?></h3>
-                <?php if($current['status']==='submitted'):?>
-                    <div class="notice">Deine <?=e($current['required_photo_count'])?> Fotos wurden eingereicht und warten auf Prüfung.</div>
-                <?php elseif(!$canSubmit):?>
-                    <div class="notice"><strong>Noch nicht freigeschaltet.</strong><br>Dieser Durchführungstag kann ab <?=e(date_de($currentDate))?> eingereicht werden.</div>
-                <?php else:?>
-                    <p><?=e($current['required_photo_count'])?> Fotos sind erforderlich.</p>
-                    <?php if($currentDate<$today):?><div class="notice warning">Dieser Tag ist bereits fällig. Du kannst ihn weiterhin jetzt einreichen.</div><?php endif;?>
-                    <form method="post" enctype="multipart/form-data" action="<?=e(url('/seller/day/'.$current['id'].'/submit'))?>">
-                        <label>Fotos<input type="file" name="photos[]" accept="image/jpeg,image/png,image/webp" capture="environment" multiple required></label>
-                        <label>Kommentar (optional)<textarea name="seller_note" rows="3"></textarea></label>
-                        <button class="btn">Tag einreichen</button>
-                    </form>
+
+                <?php if(!$canSubmit && $current['status']==='planned'):?>
+                    <div class="notice"><strong>Noch nicht freigeschaltet.</strong><br>Die Nachweisvorgänge dieses Tages können ab <?=e(date_de($currentDate))?> bearbeitet werden.</div>
+                <?php elseif($currentDate && $currentDate<$today && $current['status']==='planned'):?>
+                    <div class="notice warning">Dieser Tag ist bereits fällig. Die offenen Nachweisvorgänge können weiterhin nachgereicht werden.</div>
                 <?php endif;?>
+
+                <?php if($current['status']==='submitted'):?>
+                    <div class="notice success">Alle Nachweisvorgänge dieses Tages wurden einzeln eingereicht. Der Tag wartet jetzt auf Prüfung.</div>
+                <?php endif;?>
+
+                <?php
+                $nextEventId=null;
+                foreach($currentEvents as $ev){if($ev['status']==='planned'){$nextEventId=(int)$ev['id'];break;}}
+                ?>
+                <?php if($currentEvents):?><div class="evidence-events">
+                <?php foreach($currentEvents as $ev):
+                    $uq=db()->prepare('SELECT * FROM day_uploads WHERE event_id=? ORDER BY id LIMIT 1');$uq->execute([$ev['id']]);$upload=$uq->fetch();
+                ?>
+                    <article class="evidence-event <?=e($ev['status'])?>">
+                        <div class="evidence-event-head">
+                            <div><span class="eyebrow">Vorgang <?=e($ev['event_no'])?></span><h4><?=e($ev['label'])?></h4></div>
+                            <span class="status status-<?=e($ev['status']==='submitted'?'fulfilled':'planned')?>"><?=e($ev['status']==='submitted'?'Eingereicht':'Offen')?></span>
+                        </div>
+                        <?php if($upload):?>
+                            <a class="event-photo" href="<?=e(url('/file/day/'.$upload['id']))?>" target="_blank"><img src="<?=e(url('/file/day/'.$upload['id']))?>" alt="<?=e($ev['label'])?>"></a>
+                            <?php if($ev['seller_note']):?><p class="muted">Kommentar: <?=e($ev['seller_note'])?></p><?php endif;?>
+                        <?php elseif($current['status']==='planned' && $canSubmit && (int)$ev['id']===$nextEventId):?>
+                            <form method="post" enctype="multipart/form-data" action="<?=e(url('/seller/event/'.$ev['id'].'/submit'))?>">
+                                <label>1 Foto für „<?=e($ev['label'])?>“<input type="file" name="photo" accept="image/jpeg,image/png,image/webp" capture="environment" required></label>
+                                <label>Kommentar (optional)<textarea name="seller_note" rows="2"></textarea></label>
+                                <button class="btn full"><?=e($ev['label'])?> einreichen</button>
+                            </form>
+                        <?php elseif($ev['status']==='planned'):?>
+                            <div class="event-waiting">Wird nach dem vorherigen Vorgang freigeschaltet.</div>
+                        <?php endif;?>
+                    </article>
+                <?php endforeach;?>
+                </div><?php endif;?>
             </div>
         <?php endif;?>
 
         <div class="timeline">
         <?php foreach($days as $d):
             $scheduled=order_day_date($o['started_at'],$d['day_no']);
+            $events=day_events((int)$d['id']);
+            $eventDone=0;foreach($events as $ev){if($ev['status']==='submitted')$eventDone++;}
+            $eventTotal=$events?count($events):(int)$d['required_photo_count'];
+            if(!$events && $d['status']==='submitted')$eventDone=$eventTotal;
         ?>
             <div class="timeline-row">
                 <span class="dot dot-<?=e($d['status'])?>"></span>
                 <div>
                     <div><strong>Tag <?=e($d['day_no'])?><?=((int)$d['is_extension'])?' · Verlängerung':''?></strong><span><?=e(date_de($scheduled))?></span></div>
-                    <div class="timeline-meta"><span><?=e(day_status_label($d['status']))?></span><?php if($d['admin_note']):?><span>Admin: <?=e($d['admin_note'])?></span><?php endif;?></div>
+                    <div class="timeline-meta"><span><?=e(day_status_label($d['status']))?></span><span><?=e($eventDone)?>/<?=e($eventTotal)?> Vorgänge eingereicht</span><?php if($d['admin_note']):?><span>Admin: <?=e($d['admin_note'])?></span><?php endif;?></div>
                 </div>
             </div>
         <?php endforeach;?>
@@ -100,26 +138,70 @@ if (preg_match('#^/seller/order/(\d+)/precheck$#',$path,$m) && $method==='POST')
     redirect('/seller/order/'.$id);
 }
 
-if (preg_match('#^/seller/day/(\d+)/submit$#',$path,$m) && $method==='POST') {
-    $s=require_seller();$dayId=(int)$m[1];
-    $q=db()->prepare("SELECT d.*,o.offer_id,o.seller_id,o.status order_status,o.started_at FROM order_days d JOIN orders o ON o.id=d.order_id WHERE d.id=? AND o.seller_id=?");$q->execute([$dayId,$s['id']]);$d=$q->fetch();if(!$d)not_found();
-    if($d['order_status']!=='running'||$d['status']!=='planned'){flash('error','Dieser Tag kann nicht eingereicht werden.');redirect('/seller/order/'.$d['order_id']);}
-    $scheduled=order_day_date($d['started_at'],$d['day_no']);
-    if(!$scheduled || $scheduled>new DateTimeImmutable('today')){flash('error','Dieser Durchführungstag ist noch nicht freigeschaltet.');redirect('/seller/order/'.$d['order_id']);}
-    $q=db()->prepare("SELECT id FROM order_days WHERE order_id=? AND status IN('planned','submitted') ORDER BY day_no LIMIT 1");$q->execute([$d['order_id']]);
-    if((int)$q->fetchColumn()!==$dayId){flash('error','Bitte die Tage der Reihe nach bearbeiten.');redirect('/seller/order/'.$d['order_id']);}
-    $files=normalized_uploads('photos');
-    if(count($files)!==(int)$d['required_photo_count']){flash('error','Für diesen Tag sind genau '.$d['required_photo_count'].' Fotos erforderlich.');redirect('/seller/order/'.$d['order_id']);}
+if (preg_match('#^/seller/event/(\d+)/submit$#',$path,$m) && $method==='POST') {
+    $s=require_seller();$eventId=(int)$m[1];
+    $q=db()->prepare("SELECT e.*,d.order_id,d.day_no,d.status day_status,d.required_photo_count,
+        o.offer_id,o.seller_id,o.status order_status,o.started_at
+        FROM order_day_events e
+        JOIN order_days d ON d.id=e.day_id
+        JOIN orders o ON o.id=d.order_id
+        WHERE e.id=? AND o.seller_id=?");
+    $q->execute([$eventId,$s['id']]);$ev=$q->fetch();if(!$ev)not_found();
+
+    if($ev['order_status']!=='running'||$ev['day_status']!=='planned'||$ev['status']!=='planned'){
+        flash('error','Dieser Nachweisvorgang kann nicht eingereicht werden.');redirect('/seller/order/'.$ev['order_id']);
+    }
+
+    $scheduled=order_day_date($ev['started_at'],$ev['day_no']);
+    if(!$scheduled || $scheduled>new DateTimeImmutable('today')){
+        flash('error','Dieser Durchführungstag ist noch nicht freigeschaltet.');redirect('/seller/order/'.$ev['order_id']);
+    }
+
+    $q=db()->prepare("SELECT id FROM order_days WHERE order_id=? AND status IN('planned','submitted') ORDER BY day_no LIMIT 1");
+    $q->execute([$ev['order_id']]);
+    if((int)$q->fetchColumn()!==(int)$ev['day_id']){
+        flash('error','Bitte die Tage der Reihe nach bearbeiten.');redirect('/seller/order/'.$ev['order_id']);
+    }
+
+    $q=db()->prepare("SELECT id FROM order_day_events WHERE day_id=? AND status='planned' ORDER BY event_no LIMIT 1");
+    $q->execute([$ev['day_id']]);
+    if((int)$q->fetchColumn()!==$eventId){
+        flash('error','Bitte die Nachweisvorgänge der Reihe nach bearbeiten.');redirect('/seller/order/'.$ev['order_id']);
+    }
+
+    $files=normalized_uploads('photo');
+    if(count($files)!==1){
+        flash('error','Für diesen Nachweisvorgang ist genau ein Foto erforderlich.');redirect('/seller/order/'.$ev['order_id']);
+    }
 
     db()->beginTransaction();
     try{
-        foreach($files as $f){
-            $up=save_image_upload($f,'order-'.$d['order_id'].'/day-'.$d['day_no']);
-            db()->prepare('INSERT INTO day_uploads(day_id,seller_id,file_path,mime_type,file_size,sha256) VALUES(?,?,?,?,?,?)')->execute([$dayId,$s['id'],$up['path'],$up['mime'],$up['size'],$up['sha256']]);
+        $up=save_image_upload($files[0],'order-'.$ev['order_id'].'/day-'.$ev['day_no'].'/event-'.$ev['event_no']);
+        db()->prepare('INSERT INTO day_uploads(day_id,event_id,seller_id,file_path,mime_type,file_size,sha256) VALUES(?,?,?,?,?,?,?)')
+            ->execute([$ev['day_id'],$eventId,$s['id'],$up['path'],$up['mime'],$up['size'],$up['sha256']]);
+        db()->prepare("UPDATE order_day_events SET status='submitted',seller_note=?,submitted_at=NOW(),updated_at=NOW() WHERE id=?")
+            ->execute([post('seller_note')?:null,$eventId]);
+
+        $q=db()->prepare("SELECT COUNT(*) FROM order_day_events WHERE day_id=? AND status='planned'");
+        $q->execute([$ev['day_id']]);$remaining=(int)$q->fetchColumn();
+        if($remaining===0){
+            db()->prepare("UPDATE order_days SET status='submitted',submitted_at=NOW(),updated_at=NOW() WHERE id=?")->execute([$ev['day_id']]);
         }
-        db()->prepare("UPDATE order_days SET status='submitted',seller_note=?,submitted_at=NOW(),updated_at=NOW() WHERE id=?")->execute([post('seller_note')?:null,$dayId]);
         db()->commit();
-    }catch(Throwable $e){db()->rollBack();flash('error',$e->getMessage());redirect('/seller/order/'.$d['order_id']);}
-    log_event((int)$d['offer_id'],(int)$d['order_id'],'day.submitted',['day_no'=>$d['day_no'],'scheduled_date'=>$scheduled->format('Y-m-d')]);
-    flash('success','Tag wurde eingereicht und wartet auf Prüfung.');redirect('/seller/order/'.$d['order_id']);
+    }catch(Throwable $e){
+        if(db()->inTransaction())db()->rollBack();
+        flash('error',$e->getMessage());redirect('/seller/order/'.$ev['order_id']);
+    }
+
+    log_event((int)$ev['offer_id'],(int)$ev['order_id'],'evidence_event.submitted',[
+        'day_no'=>(int)$ev['day_no'],'event_no'=>(int)$ev['event_no'],'label'=>$ev['label'],
+        'scheduled_date'=>$scheduled->format('Y-m-d')
+    ]);
+    if($remaining===0){
+        log_event((int)$ev['offer_id'],(int)$ev['order_id'],'day.submitted',['day_no'=>(int)$ev['day_no'],'scheduled_date'=>$scheduled->format('Y-m-d')]);
+        flash('success','Letzter Nachweisvorgang eingereicht. Der Tag wartet jetzt auf Prüfung.');
+    }else{
+        flash('success',$ev['label'].' wurde eingereicht. Der nächste Nachweisvorgang ist jetzt offen.');
+    }
+    redirect('/seller/order/'.$ev['order_id']);
 }
