@@ -74,11 +74,14 @@ if ($path === '/admin' && $method === 'GET') {
     }
 
     $attentionCount=count($preReady)+count($submitted)+count($missed)+count($late)+count($scents)+count($shipping)+$unreadMessages;
+    $cronStatus=cron_status();
+    $cronLast=$cronStatus['last_success_at']?new DateTimeImmutable($cronStatus['last_success_at']):null;
+    $cronStale=!$cronLast||$cronLast<new DateTimeImmutable('-30 minutes');
 
     ob_start();?>
     <div class="page-head">
         <div><span class="eyebrow">Arbeitszentrale</span><h1>Heute</h1><p><?=e(date_de($todayDate))?> · offene Prüfungen, Fristen, Kommunikation und Auszahlungen.</p></div>
-        <div class="head-actions"><a class="btn ghost" href="<?=e(url('/admin/notifications'))?>">Mitteilungen</a><a class="btn" href="<?=e(url('/admin/offers/new'))?>">+ Angebot</a></div>
+        <div class="head-actions"><a class="btn ghost <?=$cronStale?'danger':''?>" href="<?=e(url('/admin/cron'))?>">Reminder Engine · <?=e($cronStale?'prüfen':'aktiv')?></a><a class="btn ghost" href="<?=e(url('/admin/notifications'))?>">Mitteilungen</a><a class="btn" href="<?=e(url('/admin/offers/new'))?>">+ Angebot</a></div>
     </div>
 
     <div class="stats">
@@ -92,6 +95,8 @@ if ($path === '/admin' && $method === 'GET') {
         <div class="stat"><span>Versand heute/überfällig</span><strong><?=count($shipping)?></strong></div>
         <div class="stat"><span>Ungelesene Nachrichten</span><strong><?=$unreadMessages?></strong></div>
     </div>
+
+    <?php if($cronStale):?><div class="notice warning"><strong>Reminder Engine nicht aktuell.</strong><br>Der letzte erfolgreiche Cronlauf ist <?=e($cronLast?'vom '.$cronLast->format('d.m.Y H:i').' Uhr':'noch nicht vorhanden')?>. <a href="<?=e(url('/admin/cron'))?>">Cronjob prüfen und einrichten →</a></div><?php endif;?>
 
     <?php if($attentionCount===0&&!$todayEvents&&!$walletSellers):?><div class="notice success"><strong>Aktuell ist nichts Dringendes offen.</strong></div><?php endif;?>
 
