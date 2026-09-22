@@ -606,6 +606,7 @@ function event_window_state(array $event, ?DateTimeImmutable $date, ?DateTimeImm
 }
 function day_is_missed(array $day,array $order): bool {
     if(($day['status']??'')!=='planned')return false;
+    if(!empty($day['late_submission_allowed']))return false;
     $date=scheduled_order_day_date($order,(int)$day['day_no']);
     if(!$date)return false;
     $events=day_events((int)$day['id']);
