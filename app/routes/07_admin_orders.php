@@ -13,7 +13,7 @@ if ($path==='/admin/reviews' && $method==='GET') {
           AND (SELECT COUNT(*) FROM precheck_uploads p2 WHERE p2.order_id=o.id)>=o.precheck_photo_count
         ORDER BY o.created_at")->fetchAll();
 
-    $submitted=db()->query("SELECT d.*,o.order_no,o.title_snapshot,o.started_at,o.offer_id,o.daily_photo_count,o.is_final_day_position,s.first_name,s.last_name
+    $submitted=db()->query("SELECT d.*,o.order_no,o.title_snapshot,o.started_at,o.offer_id,o.daily_photo_count,o.required_success_days,o.is_final_day_position,o.align_to_offer_end,s.first_name,s.last_name
         FROM order_days d
         JOIN orders o ON o.id=d.order_id
         JOIN sellers s ON s.id=o.seller_id
@@ -21,7 +21,7 @@ if ($path==='/admin/reviews' && $method==='GET') {
         ORDER BY d.submitted_at,d.id")->fetchAll();
     foreach($submitted as &$x)$x['_missed']=false;unset($x);
 
-    $candidates=db()->query("SELECT d.*,o.order_no,o.title_snapshot,o.started_at,o.offer_id,o.daily_photo_count,o.is_final_day_position,s.first_name,s.last_name
+    $candidates=db()->query("SELECT d.*,o.order_no,o.title_snapshot,o.started_at,o.offer_id,o.daily_photo_count,o.required_success_days,o.is_final_day_position,o.align_to_offer_end,s.first_name,s.last_name
         FROM order_days d
         JOIN orders o ON o.id=d.order_id
         JOIN sellers s ON s.id=o.seller_id
@@ -47,8 +47,8 @@ if ($path==='/admin/reviews' && $method==='GET') {
     <?php if($pre):?><div class="review-grid">
     <?php foreach($pre as $o):
         $uq=db()->prepare('SELECT * FROM precheck_uploads WHERE order_id=? ORDER BY id');$uq->execute([$o['id']]);$ups=$uq->fetchAll();
-        $autoFinal=!empty($o['is_final_day_position']);
-        $autoDate=$autoFinal?offer_final_date((int)$o['offer_id']):null;
+        $autoAligned=!empty($o['align_to_offer_end']);
+        $autoDate=$autoAligned?offer_aligned_start_date((int)$o['offer_id'],(int)$o['required_success_days']):null;
     ?>
         <article class="panel review-card">
             <div class="card-top"><div><span class="eyebrow"><?=e($o['order_no'])?></span><h3><?=e($o['title_snapshot'])?></h3><p class="muted"><?=e($o['first_name'].' '.$o['last_name'])?></p></div><span class="status status-precheck">Vorabkontrolle</span></div>
@@ -57,12 +57,12 @@ if ($path==='/admin/reviews' && $method==='GET') {
             <div class="review-split">
                 <form method="post" action="<?=e(url('/admin/order/'.$o['id'].'/approve-precheck'))?>">
                     <input type="hidden" name="return_to" value="reviews">
-                    <?php if($autoFinal):?>
-                        <div class="notice"><strong>Automatischer letzter Gesamttag</strong><br><?=e($autoDate?date_de($autoDate):'Noch nicht berechenbar – zuerst eine mehrtägige Position starten.')?></div>
+                    <?php if($autoAligned):?>
+                        <div class="notice"><strong>Automatisch ans Angebotsende gekoppelt</strong><br><?=e($autoDate?date_de($autoDate):'Noch nicht berechenbar – zuerst eine mehrtägige Position starten.')?></div>
                     <?php else:?>
                         <label>Startdatum<input type="date" name="start_date" min="<?=e(date('Y-m-d'))?>" value="<?=e(date('Y-m-d'))?>" required></label>
                     <?php endif;?>
-                    <button class="btn full" <?=($autoFinal&&!$autoDate)?'disabled':''?>>✓ Freigeben & starten</button>
+                    <button class="btn full" <?=($autoAligned&&!$autoDate)?'disabled':''?>>✓ Freigeben & starten</button>
                 </form>
                 <?php if((int)$o['precheck_photo_count']>0):?>
                 <form method="post" action="<?=e(url('/admin/order/'.$o['id'].'/reject-precheck'))?>">
@@ -106,7 +106,7 @@ if ($path==='/admin/reviews' && $method==='GET') {
                 <?php endforeach;?>
             </div>
 
-            <?php $finalLocked=!empty($d['is_final_day_position'])&&!final_day_positions_ready_for_review((int)$d['offer_id']);?>
+            <?php $finalLocked=!empty($d['align_to_offer_end'])&&(int)$d['required_success_days']===1&&!final_day_positions_ready_for_review((int)$d['offer_id']);?>
             <?php if($finalLocked):?>
                 <div class="notice"><strong>Noch nicht final bewertbar.</strong><br>Diese Ein-Tages-Position liegt auf dem gemeinsamen letzten Tag. Zuerst müssen die mehrtägigen Positionen endgültig abgeschlossen sein.</div>
             <?php else:?>
@@ -161,15 +161,15 @@ if (preg_match('#^/admin/order/(\d+)$#',$path,$m) && $method==='GET') {
         <?php if($rejection && $o['status']==='precheck'):?><div class="notice warning"><strong>Letzte Rückmeldung:</strong> <?=e($rejection)?></div><?php endif;?>
         <?php if($pre):?><div class="photo-grid"><?php foreach($pre as $p):?><a href="<?=e(url('/file/precheck/'.$p['id']))?>" target="_blank"><img src="<?=e(url('/file/precheck/'.$p['id']))?>" alt="Vorabnachweis"></a><?php endforeach;?></div><?php endif;?>
         <?php if($o['status']==='precheck'):?>
-            <?php $autoFinal=!empty($o['is_final_day_position']);$autoDate=$autoFinal?offer_final_date((int)$o['offer_id']):null;?>
+            <?php $autoAligned=!empty($o['is_final_day_position']);$autoDate=$autoAligned?offer_final_date((int)$o['offer_id']):null;?>
             <div class="review-split">
                 <form method="post" action="<?=e(url('/admin/order/'.$id.'/approve-precheck'))?>">
-                    <?php if($autoFinal):?>
-                        <div class="notice"><strong>Synchronisierter Termin</strong><br><?=e($autoDate?date_de($autoDate):'Noch nicht berechenbar – zuerst eine mehrtägige Position starten.')?></div>
+                    <?php if($autoAligned):?>
+                        <div class="notice"><strong>Synchronisierter Zeitraum</strong><br><?=e($autoDate?date_de($autoDate):'Noch nicht berechenbar – zuerst eine mehrtägige Position starten.')?></div>
                     <?php else:?>
                         <label>Geplanter Start<input type="date" name="start_date" min="<?=e(date('Y-m-d'))?>" value="<?=e(date('Y-m-d'))?>" required></label>
                     <?php endif;?>
-                    <button class="btn full" <?=(count($pre)<(int)$o['precheck_photo_count']||($autoFinal&&!$autoDate))?'disabled':''?>>✓ Freigeben & starten</button>
+                    <button class="btn full" <?=(count($pre)<(int)$o['precheck_photo_count']||($autoAligned&&!$autoDate))?'disabled':''?>>✓ Freigeben & starten</button>
                 </form>
                 <?php if((int)$o['precheck_photo_count']>0):?>
                 <form method="post" action="<?=e(url('/admin/order/'.$id.'/reject-precheck'))?>">
@@ -184,7 +184,7 @@ if (preg_match('#^/admin/order/(\d+)$#',$path,$m) && $method==='GET') {
     <?php if($days):?>
     <section class="panel"><h2>Durchführungstage</h2><div class="day-list">
     <?php foreach($days as $d):
-        $scheduled=order_day_date($o['started_at'],$d['day_no']);
+        $scheduled=scheduled_order_day_date($o,(int)$d['day_no']);
         $events=day_events((int)$d['id']);if(!$events && $d['status']==='planned')$events=ensure_day_events((int)$d['id'],(int)$d['required_photo_count']);
         $missed=day_is_missed($d,$o);
         $uq=db()->prepare('SELECT u.*,e.label,e.event_no FROM day_uploads u LEFT JOIN order_day_events e ON e.id=u.event_id WHERE u.day_id=? ORDER BY COALESCE(e.event_no,999),u.id');$uq->execute([$d['id']]);$ups=$uq->fetchAll();
@@ -202,7 +202,7 @@ if (preg_match('#^/admin/order/(\d+)$#',$path,$m) && $method==='GET') {
             </div>
 
             <?php if($d['status']==='submitted' || $missed):
-                $finalLocked=!empty($o['is_final_day_position'])&&!final_day_positions_ready_for_review((int)$o['offer_id']);
+                $finalLocked=!empty($o['align_to_offer_end'])&&(int)$o['required_success_days']===1&&!final_day_positions_ready_for_review((int)$o['offer_id']);
             ?>
                 <?php if($finalLocked):?>
                     <div class="notice"><strong>Synchronisierte Ein-Tages-Position:</strong><br>Die Bewertung wird freigeschaltet, sobald alle mehrtägigen Positionen dieses Angebots endgültig abgeschlossen sind.</div>
@@ -240,9 +240,9 @@ if (preg_match('#^/admin/order/(\d+)/approve-precheck$#',$path,$m) && $method===
     $c=db()->prepare('SELECT COUNT(*) FROM precheck_uploads WHERE order_id=?');$c->execute([$id]);
     if((int)$c->fetchColumn()<(int)$o['precheck_photo_count']){flash('error','Es fehlen Vorabfotos.');redirect('/admin/order/'.$id);}
     $today=new DateTimeImmutable('today');
-    if(!empty($o['is_final_day_position'])){
-        $start=offer_final_date((int)$o['offer_id']);
-        if(!$start){flash('error','Der gemeinsame Endtag ist noch nicht berechenbar. Bitte zuerst mindestens eine mehrtägige Position starten.');redirect('/admin/order/'.$id);}
+    if(!empty($o['align_to_offer_end'])){
+        $start=offer_aligned_start_date((int)$o['offer_id'],(int)$o['required_success_days']);
+        if(!$start){flash('error','Der gekoppelte Zeitraum ist noch nicht berechenbar. Bitte zuerst mindestens eine nicht gekoppelte mehrtägige Position starten.');redirect('/admin/order/'.$id);}
         $startDate=$start->format('Y-m-d');
     }else{
         $startDate=post('start_date');$start=DateTimeImmutable::createFromFormat('!Y-m-d',$startDate);
@@ -260,7 +260,7 @@ if (preg_match('#^/admin/order/(\d+)/approve-precheck$#',$path,$m) && $method===
         db()->commit();
     }catch(Throwable $e){if(db()->inTransaction())db()->rollBack();throw $e;}
 
-    log_event((int)$o['offer_id'],$id,'precheck.approved',['start_date'=>$startDate,'final_day_position'=>(bool)$o['is_final_day_position']]);
+    log_event((int)$o['offer_id'],$id,'precheck.approved',['start_date'=>$startDate,'end_aligned'=>(bool)$o['align_to_offer_end']]);
     sync_final_day_positions((int)$o['offer_id']);
     sync_offer_status((int)$o['offer_id']);
     flash('success','Vorabkontrolle freigegeben. Start: '.date_de($start).'.');
@@ -296,13 +296,13 @@ if (preg_match('#^/admin/day/(\d+)/review$#',$path,$m) && $method==='POST') {
     $a=require_admin();$dayId=(int)$m[1];$decision=post('decision');
     if(!in_array($decision,['fulfilled','not_fulfilled'],true)){flash('error','Ungültige Entscheidung.');redirect('/admin/orders');}
 
-    $q=db()->prepare("SELECT d.*,o.offer_id,o.daily_photo_count,o.required_success_days,o.started_at AS order_started_at,o.status AS order_status,o.is_final_day_position
+    $q=db()->prepare("SELECT d.*,o.offer_id,o.daily_photo_count,o.required_success_days,o.started_at AS order_started_at,o.status AS order_status,o.is_final_day_position,o.align_to_offer_end
         FROM order_days d JOIN orders o ON o.id=d.order_id WHERE d.id=?");
     $q->execute([$dayId]);$d=$q->fetch();if(!$d)not_found();
 
-    $orderCtx=['started_at'=>$d['order_started_at'],'offer_id'=>$d['offer_id'],'is_final_day_position'=>$d['is_final_day_position']];
+    $orderCtx=['started_at'=>$d['order_started_at'],'offer_id'=>$d['offer_id'],'required_success_days'=>$d['required_success_days'],'is_final_day_position'=>$d['is_final_day_position'],'align_to_offer_end'=>$d['align_to_offer_end']];
     $missed=$d['status']==='planned'&&$d['order_status']==='running'&&day_is_missed($d,$orderCtx);
-    if(!empty($d['is_final_day_position'])&&!final_day_positions_ready_for_review((int)$d['offer_id'])){
+    if(!empty($d['align_to_offer_end'])&&(int)$d['required_success_days']===1&&!final_day_positions_ready_for_review((int)$d['offer_id'])){
         flash('error','Diese Ein-Tages-Position kann erst bewertet werden, wenn alle mehrtägigen Positionen endgültig abgeschlossen sind.');
         redirect('/admin/order/'.$d['order_id']);
     }
@@ -328,7 +328,7 @@ if (preg_match('#^/admin/day/(\d+)/review$#',$path,$m) && $method==='POST') {
     }catch(Throwable $e){if(db()->inTransaction())db()->rollBack();throw $e;}
 
     log_event((int)$d['offer_id'],(int)$d['order_id'],'day.reviewed',['day_id'=>$dayId,'decision'=>$decision,'missed_window'=>$missed]);
-    if($decision==='not_fulfilled' && empty($d['is_final_day_position']))sync_final_day_positions((int)$d['offer_id']);
+    if($decision==='not_fulfilled' && empty($d['align_to_offer_end']))sync_end_aligned_positions((int)$d['offer_id']);
     sync_order_progress((int)$d['order_id']);
     flash('success',$decision==='fulfilled'?'Tag als erfüllt bestätigt.':'Tag nicht erfüllt: ein zusätzlicher Tag wurde angehängt.');
     redirect(post('return_to')==='reviews'?'/admin/reviews':'/admin/order/'.$d['order_id']);
