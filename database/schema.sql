@@ -136,9 +136,25 @@ CREATE TABLE IF NOT EXISTS order_days (
  INDEX(order_id,status,day_no)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS order_day_events (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ day_id BIGINT UNSIGNED NOT NULL,
+ event_no INT NOT NULL,
+ label VARCHAR(80) NOT NULL,
+ status ENUM('planned','submitted') NOT NULL DEFAULT 'planned',
+ seller_note TEXT NULL,
+ submitted_at DATETIME NULL,
+ created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ updated_at DATETIME NULL,
+ FOREIGN KEY(day_id) REFERENCES order_days(id) ON DELETE CASCADE,
+ UNIQUE(day_id,event_no),
+ INDEX(day_id,status,event_no)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS day_uploads (
  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
  day_id BIGINT UNSIGNED NOT NULL,
+ event_id BIGINT UNSIGNED NULL,
  seller_id BIGINT UNSIGNED NOT NULL,
  file_path VARCHAR(500) NOT NULL,
  mime_type VARCHAR(120) NOT NULL,
@@ -146,8 +162,10 @@ CREATE TABLE IF NOT EXISTS day_uploads (
  sha256 CHAR(64) NOT NULL,
  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
  FOREIGN KEY(day_id) REFERENCES order_days(id) ON DELETE CASCADE,
+ CONSTRAINT fk_day_uploads_event FOREIGN KEY(event_id) REFERENCES order_day_events(id) ON DELETE CASCADE,
  FOREIGN KEY(seller_id) REFERENCES sellers(id),
- INDEX(day_id,created_at)
+ INDEX(day_id,created_at),
+ INDEX idx_day_uploads_event(event_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS activity_log (
