@@ -19,6 +19,7 @@ if (preg_match('#^/seller/order/(\d+)$#',$path,$m) && $method==='GET') {
     $offerShippingReady=$shipment?offer_ready_for_shipping((int)$o['offer_id']):false;
     $offerShipDue=$shipment?offer_shipping_due_date((int)$o['offer_id']):null;
     $q=db()->prepare('SELECT * FROM seller_wallet_entries WHERE order_id=?');$q->execute([$id]);$wallet=$q->fetch();
+    mark_order_messages_read($id,'seller');$messages=order_messages($id);
 
     ob_start();?>
     <div class="page-head">
@@ -93,6 +94,10 @@ if (preg_match('#^/seller/order/(\d+)$#',$path,$m) && $method==='GET') {
                         <?php if($upload):?>
                             <a class="event-photo" href="<?=e(url('/file/day/'.$upload['id']))?>" target="_blank"><img src="<?=e(url('/file/day/'.$upload['id']))?>" alt="<?=e($ev['label'])?>"></a>
                             <?php if($ev['seller_note']):?><p class="muted">Kommentar: <?=e($ev['seller_note'])?></p><?php endif;?>
+                        <?php elseif(!empty($ev['review_note'])):?>
+                            <div class="notice warning"><strong>Dieser Nachweis wurde erneut angefordert.</strong><br><?=nl2br(e($ev['review_note']))?></div>
+                            <?php if((int)$ev['id']!==$nextEventId):?><div class="event-waiting">Wird nach dem vorherigen Nachweisvorgang freigeschaltet.</div>
+                            <?php elseif($state==='open'):?><form method="post" enctype="multipart/form-data" action="<?=e(url('/seller/event/'.$ev['id'].'/submit'))?>"><label>Neues Foto für „<?=e($ev['label'])?>“<input type="file" name="photo" accept="image/jpeg,image/png,image/webp" capture="environment" required></label><label>Kommentar (optional)<textarea name="seller_note" rows="2"></textarea></label><button class="btn full">Nachweis nachreichen</button></form><?php endif;?>
                         <?php elseif((int)$ev['id']!==$nextEventId):?>
                             <div class="event-waiting">Wird nach dem vorherigen Nachweisvorgang freigeschaltet.</div>
                         <?php elseif($state==='open'):?>
@@ -181,6 +186,20 @@ if (preg_match('#^/seller/order/(\d+)$#',$path,$m) && $method==='GET') {
         <?php endif;?>
     </section>
     <?php endif;?>
+
+    <section class="panel message-panel">
+        <div class="section-head"><h2>Nachrichten</h2><span class="muted">Kommunikation mit der Plattform</span></div>
+        <div class="message-thread">
+            <?php foreach($messages as $msg):?><div class="message-bubble <?=e($msg['sender_role']==='seller'?'from-seller':'from-platform')?>"><div><strong><?=e($msg['sender_role']==='seller'?'Du':'Plattform')?></strong><span><?=e(date('d.m.Y H:i',strtotime($msg['created_at'])))?> Uhr</span></div><p><?=nl2br(e($msg['body']))?></p></div><?php endforeach;?>
+            <?php if(!$messages):?><div class="empty">Noch keine Nachrichten zu diesem Auftrag.</div><?php endif;?>
+        </div>
+        <?php if(!is_seller_impersonation()):?>
+        <form method="post" action="<?=e(url('/seller/order/'.$id.'/message'))?>">
+            <label>Nachricht an die Plattform<textarea name="body" rows="4" maxlength="4000" required></textarea></label>
+            <button class="btn">Nachricht senden</button>
+        </form>
+        <?php else:?><div class="notice">In der Verkäuferinnen-Vorschau können keine Nachrichten gesendet werden.</div><?php endif;?>
+    </section>
 
     <?php render('Auftrag '.$o['order_no'],ob_get_clean());exit;
 }
