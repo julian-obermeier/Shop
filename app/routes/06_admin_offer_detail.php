@@ -171,6 +171,7 @@ if (preg_match('#^/admin/offer/(\d+)/position/(\d+)/update$#',$path,$m) && $meth
     $days=max(1,min(365,(int)post('required_success_days','1')));
     $pre=max(0,min(20,(int)post('precheck_photo_count','1')));
     $daily=max(1,min(20,(int)post('daily_photo_count','1')));
+    $align=$days===1?1:(post('align_to_offer_end')==='1'?1:0);
     if(!post('title')){flash('error','Der Positionstitel ist Pflicht.');redirect('/admin/offer/'.$id);}
     try{$templates=posted_event_templates($daily);}catch(Throwable $e){flash('error',$e->getMessage());redirect('/admin/offer/'.$id);}
     db()->prepare('UPDATE offer_positions SET title=?,description=?,compensation=?,required_success_days=?,align_to_offer_end=?,precheck_photo_count=?,precheck_instructions=?,daily_photo_count=?,daily_instructions=?,daily_event_windows_json=? WHERE id=? AND offer_id=?')
