@@ -33,11 +33,20 @@ if ($path === '/admin' && $method === 'GET') {
         FROM scent_requests r JOIN sellers s ON s.id=r.seller_id WHERE r.status='pending'
         ORDER BY r.requested_at LIMIT 10")->fetchAll();
 
-    $shipping=db()->query("SELECT o.offer_id,MIN(o.id) order_id,MIN(sh.due_date) due_date,MAX(ofr.offer_no) offer_no,MAX(ofr.title) offer_title,
+    $shipping=db()->query("SELECT o.offer_id,MIN(o.id) order_id,MAX(sh.due_date) due_date,MAX(ofr.offer_no) offer_no,MAX(ofr.title) offer_title,
         MAX(s.first_name) first_name,MAX(s.last_name) last_name
-        FROM order_shipments sh JOIN orders o ON o.id=sh.order_id JOIN offers ofr ON ofr.id=o.offer_id JOIN sellers s ON s.id=o.seller_id
-        WHERE sh.status='pending' AND sh.due_date<=DATE_ADD(CURDATE(),INTERVAL 1 DAY)
-        GROUP BY o.offer_id ORDER BY due_date")->fetchAll();
+        FROM order_shipments sh
+        JOIN orders o ON o.id=sh.order_id
+        JOIN offers ofr ON ofr.id=o.offer_id
+        JOIN sellers s ON s.id=o.seller_id
+        WHERE sh.status='pending'
+          AND NOT EXISTS (
+              SELECT 1 FROM orders x
+              WHERE x.offer_id=o.offer_id AND x.status NOT IN('shipping','completed','cancelled')
+          )
+        GROUP BY o.offer_id
+        HAVING MAX(sh.due_date)<=DATE_ADD(CURDATE(),INTERVAL 1 DAY)
+        ORDER BY due_date")->fetchAll();
 
     $available=(float)db()->query("SELECT COALESCE(SUM(amount),0) FROM seller_wallet_entries WHERE status='available'")->fetchColumn();
     $walletSellers=db()->query("SELECT s.id,s.first_name,s.last_name,SUM(w.amount) amount
