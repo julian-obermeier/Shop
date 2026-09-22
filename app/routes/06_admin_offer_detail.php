@@ -67,8 +67,8 @@ if (preg_match('#^/admin/offer/(\d+)$#',$path,$m) && $method==='GET') {
                             <label>Nachweisvorgänge je Tag<input type="number" min="1" max="20" name="daily_photo_count" value="<?=e($p['daily_photo_count'])?>" required><span class="field-hint">Wenn du die Anzahl änderst, werden beim Speichern passende Standardfenster erzeugt.</span></label>
                         </div>
                         <label>Beschreibung<textarea name="description" rows="3"><?=e($p['description']??'')?></textarea></label>
-                        <label>Anforderung Vorabkontrolle<textarea name="precheck_instructions" rows="3"><?=e($p['precheck_instructions'])?></textarea><span class="field-hint">Nur nötig, wenn Vorabfotos größer als 0 sind.</span></label>
-                        <label>Anforderung je Nachweisvorgang<textarea name="daily_instructions" rows="3" required><?=e($p['daily_instructions'])?></textarea></label>
+                        <label>Anforderung Vorabkontrolle <span class="muted">(optional)</span><textarea name="precheck_instructions" rows="3"><?=e($p['precheck_instructions'])?></textarea><span class="field-hint">Kann leer bleiben – auch wenn Vorabfotos verlangt werden.</span></label>
+                        <label>Anforderung je Nachweisvorgang <span class="muted">(optional)</span><textarea name="daily_instructions" rows="3"><?=e($p['daily_instructions'])?></textarea><span class="field-hint">Kann leer bleiben.</span></label>
 
                         <div class="event-config"><h4>Zeitfenster</h4>
                         <?php foreach($templates as $i=>$t):?>
@@ -105,8 +105,8 @@ if (preg_match('#^/admin/offer/(\d+)$#',$path,$m) && $method==='GET') {
                 <label>Nachweisvorgänge je Tag<input type="number" min="1" max="20" name="daily_photo_count" value="3" required><span class="field-hint">Standard bei 3: Morgens, Mittags, Abends.</span></label>
             </div>
             <label>Beschreibung<textarea name="description" rows="3"></textarea></label>
-            <label>Anforderung Vorabkontrolle<textarea name="precheck_instructions" rows="3"></textarea><span class="field-hint">Optional. Bei 0 Vorabfotos bleibt dieses Feld leer.</span></label>
-            <label>Anforderung je Nachweisvorgang<textarea name="daily_instructions" rows="3" required></textarea></label>
+            <label>Anforderung Vorabkontrolle <span class="muted">(optional)</span><textarea name="precheck_instructions" rows="3"></textarea><span class="field-hint">Kann leer bleiben – unabhängig von der Anzahl der Vorabfotos.</span></label>
+            <label>Anforderung je Nachweisvorgang <span class="muted">(optional)</span><textarea name="daily_instructions" rows="3"></textarea><span class="field-hint">Kann leer bleiben.</span></label>
 
             <div class="event-config"><h4>Zeitfenster für die 3 Standardvorgänge</h4>
             <?php foreach($newTemplates as $i=>$t):?>
@@ -153,8 +153,7 @@ if (preg_match('#^/admin/offer/(\d+)/position$#',$path,$m) && $method==='POST') 
     $days=max(1,min(365,(int)post('required_success_days','1')));
     $pre=max(0,min(20,(int)post('precheck_photo_count','1')));
     $daily=max(1,min(20,(int)post('daily_photo_count','1')));
-    if(!post('title')||!post('daily_instructions')){flash('error','Titel und tägliche Nachweisanforderung sind Pflicht.');redirect('/admin/offer/'.$id);}
-    if($pre>0 && post('precheck_instructions')===''){flash('error','Wenn Vorabfotos verlangt werden, bitte auch die Vorab-Anforderung angeben.');redirect('/admin/offer/'.$id);}
+    if(!post('title')){flash('error','Der Positionstitel ist Pflicht.');redirect('/admin/offer/'.$id);}
     try{$templates=posted_event_templates($daily);}catch(Throwable $e){flash('error',$e->getMessage());redirect('/admin/offer/'.$id);}
     $q=db()->prepare('SELECT COALESCE(MAX(position_no),0)+1 FROM offer_positions WHERE offer_id=?');$q->execute([$id]);$pos=(int)$q->fetchColumn();
     db()->prepare('INSERT INTO offer_positions(offer_id,position_no,title,description,compensation,required_success_days,precheck_photo_count,precheck_instructions,daily_photo_count,daily_instructions,daily_event_windows_json) VALUES(?,?,?,?,?,?,?,?,?,?,?)')
@@ -169,8 +168,7 @@ if (preg_match('#^/admin/offer/(\d+)/position/(\d+)/update$#',$path,$m) && $meth
     $days=max(1,min(365,(int)post('required_success_days','1')));
     $pre=max(0,min(20,(int)post('precheck_photo_count','1')));
     $daily=max(1,min(20,(int)post('daily_photo_count','1')));
-    if(!post('title')||!post('daily_instructions')){flash('error','Titel und tägliche Nachweisanforderung sind Pflicht.');redirect('/admin/offer/'.$id);}
-    if($pre>0 && post('precheck_instructions')===''){flash('error','Wenn Vorabfotos verlangt werden, bitte auch die Vorab-Anforderung angeben.');redirect('/admin/offer/'.$id);}
+    if(!post('title')){flash('error','Der Positionstitel ist Pflicht.');redirect('/admin/offer/'.$id);}
     try{$templates=posted_event_templates($daily);}catch(Throwable $e){flash('error',$e->getMessage());redirect('/admin/offer/'.$id);}
     db()->prepare('UPDATE offer_positions SET title=?,description=?,compensation=?,required_success_days=?,precheck_photo_count=?,precheck_instructions=?,daily_photo_count=?,daily_instructions=?,daily_event_windows_json=? WHERE id=? AND offer_id=?')
         ->execute([post('title'),post('description')?:null,max(0,(float)post('compensation','0')),$days,$pre,post('precheck_instructions'),$daily,post('daily_instructions'),event_templates_json($templates),$pid,$id]);
