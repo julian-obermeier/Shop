@@ -125,7 +125,7 @@ if ($path==='/seller' && $method==='GET') {
 
     $heroMode='clear';$heroTask=null;$heroTarget=null;
     if($dueNow){
-        $heroMode='now';$heroTask=$dueNow[0];$heroTarget=$heroTask['_event_end'];
+        $heroMode='now';$heroTask=$dueNow[0];$heroTarget=!empty($heroTask['_late'])?null:$heroTask['_event_end'];
     }elseif($dueToday){
         $heroMode='next';$heroTask=$dueToday[0];$heroTarget=$heroTask['_event_start'];
     }elseif($tomorrowTasks){
@@ -144,7 +144,8 @@ if ($path==='/seller' && $method==='GET') {
                 <span class="eyebrow">Jetzt erledigen</span>
                 <h2><?=e($heroTask['order_no'].' · '.$heroTask['_next_label'])?></h2>
                 <p><?=e($heroTask['title_snapshot'])?> · Tag <?=e($heroTask['day_no'])?> · <?=e($heroTask['_window'])?><?=!empty($heroTask['_late'])?' · Nachreichung':''?></p>
-                <?php if($heroTarget):?><div class="task-countdown"><span>Noch Zeit</span><strong data-countdown-target="<?=e((string)($heroTarget->getTimestamp()*1000))?>" data-countdown-reload="1">–</strong></div><?php endif;?>
+                <?php if($heroTarget):?><div class="task-countdown"><span>Noch Zeit</span><strong data-countdown-target="<?=e((string)($heroTarget->getTimestamp()*1000))?>" data-countdown-reload="1">–</strong></div>
+                <?php elseif(!empty($heroTask['_late'])):?><div class="task-countdown"><span>Status</span><strong>Nachreichung offen</strong></div><?php endif;?>
             </div>
             <a class="btn task-hero-button" href="<?=e(url('/seller/order/'.$heroTask['order_id']))?>">Jetzt öffnen →</a>
         <?php elseif($heroMode==='next'):?>
