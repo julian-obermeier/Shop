@@ -29,8 +29,11 @@ if (preg_match('#^/admin/offer/(\d+)$#',$path,$m) && $method==='GET') {
         <div><h2>Positionen</h2><span class="muted"><?=count($positions)?> Position(en)</span></div>
         <?php if($positions):?><strong class="offer-total">Gesamt: <?=money($totalComp)?></strong><?php endif;?>
     </div>
+
     <div class="cards">
-    <?php foreach($positions as $p):?>
+    <?php foreach($positions as $p):
+        $templates=event_templates($p['daily_event_windows_json']??null,(int)$p['daily_photo_count']);
+    ?>
         <article class="card">
             <div class="card-top"><span class="badge">Position <?=e($p['position_no'])?></span><strong><?=money($p['compensation'])?></strong></div>
             <h3><?=e($p['title'])?></h3>
@@ -42,6 +45,10 @@ if (preg_match('#^/admin/offer/(\d+)$#',$path,$m) && $method==='GET') {
             </div>
             <p class="muted"><strong>Vorab:</strong> <?=e($p['precheck_instructions'])?></p>
             <p class="muted"><strong>Je Vorgang:</strong> <?=e($p['daily_instructions'])?></p>
+            <div class="window-list">
+                <?php foreach($templates as $t):?><div><strong><?=e($t['label'])?></strong><span><?=e(!empty($t['all_day'])?'Ganztags · 00:00–24:00':$t['start'].'–'.$t['end'].' Uhr')?></span></div><?php endforeach;?>
+            </div>
+
             <?php if($o['status']==='draft'):?>
                 <details class="inline-editor">
                     <summary>Position bearbeiten</summary>
@@ -51,11 +58,23 @@ if (preg_match('#^/admin/offer/(\d+)$#',$path,$m) && $method==='GET') {
                             <label>Vergütung (€)<input type="number" step="0.01" min="0" name="compensation" value="<?=e($p['compensation'])?>" required></label>
                             <label>Erfolgreiche Tage<input type="number" min="1" max="365" name="required_success_days" value="<?=e($p['required_success_days'])?>" required></label>
                             <label>Vorabfotos<input type="number" min="1" max="20" name="precheck_photo_count" value="<?=e($p['precheck_photo_count'])?>" required></label>
-                            <label>Nachweisvorgänge je Tag<input type="number" min="1" max="20" name="daily_photo_count" value="<?=e($p['daily_photo_count'])?>" required><span class="field-hint">Bei 3: Morgens, Mittags, Abends – jeweils 1 Foto.</span></label>
+                            <label>Nachweisvorgänge je Tag<input type="number" min="1" max="20" name="daily_photo_count" value="<?=e($p['daily_photo_count'])?>" required><span class="field-hint">Wenn du die Anzahl änderst, werden beim Speichern passende Standardfenster erzeugt.</span></label>
                         </div>
                         <label>Beschreibung<textarea name="description" rows="3"><?=e($p['description']??'')?></textarea></label>
                         <label>Anforderung Vorabkontrolle<textarea name="precheck_instructions" rows="3" required><?=e($p['precheck_instructions'])?></textarea></label>
                         <label>Anforderung je Nachweisvorgang<textarea name="daily_instructions" rows="3" required><?=e($p['daily_instructions'])?></textarea></label>
+
+                        <div class="event-config"><h4>Zeitfenster</h4>
+                        <?php foreach($templates as $i=>$t):?>
+                            <div class="event-config-row">
+                                <label>Bezeichnung<input name="event_label[]" value="<?=e($t['label'])?>" required></label>
+                                <label>Von<input type="time" name="event_start[]" value="<?=e($t['start'])?>" required></label>
+                                <label>Bis<input type="time" name="event_end[]" value="<?=e($t['end'])?>" required></label>
+                                <label class="check event-all-day"><input type="checkbox" name="event_all_day[<?=$i?>]" value="1" <?=!empty($t['all_day'])?'checked':''?>><span>Ganztags</span></label>
+                            </div>
+                        <?php endforeach;?>
+                        </div>
+
                         <button class="btn">Änderungen speichern</button>
                     </form>
                 </details>
@@ -66,7 +85,9 @@ if (preg_match('#^/admin/offer/(\d+)$#',$path,$m) && $method==='GET') {
     <?php if(!$positions):?><div class="empty">Noch keine Position hinzugefügt.</div><?php endif;?>
     </div>
 
-    <?php if($o['status']==='draft'):?>
+    <?php if($o['status']==='draft'):
+        $newTemplates=default_event_templates(3);
+    ?>
     <section class="panel" style="margin-top:20px">
         <h2>Position hinzufügen</h2>
         <form method="post" action="<?=e(url('/admin/offer/'.$id.'/position'))?>">
@@ -75,14 +96,27 @@ if (preg_match('#^/admin/offer/(\d+)$#',$path,$m) && $method==='GET') {
                 <label>Vergütung (€)<input type="number" step="0.01" min="0" name="compensation" value="0.00" required></label>
                 <label>Erfolgreiche Durchführungstage<input type="number" min="1" max="365" name="required_success_days" value="1" required></label>
                 <label>Vorabfotos<input type="number" min="1" max="20" name="precheck_photo_count" value="1" required></label>
-                <label>Nachweisvorgänge je Tag<input type="number" min="1" max="20" name="daily_photo_count" value="3" required><span class="field-hint">Bei 3: Morgens, Mittags, Abends – jeweils 1 Foto.</span></label>
+                <label>Nachweisvorgänge je Tag<input type="number" min="1" max="20" name="daily_photo_count" value="3" required><span class="field-hint">Standard bei 3: Morgens, Mittags, Abends.</span></label>
             </div>
             <label>Beschreibung<textarea name="description" rows="3"></textarea></label>
             <label>Anforderung Vorabkontrolle<textarea name="precheck_instructions" rows="3" required></textarea></label>
             <label>Anforderung je Nachweisvorgang<textarea name="daily_instructions" rows="3" required></textarea></label>
+
+            <div class="event-config"><h4>Zeitfenster für die 3 Standardvorgänge</h4>
+            <?php foreach($newTemplates as $i=>$t):?>
+                <div class="event-config-row">
+                    <label>Bezeichnung<input name="event_label[]" value="<?=e($t['label'])?>" required></label>
+                    <label>Von<input type="time" name="event_start[]" value="<?=e($t['start'])?>" required></label>
+                    <label>Bis<input type="time" name="event_end[]" value="<?=e($t['end'])?>" required></label>
+                    <label class="check event-all-day"><input type="checkbox" name="event_all_day[<?=$i?>]" value="1"><span>Ganztags</span></label>
+                </div>
+            <?php endforeach;?>
+            </div>
+
             <button class="btn">Position hinzufügen</button>
         </form>
     </section>
+
     <section class="panel action-panel">
         <div><h2>Angebot versenden</h2><p>Nach dem Versenden sind Grunddaten und Positionen festgeschrieben.</p></div>
         <form method="post" action="<?=e(url('/admin/offer/'.$id.'/send'))?>"><button class="btn" <?=!$positions?'disabled':''?>>An Verkäuferin senden</button></form>
@@ -107,32 +141,49 @@ if (preg_match('#^/admin/offer/(\d+)/update$#',$path,$m) && $method==='POST') {
 }
 
 if (preg_match('#^/admin/offer/(\d+)/position$#',$path,$m) && $method==='POST') {
-    require_admin();$id=(int)$m[1];$q=db()->prepare('SELECT status FROM offers WHERE id=?');$q->execute([$id]);if($q->fetchColumn()!=='draft'){flash('error','Positionen können nur im Entwurf geändert werden.');redirect('/admin/offer/'.$id);}
-    $days=max(1,min(365,(int)post('required_success_days','1')));$pre=max(1,min(20,(int)post('precheck_photo_count','1')));$daily=max(1,min(20,(int)post('daily_photo_count','1')));
+    require_admin();$id=(int)$m[1];
+    $q=db()->prepare('SELECT status FROM offers WHERE id=?');$q->execute([$id]);
+    if($q->fetchColumn()!=='draft'){flash('error','Positionen können nur im Entwurf geändert werden.');redirect('/admin/offer/'.$id);}
+    $days=max(1,min(365,(int)post('required_success_days','1')));
+    $pre=max(1,min(20,(int)post('precheck_photo_count','1')));
+    $daily=max(1,min(20,(int)post('daily_photo_count','1')));
     if(!post('title')||!post('precheck_instructions')||!post('daily_instructions')){flash('error','Titel und Nachweisanforderungen sind Pflicht.');redirect('/admin/offer/'.$id);}
+    try{$templates=posted_event_templates($daily);}catch(Throwable $e){flash('error',$e->getMessage());redirect('/admin/offer/'.$id);}
     $q=db()->prepare('SELECT COALESCE(MAX(position_no),0)+1 FROM offer_positions WHERE offer_id=?');$q->execute([$id]);$pos=(int)$q->fetchColumn();
-    db()->prepare('INSERT INTO offer_positions(offer_id,position_no,title,description,compensation,required_success_days,precheck_photo_count,precheck_instructions,daily_photo_count,daily_instructions) VALUES(?,?,?,?,?,?,?,?,?,?)')->execute([$id,$pos,post('title'),post('description')?:null,max(0,(float)post('compensation','0')),$days,$pre,post('precheck_instructions'),$daily,post('daily_instructions')]);
+    db()->prepare('INSERT INTO offer_positions(offer_id,position_no,title,description,compensation,required_success_days,precheck_photo_count,precheck_instructions,daily_photo_count,daily_instructions,daily_event_windows_json) VALUES(?,?,?,?,?,?,?,?,?,?,?)')
+        ->execute([$id,$pos,post('title'),post('description')?:null,max(0,(float)post('compensation','0')),$days,$pre,post('precheck_instructions'),$daily,post('daily_instructions'),event_templates_json($templates)]);
     log_event($id,null,'position.created',['position_no'=>$pos]);flash('success','Position wurde hinzugefügt.');redirect('/admin/offer/'.$id);
 }
 
 if (preg_match('#^/admin/offer/(\d+)/position/(\d+)/update$#',$path,$m) && $method==='POST') {
     require_admin();$id=(int)$m[1];$pid=(int)$m[2];
-    $q=db()->prepare('SELECT status FROM offers WHERE id=?');$q->execute([$id]);if($q->fetchColumn()!=='draft'){flash('error','Nur Entwürfe können geändert werden.');redirect('/admin/offer/'.$id);}
-    $days=max(1,min(365,(int)post('required_success_days','1')));$pre=max(1,min(20,(int)post('precheck_photo_count','1')));$daily=max(1,min(20,(int)post('daily_photo_count','1')));
+    $q=db()->prepare('SELECT status FROM offers WHERE id=?');$q->execute([$id]);
+    if($q->fetchColumn()!=='draft'){flash('error','Nur Entwürfe können geändert werden.');redirect('/admin/offer/'.$id);}
+    $days=max(1,min(365,(int)post('required_success_days','1')));
+    $pre=max(1,min(20,(int)post('precheck_photo_count','1')));
+    $daily=max(1,min(20,(int)post('daily_photo_count','1')));
     if(!post('title')||!post('precheck_instructions')||!post('daily_instructions')){flash('error','Titel und Nachweisanforderungen sind Pflicht.');redirect('/admin/offer/'.$id);}
-    db()->prepare('UPDATE offer_positions SET title=?,description=?,compensation=?,required_success_days=?,precheck_photo_count=?,precheck_instructions=?,daily_photo_count=?,daily_instructions=? WHERE id=? AND offer_id=?')
-        ->execute([post('title'),post('description')?:null,max(0,(float)post('compensation','0')),$days,$pre,post('precheck_instructions'),$daily,post('daily_instructions'),$pid,$id]);
+    try{$templates=posted_event_templates($daily);}catch(Throwable $e){flash('error',$e->getMessage());redirect('/admin/offer/'.$id);}
+    db()->prepare('UPDATE offer_positions SET title=?,description=?,compensation=?,required_success_days=?,precheck_photo_count=?,precheck_instructions=?,daily_photo_count=?,daily_instructions=?,daily_event_windows_json=? WHERE id=? AND offer_id=?')
+        ->execute([post('title'),post('description')?:null,max(0,(float)post('compensation','0')),$days,$pre,post('precheck_instructions'),$daily,post('daily_instructions'),event_templates_json($templates),$pid,$id]);
     log_event($id,null,'position.updated',['position_id'=>$pid]);flash('success','Position wurde aktualisiert.');redirect('/admin/offer/'.$id);
 }
 
 if (preg_match('#^/admin/offer/(\d+)/position/(\d+)/delete$#',$path,$m) && $method==='POST') {
-    require_admin();$id=(int)$m[1];$pid=(int)$m[2];$q=db()->prepare('SELECT status FROM offers WHERE id=?');$q->execute([$id]);if($q->fetchColumn()!=='draft'){flash('error','Nur Entwürfe können geändert werden.');redirect('/admin/offer/'.$id);}
-    db()->prepare('DELETE FROM offer_positions WHERE id=? AND offer_id=?')->execute([$pid,$id]);$q=db()->prepare('SELECT id FROM offer_positions WHERE offer_id=? ORDER BY position_no,id');$q->execute([$id]);$n=1;foreach($q->fetchAll(PDO::FETCH_COLUMN) as $x)db()->prepare('UPDATE offer_positions SET position_no=? WHERE id=?')->execute([$n++,$x]);
+    require_admin();$id=(int)$m[1];$pid=(int)$m[2];
+    $q=db()->prepare('SELECT status FROM offers WHERE id=?');$q->execute([$id]);
+    if($q->fetchColumn()!=='draft'){flash('error','Nur Entwürfe können geändert werden.');redirect('/admin/offer/'.$id);}
+    db()->prepare('DELETE FROM offer_positions WHERE id=? AND offer_id=?')->execute([$pid,$id]);
+    $q=db()->prepare('SELECT id FROM offer_positions WHERE offer_id=? ORDER BY position_no,id');$q->execute([$id]);$n=1;
+    foreach($q->fetchAll(PDO::FETCH_COLUMN) as $x)db()->prepare('UPDATE offer_positions SET position_no=? WHERE id=?')->execute([$n++,$x]);
     log_event($id,null,'position.deleted',['position_id'=>$pid]);flash('success','Position gelöscht.');redirect('/admin/offer/'.$id);
 }
 
 if (preg_match('#^/admin/offer/(\d+)/send$#',$path,$m) && $method==='POST') {
-    require_admin();$id=(int)$m[1];$q=db()->prepare('SELECT status FROM offers WHERE id=?');$q->execute([$id]);$status=$q->fetchColumn();$c=db()->prepare('SELECT COUNT(*) FROM offer_positions WHERE offer_id=?');$c->execute([$id]);
+    require_admin();$id=(int)$m[1];
+    $q=db()->prepare('SELECT status FROM offers WHERE id=?');$q->execute([$id]);$status=$q->fetchColumn();
+    $c=db()->prepare('SELECT COUNT(*) FROM offer_positions WHERE offer_id=?');$c->execute([$id]);
     if($status!=='draft'||(int)$c->fetchColumn()<1){flash('error','Das Angebot kann so nicht gesendet werden.');redirect('/admin/offer/'.$id);}
-    db()->prepare("UPDATE offers SET status='sent',sent_at=NOW(),updated_at=NOW() WHERE id=?")->execute([$id]);log_event($id,null,'offer.sent');flash('success','Angebot wurde gesendet.');redirect('/admin/offer/'.$id);
+    db()->prepare("UPDATE offers SET status='sent',sent_at=NOW(),updated_at=NOW() WHERE id=?")->execute([$id]);
+    log_event($id,null,'offer.sent');flash('success','Angebot wurde gesendet.');redirect('/admin/offer/'.$id);
 }
