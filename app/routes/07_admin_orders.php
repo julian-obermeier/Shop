@@ -48,7 +48,9 @@ if ($path==='/admin/reviews' && $method==='GET') {
     <?php foreach($pre as $o):
         $uq=db()->prepare('SELECT * FROM precheck_uploads WHERE order_id=? ORDER BY id');$uq->execute([$o['id']]);$ups=$uq->fetchAll();
         $autoAligned=!empty($o['align_to_offer_end']);
-        $autoDate=$autoAligned?offer_aligned_start_date((int)$o['offer_id'],(int)$o['required_success_days']):null;
+        $hasAlignmentAnchor=$autoAligned?offer_has_end_alignment_anchor((int)$o['offer_id']):false;
+        $autoDate=($autoAligned&&$hasAlignmentAnchor)?offer_aligned_start_date((int)$o['offer_id'],(int)$o['required_success_days']):null;
+        $waitingForSchedule=$autoAligned&&$hasAlignmentAnchor&&!$autoDate;
         $syncedStart=(!$autoAligned&&!empty($o['sync_start_with_offer']))?offer_synced_start_date((int)$o['offer_id']):null;
     ?>
         <article class="panel review-card">
@@ -58,14 +60,16 @@ if ($path==='/admin/reviews' && $method==='GET') {
             <div class="review-split">
                 <form method="post" action="<?=e(url('/admin/order/'.$o['id'].'/approve-precheck'))?>">
                     <input type="hidden" name="return_to" value="reviews">
-                    <?php if($autoAligned):?>
-                        <div class="notice"><strong>Automatisch ans Angebotsende gekoppelt</strong><br><?=e($autoDate?date_de($autoDate):'Noch nicht berechenbar – zuerst eine mehrtägige Position starten.')?></div>
+                    <?php if($autoAligned&&$autoDate):?>
+                        <div class="notice"><strong>Automatisch ans Angebotsende gekoppelt</strong><br><?=e(date_de($autoDate))?></div>
+                    <?php elseif($waitingForSchedule):?>
+                        <div class="notice"><strong>Freigabe sofort möglich.</strong><br>Der konkrete Durchführungstag wird automatisch gesetzt, sobald eine mehrtägige Basisposition gestartet wurde.</div>
                     <?php elseif($syncedStart):?>
                         <div class="notice"><strong>Gemeinsamer Hauptstart</strong><br><?=e(date_de($syncedStart))?> · wird automatisch von der bereits gestarteten Hauptposition übernommen.</div>
                     <?php else:?>
                         <label>Startdatum<input type="date" name="start_date" min="<?=e(date('Y-m-d'))?>" value="<?=e(date('Y-m-d'))?>" required></label>
                     <?php endif;?>
-                    <button class="btn full" <?=($autoAligned&&!$autoDate)?'disabled':''?>>✓ Freigeben & starten</button>
+                    <button class="btn full">✓ <?=e($waitingForSchedule?'Freigeben · Termin folgt':'Freigeben & starten')?></button>
                 </form>
                 <?php if((int)$o['precheck_photo_count']>0):?>
                 <form method="post" action="<?=e(url('/admin/order/'.$o['id'].'/reject-precheck'))?>">
@@ -157,6 +161,9 @@ if (preg_match('#^/admin/order/(\d+)$#',$path,$m) && $method==='GET') {
         <div class="stat"><span>Start</span><strong class="stat-date"><?=e($o['started_at']?date_de(scheduled_order_day_date($o,1)):'–')?></strong></div>
         <div class="stat"><span>Wallet</span><strong class="stat-date"><?=e($wallet?wallet_status_label($wallet['status']):'–')?></strong></div>
     </div>
+    <?php if($o['status']==='running'&&!$o['started_at']&&!empty($o['align_to_offer_end'])):?>
+        <div class="notice"><strong>Freigegeben – Termin folgt automatisch.</strong><br>Dieser Auftrag wartet auf den berechenbaren Endtermin der mehrtägigen Basisposition.</div>
+    <?php endif;?>
 
     <section class="panel">
         <div class="section-head"><h2>Vorabkontrolle</h2><span class="muted"><?=count($pre)?>/<?=e($o['precheck_photo_count'])?> Fotos vorhanden</span></div>
@@ -166,19 +173,23 @@ if (preg_match('#^/admin/order/(\d+)$#',$path,$m) && $method==='GET') {
         <?php if($o['status']==='precheck'):?>
             <?php
                 $autoAligned=!empty($o['align_to_offer_end']);
-                $autoDate=$autoAligned?offer_aligned_start_date((int)$o['offer_id'],(int)$o['required_success_days']):null;
+                $hasAlignmentAnchor=$autoAligned?offer_has_end_alignment_anchor((int)$o['offer_id']):false;
+                $autoDate=($autoAligned&&$hasAlignmentAnchor)?offer_aligned_start_date((int)$o['offer_id'],(int)$o['required_success_days']):null;
+                $waitingForSchedule=$autoAligned&&$hasAlignmentAnchor&&!$autoDate;
                 $syncedStart=(!$autoAligned&&!empty($o['sync_start_with_offer']))?offer_synced_start_date((int)$o['offer_id']):null;
             ?>
             <div class="review-split">
                 <form method="post" action="<?=e(url('/admin/order/'.$id.'/approve-precheck'))?>">
-                    <?php if($autoAligned):?>
-                        <div class="notice"><strong>Synchronisierter Zeitraum</strong><br><?=e($autoDate?date_de($autoDate):'Noch nicht berechenbar – zuerst eine mehrtägige Position starten.')?></div>
+                    <?php if($autoAligned&&$autoDate):?>
+                        <div class="notice"><strong>Synchronisierter Zeitraum</strong><br><?=e(date_de($autoDate))?></div>
+                    <?php elseif($waitingForSchedule):?>
+                        <div class="notice"><strong>Freigabe sofort möglich.</strong><br>Der Durchführungstag wird automatisch gesetzt, sobald eine mehrtägige Basisposition gestartet wurde.</div>
                     <?php elseif($syncedStart):?>
                         <div class="notice"><strong>Gemeinsamer Hauptstart</strong><br><?=e(date_de($syncedStart))?> · wird automatisch übernommen.</div>
                     <?php else:?>
                         <label>Geplanter Start<input type="date" name="start_date" min="<?=e(date('Y-m-d'))?>" value="<?=e(date('Y-m-d'))?>" required></label>
                     <?php endif;?>
-                    <button class="btn full" <?=(count($pre)<(int)$o['precheck_photo_count']||($autoAligned&&!$autoDate))?'disabled':''?>>✓ Freigeben & starten</button>
+                    <button class="btn full" <?=(count($pre)<(int)$o['precheck_photo_count'])?'disabled':''?>>✓ <?=e($waitingForSchedule?'Freigeben · Termin folgt':'Freigeben & starten')?></button>
                 </form>
                 <?php if((int)$o['precheck_photo_count']>0):?>
                 <form method="post" action="<?=e(url('/admin/order/'.$id.'/reject-precheck'))?>">
@@ -250,10 +261,16 @@ if (preg_match('#^/admin/order/(\d+)/approve-precheck$#',$path,$m) && $method===
     if((int)$c->fetchColumn()<(int)$o['precheck_photo_count']){flash('error','Es fehlen Vorabfotos.');redirect('/admin/order/'.$id);}
     $today=new DateTimeImmutable('today');
     $syncedStart=!empty($o['sync_start_with_offer'])?offer_synced_start_date((int)$o['offer_id']):null;
-    if(!empty($o['align_to_offer_end'])){
+    $hasAlignmentAnchor=!empty($o['align_to_offer_end'])?offer_has_end_alignment_anchor((int)$o['offer_id']):false;
+    $pendingSchedule=false;$start=null;$startDate=null;
+
+    if(!empty($o['align_to_offer_end'])&&$hasAlignmentAnchor){
         $start=offer_aligned_start_date((int)$o['offer_id'],(int)$o['required_success_days']);
-        if(!$start){flash('error','Der gekoppelte Zeitraum ist noch nicht berechenbar. Bitte zuerst mindestens eine nicht gekoppelte mehrtägige Position starten.');redirect('/admin/order/'.$id);}
-        $startDate=$start->format('Y-m-d');
+        if($start){
+            $startDate=$start->format('Y-m-d');
+        }else{
+            $pendingSchedule=true;
+        }
     }elseif($syncedStart){
         $start=$syncedStart;
         $startDate=$start->format('Y-m-d');
@@ -264,19 +281,30 @@ if (preg_match('#^/admin/order/(\d+)/approve-precheck$#',$path,$m) && $method===
 
     db()->beginTransaction();
     try{
-        db()->prepare("UPDATE orders SET status='running',precheck_approved_at=NOW(),started_at=?,updated_at=NOW() WHERE id=?")->execute([$startDate.' 00:00:00',$id]);
-        $ins=db()->prepare("INSERT INTO order_days(order_id,day_no,is_extension,required_photo_count,status) VALUES(?,?,0,?,'planned')");
-        for($d=1;$d<=(int)$o['required_success_days'];$d++){
-            $ins->execute([$id,$d,$o['daily_photo_count']]);
-            ensure_day_events((int)db()->lastInsertId(),(int)$o['daily_photo_count']);
+        db()->prepare("UPDATE orders SET status='running',precheck_approved_at=NOW(),started_at=?,updated_at=NOW() WHERE id=?")
+            ->execute([$startDate?$startDate.' 00:00:00':null,$id]);
+
+        if(!$pendingSchedule){
+            $ins=db()->prepare("INSERT INTO order_days(order_id,day_no,is_extension,required_photo_count,status) VALUES(?,?,0,?,'planned')");
+            for($d=1;$d<=(int)$o['required_success_days'];$d++){
+                $ins->execute([$id,$d,$o['daily_photo_count']]);
+                ensure_day_events((int)db()->lastInsertId(),(int)$o['daily_photo_count']);
+            }
         }
         db()->commit();
     }catch(Throwable $e){if(db()->inTransaction())db()->rollBack();throw $e;}
 
-    log_event((int)$o['offer_id'],$id,'precheck.approved',['start_date'=>$startDate,'end_aligned'=>(bool)$o['align_to_offer_end'],'synced_start'=>(bool)$o['sync_start_with_offer']]);
+    log_event((int)$o['offer_id'],$id,'precheck.approved',[
+        'start_date'=>$startDate,
+        'end_aligned'=>(bool)$o['align_to_offer_end'],
+        'synced_start'=>(bool)$o['sync_start_with_offer'],
+        'pending_schedule'=>$pendingSchedule
+    ]);
     sync_end_aligned_positions((int)$o['offer_id']);
     sync_offer_status((int)$o['offer_id']);
-    flash('success','Vorabkontrolle freigegeben. Start: '.date_de($start).'.');
+    flash('success',$pendingSchedule
+        ?'Auftrag wurde freigegeben. Der Durchführungstag wird automatisch gesetzt, sobald die mehrtägige Basisposition gestartet wurde.'
+        :'Auftrag freigegeben. Start: '.date_de($start).'.');
     redirect(post('return_to')==='reviews'?'/admin/reviews':'/admin/order/'.$id);
 }
 
