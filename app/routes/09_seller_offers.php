@@ -6,10 +6,10 @@ if (preg_match('#^/seller/offer/(\d+)$#',$path,$m) && $method==='GET') {
     $q=db()->prepare("SELECT * FROM offers WHERE id=? AND seller_id=? AND status<>'draft'");$q->execute([$id,$s['id']]);$o=$q->fetch();if(!$o)not_found();
     $q=db()->prepare('SELECT * FROM offer_positions WHERE offer_id=? ORDER BY position_no');$q->execute([$id]);$positions=$q->fetchAll();
     $q=db()->prepare('SELECT * FROM orders WHERE offer_id=? AND seller_id=? ORDER BY id');$q->execute([$id,$s['id']]);$orders=$q->fetchAll();
-    $maxDays=0;foreach($positions as $x)$maxDays=max($maxDays,(int)$x['required_success_days']);
+    $maxDays=0;$totalComp=0.0;foreach($positions as $x){$maxDays=max($maxDays,(int)$x['required_success_days']);$totalComp+=(float)$x['compensation'];}
 
     ob_start();?>
-    <div class="page-head"><div><span class="eyebrow">Angebot <?=e($o['offer_no'])?></span><h1><?=e($o['title'])?></h1></div><span class="status status-<?=e($o['status'])?>"><?=e(offer_status_label($o['status']))?></span></div>
+    <div class="page-head"><div><span class="eyebrow">Angebot <?=e($o['offer_no'])?></span><h1><?=e($o['title'])?></h1><p>Gesamtvergütung: <strong><?=money($totalComp)?></strong></p></div><span class="status status-<?=e($o['status'])?>"><?=e(offer_status_label($o['status']))?></span></div>
     <?php if($o['intro']):?><section class="panel"><p><?=nl2br(e($o['intro']))?></p></section><?php endif;?>
     <section class="panel"><h2>Regeln</h2><p><?=nl2br(e($o['rules_text']))?></p></section>
 
