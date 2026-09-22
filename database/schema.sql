@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS offer_positions (
  precheck_instructions TEXT NOT NULL,
  daily_photo_count INT NOT NULL DEFAULT 1,
  daily_instructions TEXT NOT NULL,
+ daily_event_windows_json LONGTEXT NULL,
  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
  FOREIGN KEY(offer_id) REFERENCES offers(id) ON DELETE CASCADE,
  UNIQUE(offer_id,position_no)
@@ -86,9 +87,10 @@ CREATE TABLE IF NOT EXISTS orders (
  precheck_instructions TEXT NOT NULL,
  daily_photo_count INT NOT NULL DEFAULT 1,
  daily_instructions TEXT NOT NULL,
+ daily_event_windows_json LONGTEXT NULL,
  successful_days INT NOT NULL DEFAULT 0,
  extension_days INT NOT NULL DEFAULT 0,
- status ENUM('precheck','running','completed','cancelled') NOT NULL DEFAULT 'precheck',
+ status ENUM('precheck','running','shipping','completed','cancelled') NOT NULL DEFAULT 'precheck',
  precheck_approved_at DATETIME NULL,
  started_at DATETIME NULL,
  completed_at DATETIME NULL,
@@ -141,6 +143,9 @@ CREATE TABLE IF NOT EXISTS order_day_events (
  day_id BIGINT UNSIGNED NOT NULL,
  event_no INT NOT NULL,
  label VARCHAR(80) NOT NULL,
+ window_start TIME NULL,
+ window_end TIME NULL,
+ all_day TINYINT(1) NOT NULL DEFAULT 0,
  status ENUM('planned','submitted') NOT NULL DEFAULT 'planned',
  seller_note TEXT NULL,
  submitted_at DATETIME NULL,
@@ -166,6 +171,61 @@ CREATE TABLE IF NOT EXISTS day_uploads (
  FOREIGN KEY(seller_id) REFERENCES sellers(id),
  INDEX(day_id,created_at),
  INDEX idx_day_uploads_event(event_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+
+CREATE TABLE IF NOT EXISTS app_settings (
+ setting_key VARCHAR(120) PRIMARY KEY,
+ setting_value LONGTEXT NULL,
+ updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS seller_payout_profiles (
+ seller_id BIGINT UNSIGNED PRIMARY KEY,
+ payout_method ENUM('paypal','bank') NULL,
+ paypal_email VARCHAR(190) NULL,
+ bank_holder VARCHAR(190) NULL,
+ bank_iban VARCHAR(80) NULL,
+ bank_bic VARCHAR(40) NULL,
+ updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+ FOREIGN KEY(seller_id) REFERENCES sellers(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS seller_wallet_entries (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ seller_id BIGINT UNSIGNED NOT NULL,
+ order_id BIGINT UNSIGNED NOT NULL UNIQUE,
+ amount DECIMAL(10,2) NOT NULL,
+ status ENUM('reserved','available','paid','cancelled') NOT NULL DEFAULT 'reserved',
+ payout_method ENUM('paypal','bank') NULL,
+ payout_reference VARCHAR(190) NULL,
+ available_at DATETIME NULL,
+ paid_at DATETIME NULL,
+ created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ updated_at DATETIME NULL,
+ FOREIGN KEY(seller_id) REFERENCES sellers(id) ON DELETE CASCADE,
+ FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE,
+ INDEX(seller_id,status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS order_shipments (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ order_id BIGINT UNSIGNED NOT NULL UNIQUE,
+ due_date DATE NOT NULL,
+ address_name VARCHAR(190) NULL,
+ street VARCHAR(190) NULL,
+ postal_code VARCHAR(30) NULL,
+ city VARCHAR(120) NULL,
+ country VARCHAR(120) NULL,
+ extra TEXT NULL,
+ status ENUM('pending','confirmed') NOT NULL DEFAULT 'pending',
+ confirmed_at DATETIME NULL,
+ tracking_number VARCHAR(190) NULL,
+ seller_note TEXT NULL,
+ created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ updated_at DATETIME NULL,
+ FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE,
+ INDEX(status,due_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS activity_log (
