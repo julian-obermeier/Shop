@@ -17,37 +17,87 @@ if ($path==='/seller' && $method==='GET') {
         ORDER BY o.id LIMIT 30");
     $q->execute([$s['id']]);$openSteps=$q->fetchAll();
 
-    $now=new DateTimeImmutable('now');$todayDate=new DateTimeImmutable('today');
-    $dueNow=[];$dueToday=[];$missedToday=[];$otherSteps=[];
+    $now=new DateTimeImmutable('now');$todayDate=new DateTimeImmutable('today');$tomorrowDate=$todayDate->modify('+1 day');
+    $dueNow=[];$dueToday=[];$missedToday=[];$otherSteps=[];$todayTimeline=[];
     foreach($openSteps as $d){
         $scheduled=scheduled_order_day_date($d,(int)$d['day_no']);
         $d['_scheduled']=$scheduled;$d['_next_label']=null;$d['_window']=null;$d['_window_state']=null;$d['_late']=false;
 
-        if($d['status']==='planned'&&$scheduled){
+        $events=[];
+        if($scheduled){
             $events=day_events((int)$d['id']);
-            if(!$events)$events=ensure_day_events((int)$d['id'],(int)$d['required_photo_count']);
+            if(!$events&&$d['status']==='planned')$events=ensure_day_events((int)$d['id'],(int)$d['required_photo_count']);
+
             foreach($events as $ev){
-                if($ev['status']!=='planned')continue;
-                $d['_next_label']=$ev['label'];
-                $d['_window']=event_window_text($ev);
-                $d['_late']=event_late_submission_allowed($ev,$d,$scheduled);
-                $d['_window_state']=$d['_late']?'open':event_window_state($ev,$scheduled,$now);
-                $d['_event_start']=!empty($ev['all_day'])
+                $eventStart=!empty($ev['all_day'])
                     ?$scheduled->setTime(0,0)
                     :new DateTimeImmutable($scheduled->format('Y-m-d').' '.substr((string)$ev['window_start'],0,5).':00');
-                break;
+                $eventEnd=!empty($ev['all_day'])
+                    ?$scheduled->setTime(23,59,59)
+                    :new DateTimeImmutable($scheduled->format('Y-m-d').' '.substr((string)$ev['window_end'],0,5).':59');
+                $late=$ev['status']==='planned'&&event_late_submission_allowed($ev,$d,$scheduled);
+                $state=$ev['status']==='submitted'?'done':($late?'open':event_window_state($ev,$scheduled,$now));
+
+                if($scheduled->format('Y-m-d')===$todayDate->format('Y-m-d')){
+                    $todayTimeline[]=[
+                        'order_id'=>(int)$d['order_id'],
+                        'order_no'=>$d['order_no'],
+                        'title'=>$d['title_snapshot'],
+                        'day_no'=>(int)$d['day_no'],
+                        'label'=>$ev['label'],
+                        'window'=>event_window_text($ev),
+                        'state'=>$state,
+                        'late'=>$late,
+                        'start'=>$eventStart,
+                        'end'=>$eventEnd,
+                        'event_no'=>(int)$ev['event_no'],
+                    ];
+                }
+
+                if($d['status']==='planned'&&$ev['status']==='planned'&&$d['_next_label']===null){
+                    $d['_next_label']=$ev['label'];
+                    $d['_window']=event_window_text($ev);
+                    $d['_late']=$late;
+                    $d['_window_state']=$state;
+                    $d['_event_start']=$eventStart;
+                    $d['_event_end']=$eventEnd;
+                }
             }
         }
 
         $isToday=$scheduled&&$scheduled->format('Y-m-d')===$todayDate->format('Y-m-d');
+        $isTomorrow=$scheduled&&$scheduled->format('Y-m-d')===$tomorrowDate->format('Y-m-d');
         if($d['status']==='planned'&&$isToday&&$d['_next_label']){
             if($d['_window_state']==='open'){$dueNow[]=$d;continue;}
             if($d['_window_state']==='future'){$dueToday[]=$d;continue;}
             if($d['_window_state']==='closed'){$missedToday[]=$d;continue;}
         }
+        if($isTomorrow&&$d['status']==='planned')continue;
         $otherSteps[]=$d;
     }
+    usort($dueNow,static fn($a,$b)=>($a['_event_end']?->getTimestamp()??PHP_INT_MAX)<=>($b['_event_end']?->getTimestamp()??PHP_INT_MAX));
     usort($dueToday,static fn($a,$b)=>($a['_event_start']?->getTimestamp()??PHP_INT_MAX)<=>($b['_event_start']?->getTimestamp()??PHP_INT_MAX));
+    usort($todayTimeline,static fn($a,$b)=>($a['start']->getTimestamp()<=>$b['start']->getTimestamp())?:($a['event_no']<=>$b['event_no']));
+
+    $q=db()->prepare("SELECT d.*,o.title_snapshot,o.order_no,o.started_at,o.daily_photo_count,o.offer_id,o.required_success_days,o.is_final_day_position,o.align_to_offer_end
+        FROM order_days d
+        JOIN orders o ON o.id=d.order_id
+        WHERE o.seller_id=? AND o.status='running' AND d.status='planned'
+        ORDER BY o.id,d.day_no LIMIT 100");
+    $q->execute([$s['id']]);$tomorrowTasks=[];
+    foreach($q->fetchAll() as $d){
+        $scheduled=scheduled_order_day_date($d,(int)$d['day_no']);
+        if(!$scheduled||$scheduled->format('Y-m-d')!==$tomorrowDate->format('Y-m-d'))continue;
+        $events=day_events((int)$d['id']);if(!$events)$events=ensure_day_events((int)$d['id'],(int)$d['required_photo_count']);
+        $items=[];
+        foreach($events as $ev){
+            if($ev['status']==='submitted')continue;
+            $start=!empty($ev['all_day'])?$scheduled->setTime(0,0):new DateTimeImmutable($scheduled->format('Y-m-d').' '.substr((string)$ev['window_start'],0,5).':00');
+            $items[]=['label'=>$ev['label'],'window'=>event_window_text($ev),'start'=>$start];
+        }
+        if($items)$tomorrowTasks[]=['order_id'=>(int)$d['order_id'],'order_no'=>$d['order_no'],'title'=>$d['title_snapshot'],'day_no'=>(int)$d['day_no'],'events'=>$items,'first_start'=>$items[0]['start']];
+    }
+    usort($tomorrowTasks,static fn($a,$b)=>$a['first_start']->getTimestamp()<=>$b['first_start']->getTimestamp());
 
     $q=db()->prepare("SELECT sh.*,o.id order_id,o.offer_id,ofr.offer_no,ofr.title offer_title
         FROM order_shipments sh
@@ -73,11 +123,56 @@ if ($path==='/seller' && $method==='GET') {
 
     $wallet=wallet_summary((int)$s['id']);
 
+    $heroMode='clear';$heroTask=null;$heroTarget=null;
+    if($dueNow){
+        $heroMode='now';$heroTask=$dueNow[0];$heroTarget=$heroTask['_event_end'];
+    }elseif($dueToday){
+        $heroMode='next';$heroTask=$dueToday[0];$heroTarget=$heroTask['_event_start'];
+    }elseif($tomorrowTasks){
+        $heroMode='tomorrow';$heroTask=$tomorrowTasks[0];$heroTarget=$heroTask['first_start'];
+    }
+
     ob_start();?>
     <div class="page-head">
         <div><span class="eyebrow">Verkäuferin</span><h1>Hallo <?=e($s['first_name'])?></h1><p>Deine offenen Schritte, Versandaufgaben und Vergütung. Angebote und Abläufe werden zentral über die Vermittlungsplattform organisiert.</p></div>
         <a class="btn ghost" href="<?=e(url('/seller/wallet'))?>">Wallet · <?=money($wallet['available'])?> auszahlbar</a>
     </div>
+
+    <section class="seller-task-hero task-hero-<?=e($heroMode)?>">
+        <?php if($heroMode==='now'):?>
+            <div class="task-hero-copy">
+                <span class="eyebrow">Jetzt erledigen</span>
+                <h2><?=e($heroTask['order_no'].' · '.$heroTask['_next_label'])?></h2>
+                <p><?=e($heroTask['title_snapshot'])?> · Tag <?=e($heroTask['day_no'])?> · <?=e($heroTask['_window'])?><?=!empty($heroTask['_late'])?' · Nachreichung':''?></p>
+                <?php if($heroTarget):?><div class="task-countdown"><span>Noch Zeit</span><strong data-countdown-target="<?=e((string)($heroTarget->getTimestamp()*1000))?>" data-countdown-reload="1">–</strong></div><?php endif;?>
+            </div>
+            <a class="btn task-hero-button" href="<?=e(url('/seller/order/'.$heroTask['order_id']))?>">Jetzt öffnen →</a>
+        <?php elseif($heroMode==='next'):?>
+            <div class="task-hero-copy">
+                <span class="eyebrow">Nächster Nachweis</span>
+                <h2><?=e($heroTask['order_no'].' · '.$heroTask['_next_label'])?></h2>
+                <p>Heute ab <?=e($heroTask['_event_start']->format('H:i'))?> Uhr · <?=e($heroTask['_window'])?></p>
+                <div class="task-countdown"><span>Startet in</span><strong data-countdown-target="<?=e((string)($heroTarget->getTimestamp()*1000))?>" data-countdown-reload="1">–</strong></div>
+            </div>
+            <a class="btn ghost task-hero-button" href="<?=e(url('/seller/order/'.$heroTask['order_id']))?>">Auftrag ansehen</a>
+        <?php elseif($heroMode==='tomorrow'):?>
+            <div class="task-hero-copy">
+                <span class="eyebrow">Für heute nichts mehr fällig</span>
+                <h2>Nächster Schritt morgen</h2>
+                <p><?=e($heroTask['order_no'].' · '.$heroTask['events'][0]['label'])?> · <?=e($heroTask['events'][0]['window'])?></p>
+                <div class="task-countdown"><span>Beginnt in</span><strong data-countdown-target="<?=e((string)($heroTarget->getTimestamp()*1000))?>" data-countdown-reload="1">–</strong></div>
+            </div>
+            <a class="btn ghost task-hero-button" href="<?=e(url('/seller/order/'.$heroTask['order_id']))?>">Morgen ansehen</a>
+        <?php else:?>
+            <div class="task-hero-copy">
+                <span class="eyebrow">Heute</span>
+                <h2>Aktuell nichts fällig</h2>
+                <p>Es ist momentan kein Nachweis offen oder für heute geplant.</p>
+            </div>
+            <span class="task-done-mark">✓</span>
+        <?php endif;?>
+    </section>
+
     <div class="stats">
         <div class="stat"><span>Neue Angebote</span><strong><?=$new?></strong></div>
         <div class="stat"><span>Vorabkontrollen</span><strong><?=$pre?></strong></div>
@@ -92,34 +187,19 @@ if ($path==='/seller' && $method==='GET') {
         <div class="stat <?=count($missedToday)?'due-missed-stat':''?>"><span>Heute verpasst</span><strong><?=count($missedToday)?></strong></div>
     </div>
 
-    <?php if($dueNow):?>
-    <section class="panel seller-due-panel due-now-panel">
-        <div class="section-head"><h2>Jetzt fällig</h2><span class="status status-submitted"><?=count($dueNow)?> offen</span></div>
-        <div class="list">
-        <?php foreach($dueNow as $d):?>
-            <a class="list-row due-task-row" href="<?=e(url('/seller/order/'.$d['order_id']))?>">
-                <div>
-                    <strong><?=e($d['order_no'].' · '.$d['_next_label'])?></strong>
-                    <span><?=e($d['title_snapshot'])?> · Tag <?=e($d['day_no'])?> · <?=e($d['_window'])?><?=!empty($d['_late'])?' · Nachreichung freigegeben':''?></span>
-                </div>
-                <span class="status status-submitted">Jetzt erledigen</span>
-            </a>
-        <?php endforeach;?>
-        </div>
-    </section>
-    <?php endif;?>
-
-    <?php if($dueToday):?>
-    <section class="panel seller-due-panel">
-        <div class="section-head"><h2>Heute fällig</h2><span class="muted">Später am heutigen Tag</span></div>
-        <div class="list">
-        <?php foreach($dueToday as $d):?>
-            <a class="list-row" href="<?=e(url('/seller/order/'.$d['order_id']))?>">
-                <div>
-                    <strong><?=e($d['order_no'].' · '.$d['_next_label'])?></strong>
-                    <span><?=e($d['title_snapshot'])?> · Tag <?=e($d['day_no'])?> · <?=e($d['_window'])?></span>
-                </div>
-                <span class="status status-planned"><?=e($d['_event_start']?->format('H:i')??'Heute')?> Uhr</span>
+    <?php if($todayTimeline):?>
+    <section class="panel seller-today-timeline">
+        <div class="section-head"><h2>Heute</h2><span class="muted"><?=e(date_de($todayDate))?></span></div>
+        <div class="task-timeline">
+        <?php foreach($todayTimeline as $item):
+            $label=match($item['state']){'done'=>'Erledigt','open'=>'Jetzt fällig','future'=>'Später','closed'=>'Verpasst',default=>'Offen'};
+            $statusClass=match($item['state']){'done'=>'fulfilled','open'=>'submitted','closed'=>'not_fulfilled',default=>'planned'};
+        ?>
+            <a class="task-timeline-row timeline-<?=e($item['state'])?>" href="<?=e(url('/seller/order/'.$item['order_id']))?>">
+                <div class="task-time"><?=e(!empty($item['start'])?$item['start']->format('H:i'):'–')?></div>
+                <div class="task-timeline-dot"></div>
+                <div class="task-timeline-copy"><strong><?=e($item['label'])?></strong><span><?=e($item['order_no'])?> · Tag <?=e($item['day_no'])?> · <?=e($item['window'])?><?=!empty($item['late'])?' · Nachreichung':''?></span></div>
+                <span class="status status-<?=e($statusClass)?>"><?=e($label)?></span>
             </a>
         <?php endforeach;?>
         </div>
@@ -127,13 +207,17 @@ if ($path==='/seller' && $method==='GET') {
     <?php endif;?>
 
     <?php if($missedToday):?>
-    <section class="panel seller-due-panel due-missed-panel">
-        <div class="section-head"><h2>Heute verpasst</h2><span class="status status-not_fulfilled"><?=count($missedToday)?> Frist(en)</span></div>
+    <div class="notice warning seller-missed-summary"><strong><?=count($missedToday)?> heutige Nachweisfrist(en) verpasst.</strong><br>Öffne den betreffenden Auftrag, um den aktuellen Status oder eine mögliche Nachforderung zu sehen.</div>
+    <?php endif;?>
+
+    <?php if($tomorrowTasks):?>
+    <section class="panel seller-tomorrow">
+        <div class="section-head"><h2>Morgen</h2><span class="muted"><?=e(date_de($tomorrowDate))?></span></div>
         <div class="list">
-        <?php foreach($missedToday as $d):?>
-            <a class="list-row" href="<?=e(url('/seller/order/'.$d['order_id']))?>">
-                <div><strong><?=e($d['order_no'].' · '.$d['_next_label'])?></strong><span><?=e($d['title_snapshot'])?> · Tag <?=e($d['day_no'])?> · <?=e($d['_window'])?></span></div>
-                <span class="status status-not_fulfilled">Frist verpasst</span>
+        <?php foreach($tomorrowTasks as $task):?>
+            <a class="list-row" href="<?=e(url('/seller/order/'.$task['order_id']))?>">
+                <div><strong><?=e($task['order_no'].' · '.$task['title'])?></strong><span>Tag <?=e($task['day_no'])?> · <?=e(implode(' · ',array_map(static fn($x)=>$x['label'].' '.$x['window'],$task['events'])))?></span></div>
+                <span class="status status-planned"><?=e($task['first_start']->format('H:i'))?> Uhr</span>
             </a>
         <?php endforeach;?>
         </div>
