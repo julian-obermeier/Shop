@@ -94,7 +94,10 @@ if ($path === '/admin/sellers' && $method === 'GET') {
         <?php foreach($sellers as $s):?>
             <div class="list-row static">
                 <div><strong><?=e($s['first_name'].' '.$s['last_name'])?></strong><span><?=e($s['email'])?></span></div>
-                <span class="status"><?=((int)$s['active'])?'Aktiv':'Inaktiv'?></span>
+                <div class="seller-row-actions">
+                    <?php if((int)$s['active']):?><a class="btn ghost" href="<?=e(url('/admin/scent-requests').'?seller_id='.$s['id'])?>">Duftprobe anfragen</a><?php endif;?>
+                    <span class="status"><?=((int)$s['active'])?'Aktiv':'Inaktiv'?></span>
+                </div>
             </div>
         <?php endforeach;?>
         <?php if(!$sellers):?><div class="empty">Noch kein Konto angelegt.</div><?php endif;?>
