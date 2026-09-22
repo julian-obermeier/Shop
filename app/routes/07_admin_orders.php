@@ -119,12 +119,20 @@ if ($path==='/admin/reviews' && $method==='GET') {
             <?php else:?>
             <form class="review-actions" method="post" action="<?=e(url('/admin/day/'.$d['id'].'/review'))?>">
                 <input type="hidden" name="return_to" value="reviews">
-                <textarea name="admin_note" rows="3" placeholder="Notiz / Begründung optional"></textarea>
+                <textarea name="admin_note" rows="3" placeholder="<?=!empty($d['_missed'])?'Notiz zur Entscheidung optional':'Notiz / Begründung optional'?>"></textarea>
                 <div>
-                    <?php if(empty($d['_missed'])):?><button class="btn" name="decision" value="fulfilled">✓ Erfüllt</button><?php endif;?>
+                    <?php if(empty($d['_missed'])):?><button class="btn" name="decision" value="fulfilled">✓ Erfüllt</button>
+                    <?php else:?><button class="btn ghost" name="decision" value="fulfilled_override">✓ Trotz fehlender Nachweise erfüllt</button><?php endif;?>
                     <button class="btn danger" name="decision" value="not_fulfilled">✕ Nicht erfüllt · +1 Tag</button>
                 </div>
             </form>
+            <?php if(!empty($d['_missed'])):?>
+            <form class="late-evidence-form" method="post" action="<?=e(url('/admin/day/'.$d['id'].'/request-evidence'))?>">
+                <input type="hidden" name="return_to" value="reviews">
+                <label>Hinweis zur Nachreichung <span class="muted">(optional)</span><textarea name="late_submission_note" rows="2" placeholder="z. B. Bitte die fehlenden Fotos für diesen Tag nachreichen."></textarea></label>
+                <button class="btn ghost full">Fehlende Nachweise nachfordern</button>
+            </form>
+            <?php endif;?>
             <?php endif;?>
             <a class="text-link" href="<?=e(url('/admin/order/'.$d['order_id']))?>">Auftrag vollständig öffnen →</a>
         </article>
@@ -213,6 +221,8 @@ if (preg_match('#^/admin/order/(\d+)$#',$path,$m) && $method==='GET') {
             <div class="day-main">
                 <div class="day-title"><strong>Tag <?=e($d['day_no'])?><?=((int)$d['is_extension'])?' · Verlängerung':''?></strong><span class="day-date"><?=e(date_de($scheduled))?></span></div>
                 <span class="status <?=e($missed?'status-not_fulfilled':'status-'.$d['status'])?>"><?=e($missed?'Frist verpasst':day_status_label($d['status']))?></span>
+                <?php if(!empty($d['fulfilled_by_override'])):?><div class="notice success"><strong>Trotz fehlender Nachweise als erfüllt markiert.</strong></div><?php endif;?>
+                <?php if(!empty($d['late_submission_allowed'])):?><div class="notice warning"><strong>Nachreichung offen.</strong><br>Die fehlenden Nachweise wurden erneut freigeschaltet.<?php if($d['late_submission_note']):?><br><?=nl2br(e($d['late_submission_note']))?><?php endif;?></div><?php endif;?>
                 <?php if($d['admin_note']):?><p class="muted">Admin-Notiz: <?=e($d['admin_note'])?></p><?php endif;?>
                 <?php if($events):?><div class="event-mini-list"><?php foreach($events as $ev):
                     $state=event_window_state($ev,$scheduled);
@@ -227,13 +237,22 @@ if (preg_match('#^/admin/order/(\d+)$#',$path,$m) && $method==='GET') {
                 <?php if($finalLocked):?>
                     <div class="notice"><strong>Synchronisierte Ein-Tages-Position:</strong><br>Die Bewertung wird freigeschaltet, sobald alle mehrtägigen Positionen dieses Angebots endgültig abgeschlossen sind.</div>
                 <?php else:?>
-                <form class="review-actions" method="post" action="<?=e(url('/admin/day/'.$d['id'].'/review'))?>">
-                    <textarea name="admin_note" rows="2" placeholder="Notiz optional"></textarea>
-                    <div>
-                        <?php if(!$missed):?><button class="btn" name="decision" value="fulfilled">✓ Erfüllt</button><?php endif;?>
-                        <button class="btn danger" name="decision" value="not_fulfilled">✕ Nicht erfüllt · +1 Tag</button>
-                    </div>
-                </form>
+                <div>
+                    <form class="review-actions" method="post" action="<?=e(url('/admin/day/'.$d['id'].'/review'))?>">
+                        <textarea name="admin_note" rows="2" placeholder="Notiz optional"></textarea>
+                        <div>
+                            <?php if(!$missed):?><button class="btn" name="decision" value="fulfilled">✓ Erfüllt</button>
+                            <?php else:?><button class="btn ghost" name="decision" value="fulfilled_override">✓ Trotz fehlender Nachweise erfüllt</button><?php endif;?>
+                            <button class="btn danger" name="decision" value="not_fulfilled">✕ Nicht erfüllt · +1 Tag</button>
+                        </div>
+                    </form>
+                    <?php if($missed):?>
+                    <form class="late-evidence-form" method="post" action="<?=e(url('/admin/day/'.$d['id'].'/request-evidence'))?>">
+                        <label>Hinweis zur Nachreichung <span class="muted">(optional)</span><textarea name="late_submission_note" rows="2" placeholder="Bitte die fehlenden Nachweise nachreichen."></textarea></label>
+                        <button class="btn ghost full">Fehlende Nachweise nachfordern</button>
+                    </form>
+                    <?php endif;?>
+                </div>
                 <?php endif;?>
             <?php endif;?>
         </div>
@@ -332,10 +351,49 @@ if (preg_match('#^/admin/order/(\d+)/reject-precheck$#',$path,$m) && $method==='
     redirect(post('return_to')==='reviews'?'/admin/reviews':'/admin/order/'.$id);
 }
 
+// REQUEST MISSING EVIDENCE AFTER A MISSED WINDOW
+if (preg_match('#^/admin/day/(\d+)/request-evidence$#',$path,$m) && $method==='POST') {
+    $a=require_admin();$dayId=(int)$m[1];$note=post('late_submission_note');
+
+    $q=db()->prepare("SELECT d.*,o.offer_id,o.id order_id,o.status order_status,o.started_at,
+        o.required_success_days,o.align_to_offer_end,o.is_final_day_position
+        FROM order_days d JOIN orders o ON o.id=d.order_id WHERE d.id=?");
+    $q->execute([$dayId]);$d=$q->fetch();if(!$d)not_found();
+
+    if($d['order_status']!=='running'||$d['status']!=='planned'){
+        flash('error','Für diesen Tag können aktuell keine Nachweise nachgefordert werden.');
+        redirect('/admin/order/'.$d['order_id']);
+    }
+    if(!day_is_missed($d,$d)){
+        flash('error','Nachreichungen können freigegeben werden, sobald mindestens ein Pflicht-Zeitfenster verpasst wurde.');
+        redirect('/admin/order/'.$d['order_id']);
+    }
+
+    $q=db()->prepare("SELECT id,label,event_no FROM order_day_events WHERE day_id=? AND status='planned' ORDER BY event_no");
+    $q->execute([$dayId]);$missing=$q->fetchAll();
+    if(!$missing){
+        flash('error','Für diesen Tag fehlen keine Nachweise mehr.');
+        redirect('/admin/order/'.$d['order_id']);
+    }
+
+    db()->prepare("UPDATE order_days SET late_submission_allowed=1,late_submission_note=?,
+        late_submission_requested_at=NOW(),late_submission_requested_by=?,updated_at=NOW() WHERE id=?")
+        ->execute([$note?:null,$a['id'],$dayId]);
+
+    log_event((int)$d['offer_id'],(int)$d['order_id'],'day.evidence_requested',[
+        'day_id'=>$dayId,
+        'day_no'=>(int)$d['day_no'],
+        'missing_events'=>array_map(static fn(array $x)=>['id'=>(int)$x['id'],'event_no'=>(int)$x['event_no'],'label'=>$x['label']],$missing),
+        'note'=>$note?:null
+    ]);
+    flash('success','Die fehlenden Nachweise wurden zur Nachreichung freigegeben.');
+    redirect(post('return_to')==='reviews'?'/admin/reviews':'/admin/order/'.$d['order_id']);
+}
+
 // DAY REVIEW: complete submissions or expired incomplete day
 if (preg_match('#^/admin/day/(\d+)/review$#',$path,$m) && $method==='POST') {
     $a=require_admin();$dayId=(int)$m[1];$decision=post('decision');
-    if(!in_array($decision,['fulfilled','not_fulfilled'],true)){flash('error','Ungültige Entscheidung.');redirect('/admin/orders');}
+    if(!in_array($decision,['fulfilled','fulfilled_override','not_fulfilled'],true)){flash('error','Ungültige Entscheidung.');redirect('/admin/orders');}
 
     $q=db()->prepare("SELECT d.*,o.offer_id,o.daily_photo_count,o.required_success_days,o.started_at AS order_started_at,o.status AS order_status,o.is_final_day_position,o.align_to_offer_end
         FROM order_days d JOIN orders o ON o.id=d.order_id WHERE d.id=?");
@@ -348,14 +406,18 @@ if (preg_match('#^/admin/day/(\d+)/review$#',$path,$m) && $method==='POST') {
         redirect('/admin/order/'.$d['order_id']);
     }
     if($d['status']!=='submitted'&&!$missed){flash('error','Dieser Tag ist noch nicht prüfbar.');redirect('/admin/order/'.$d['order_id']);}
-    if($missed&&$decision!=='not_fulfilled'){flash('error','Ein Tag mit verpasstem Pflichtfenster kann nicht als erfüllt bewertet werden.');redirect('/admin/order/'.$d['order_id']);}
+    if($missed&&!in_array($decision,['not_fulfilled','fulfilled_override'],true)){flash('error','Für einen Tag mit verpasstem Pflichtfenster bitte Nachweise nachfordern, bewusst trotzdem als erfüllt markieren oder verlängern.');redirect('/admin/order/'.$d['order_id']);}
+    if($decision==='fulfilled_override'&&!$missed){flash('error','Die Sonderfreigabe ist nur bei fehlenden/verpassten Nachweisen vorgesehen.');redirect('/admin/order/'.$d['order_id']);}
+    $storedDecision=$decision==='fulfilled_override'?'fulfilled':$decision;
+    $adminNote=post('admin_note')?:($decision==='fulfilled_override'?'Von der Plattform trotz fehlender Nachweise als erfüllt bestätigt.':null);
 
     db()->beginTransaction();
     try{
-        db()->prepare('UPDATE order_days SET status=?,admin_note=?,reviewed_at=NOW(),reviewed_by=?,updated_at=NOW() WHERE id=?')
-            ->execute([$decision,post('admin_note')?:null,$a['id'],$dayId]);
+        db()->prepare('UPDATE order_days SET status=?,admin_note=?,fulfilled_by_override=?,late_submission_allowed=0,
+            reviewed_at=NOW(),reviewed_by=?,updated_at=NOW() WHERE id=?')
+            ->execute([$storedDecision,$adminNote,$decision==='fulfilled_override'?1:0,$a['id'],$dayId]);
 
-        if($decision==='not_fulfilled'){
+        if($storedDecision==='not_fulfilled'){
             $q=db()->prepare('SELECT id FROM order_days WHERE extension_for_day_id=?');$q->execute([$dayId]);
             if(!$q->fetchColumn()){
                 $q=db()->prepare('SELECT COALESCE(MAX(day_no),0)+1 FROM order_days WHERE order_id=?');$q->execute([$d['order_id']]);$next=(int)$q->fetchColumn();
@@ -368,9 +430,16 @@ if (preg_match('#^/admin/day/(\d+)/review$#',$path,$m) && $method==='POST') {
         db()->commit();
     }catch(Throwable $e){if(db()->inTransaction())db()->rollBack();throw $e;}
 
-    log_event((int)$d['offer_id'],(int)$d['order_id'],'day.reviewed',['day_id'=>$dayId,'decision'=>$decision,'missed_window'=>$missed]);
-    if($decision==='not_fulfilled' && empty($d['align_to_offer_end']))sync_end_aligned_positions((int)$d['offer_id']);
+    log_event((int)$d['offer_id'],(int)$d['order_id'],'day.reviewed',[
+        'day_id'=>$dayId,
+        'decision'=>$storedDecision,
+        'override_missing_evidence'=>$decision==='fulfilled_override',
+        'missed_window'=>$missed
+    ]);
+    if($storedDecision==='not_fulfilled' && empty($d['align_to_offer_end']))sync_end_aligned_positions((int)$d['offer_id']);
     sync_order_progress((int)$d['order_id']);
-    flash('success',$decision==='fulfilled'?'Tag als erfüllt bestätigt.':'Tag nicht erfüllt: ein zusätzlicher Tag wurde angehängt.');
+    flash('success',$decision==='fulfilled_override'
+        ?'Tag wurde trotz fehlender Nachweise als erfüllt bestätigt.'
+        :($storedDecision==='fulfilled'?'Tag als erfüllt bestätigt.':'Tag nicht erfüllt: ein zusätzlicher Tag wurde angehängt.'));
     redirect(post('return_to')==='reviews'?'/admin/reviews':'/admin/order/'.$d['order_id']);
 }
