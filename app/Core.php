@@ -135,8 +135,8 @@ function create_seller_invitation(int $adminId, ?string $email = null): array {
 }
 function seller_invitation_by_token(string $token): ?array {
     if(!preg_match('/^[a-f0-9]{64}$/',$token)) return null;
-    $q=db()->prepare("SELECT i.*,a.name admin_name
-        FROM seller_invitations i JOIN admins a ON a.id=i.admin_id
+    $q=db()->prepare("SELECT i.*
+        FROM seller_invitations i
         WHERE i.token_hash=? AND i.used_at IS NULL AND i.revoked_at IS NULL AND i.expires_at>NOW()
         LIMIT 1");
     $q->execute([hash('sha256',$token)]);
@@ -148,9 +148,9 @@ function send_seller_invitation_email(string $email,string $link,string $expires
     $host=(string)(parse_url((string)app_config('app.url',''),PHP_URL_HOST)?:'localhost');
     $from=(string)app_config('mail.from','noreply@'.$host);
     $fromName=(string)app_config('mail.from_name',app_config('app.name','Auftragsportal'));
-    $subject='Einladung zum Auftragsportal';
+    $subject='Einladung zur Vermittlungsplattform';
     $body="Hallo,\n\n"
-        ."du wurdest eingeladen, ein Verkäuferinnenkonto im ".app_config('app.name','Auftragsportal')." anzulegen.\n\n"
+        ."du wurdest eingeladen, ein Verkäuferinnenkonto auf der privaten Vermittlungsplattform ".app_config('app.name','Auftragsportal')." anzulegen. Die Plattform übernimmt die organisatorische Abwicklung der Angebote und Aufträge.\n\n"
         ."Einladungslink:\n".$link."\n\n"
         ."Der Link ist einmalig verwendbar und gültig bis ".date('d.m.Y H:i',strtotime($expiresAt))." Uhr.\n\n"
         ."Falls du diese Einladung nicht erwartet hast, kannst du diese E-Mail ignorieren.";
