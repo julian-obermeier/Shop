@@ -173,6 +173,7 @@ if (preg_match('#^/admin/order/(\d+)$#',$path,$m) && $method==='GET') {
     $rejection=latest_precheck_rejection($id);$shipment=shipment_for_order($id);
     $q=db()->prepare('SELECT * FROM seller_wallet_entries WHERE order_id=?');$q->execute([$id]);$wallet=$q->fetch();
     mark_order_messages_read($id,'admin');$messages=order_messages($id);
+    $windowTemplates=event_templates($o['daily_event_windows_json']??null,(int)$o['daily_photo_count']);
 
     ob_start();?>
     <div class="page-head"><div><span class="eyebrow">Auftrag <?=e($o['order_no'])?></span><h1><?=e($o['title_snapshot'])?></h1><p><?=e($o['first_name'].' '.$o['last_name'])?> · <?=money($o['compensation'])?></p></div><span class="status status-<?=e($o['status'])?>"><?=e(order_status_label($o['status']))?></span></div>
@@ -284,6 +285,29 @@ if (preg_match('#^/admin/order/(\d+)$#',$path,$m) && $method==='GET') {
     <?php if(in_array($o['status'],['precheck','running'],true)):?>
     <section class="panel correction-panel">
         <div class="section-head"><h2>Admin-Korrekturen</h2><span class="muted">Jede Änderung wird protokolliert.</span></div>
+
+        <details class="inline-editor window-editor">
+            <summary>Nachweis-Zeitfenster anpassen</summary>
+            <div class="notice"><strong>Auch nach Annahme möglich.</strong><br>Die neuen Zeiten gelten sofort für noch nicht eingereichte Nachweisvorgänge. Bereits eingereichte Nachweise behalten ihre bisherigen Zeitfenster als Historie.</div>
+            <form method="post" action="<?=e(url('/admin/order/'.$id.'/update-windows'))?>">
+                <div class="event-config">
+                    <h4>Aktuell gültige Zeitfenster</h4>
+                    <?php foreach($windowTemplates as $i=>$t):?>
+                        <div class="event-config-row">
+                            <label>Nachweis
+                                <input value="<?=e($t['label'])?>" readonly>
+                                <input type="hidden" name="event_label[]" value="<?=e($t['label'])?>">
+                            </label>
+                            <label>Von<input type="time" name="event_start[]" value="<?=e($t['start'])?>" required></label>
+                            <label>Bis<input type="time" name="event_end[]" value="<?=e($t['end'])?>" required></label>
+                            <label class="check event-all-day"><input type="checkbox" name="event_all_day[<?=$i?>]" value="1" <?=!empty($t['all_day'])?'checked':''?>><span>Ganztags</span></label>
+                        </div>
+                    <?php endforeach;?>
+                </div>
+                <label>Grund der Änderung<textarea name="reason" rows="3" required placeholder="Warum werden die Zeitfenster nachträglich angepasst?"></textarea></label>
+                <button class="btn">Neue Zeitfenster übernehmen</button>
+            </form>
+        </details>
         <?php if($o['status']==='running'&&$o['started_at']&&empty($o['align_to_offer_end'])):?>
         <details class="inline-editor">
             <summary>Startdatum korrigieren</summary>
