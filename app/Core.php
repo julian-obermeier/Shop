@@ -622,6 +622,21 @@ function create_wallet_entry(int $sellerId,int $orderId,float $amount): void {
 function shipment_for_order(int $orderId): ?array {
     $q=db()->prepare('SELECT * FROM order_shipments WHERE order_id=?');$q->execute([$orderId]);$x=$q->fetch();return $x?:null;
 }
+
+function offer_ready_for_shipping(int $offerId): bool {
+    $q=db()->prepare("SELECT COUNT(*) FROM orders
+        WHERE offer_id=? AND status NOT IN('shipping','completed','cancelled')");
+    $q->execute([$offerId]);
+    return (int)$q->fetchColumn()===0;
+}
+function offer_shipping_due_date(int $offerId): ?DateTimeImmutable {
+    $q=db()->prepare("SELECT MAX(sh.due_date)
+        FROM order_shipments sh
+        JOIN orders o ON o.id=sh.order_id
+        WHERE o.offer_id=? AND sh.status='pending'");
+    $q->execute([$offerId]);$d=$q->fetchColumn();
+    return $d?new DateTimeImmutable((string)$d):null;
+}
 function create_shipping_phase(array $order): void {
     $orderId=(int)$order['id'];
     if(shipment_for_order($orderId))return;
