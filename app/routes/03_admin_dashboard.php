@@ -13,7 +13,7 @@ if ($path === '/admin' && $method === 'GET') {
     ];
 
     // Count only the first unresolved planned day of each running order when a required window has expired.
-    $candidates=db()->query("SELECT d.*,o.started_at,o.daily_photo_count
+    $candidates=db()->query("SELECT d.*,o.started_at,o.daily_photo_count,o.offer_id,o.is_final_day_position
         FROM order_days d JOIN orders o ON o.id=d.order_id
         WHERE o.status='running' AND d.status='planned'
           AND d.id=(SELECT d2.id FROM order_days d2 WHERE d2.order_id=o.id AND d2.status IN('planned','submitted') ORDER BY d2.day_no LIMIT 1)")->fetchAll();
