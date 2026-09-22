@@ -14,7 +14,12 @@ if (preg_match('#^/file/(precheck|day)/(\d+)$#', $path, $m) && $method === 'GET'
     if (!$rel || str_contains($rel,'..') || str_contains($rel,"\0")) not_found();
     $real = APP_ROOT . '/storage/private/' . $rel; if (!is_file($real)) not_found();
     header('X-Content-Type-Options: nosniff'); header('Cache-Control: private, no-store');
-    header('Content-Type: ' . $f['mime_type']); header('Content-Length: ' . filesize($real));
+    header('Content-Type: ' . $f['mime_type']);
+    if(($_GET['download']??'')==='1'){
+        $ext=match($f['mime_type']){'image/png'=>'png','image/webp'=>'webp',default=>'jpg'};
+        header('Content-Disposition: attachment; filename="nachweis-'.$m[2].'.'.$ext.'"');
+    }
+    header('Content-Length: ' . filesize($real));
     readfile($real); exit;
 }
 
