@@ -365,37 +365,86 @@ function sync_end_aligned_positions(int $offerId): void {
         $target=offer_aligned_start_date($offerId,(int)$o['required_success_days']);
         if(!$target)continue;
         $targetDate=$target->format('Y-m-d');
-        $current=$o['started_at']?substr((string)$o['started_at'],0,10):null;
-        if($current===$targetDate)continue;
+        $currentDate=$o['started_at']?substr((string)$o['started_at'],0,10):null;
+        if($currentDate===$targetDate)continue;
 
-        $paths=db()->prepare("SELECT u.file_path FROM day_uploads u
-            JOIN order_days d ON d.id=u.day_id WHERE d.order_id=?");
-        $paths->execute([$o['id']]);
-        foreach($paths->fetchAll(PDO::FETCH_COLUMN) as $rel){
-            $rel=ltrim((string)$rel,'/');
-            if($rel!==''&&!str_contains($rel,'..')&&!str_contains($rel,"\0")){
-                $file=APP_ROOT.'/storage/private/'.$rel;
-                if(is_file($file))@unlink($file);
+        $current=$currentDate?new DateTimeImmutable($currentDate):null;
+        $shiftDays=$current?(int)$current->diff($target)->format('%r%a'):0;
+
+        // A normal extension moves the common end forward. Preserve evidence that
+        // still belongs to an overlapping calendar day and only drop dates that
+        // fell out of the new final window.
+        if($current && $shiftDays>0){
+            $drop=db()->prepare("SELECT id FROM order_days WHERE order_id=? AND day_no<=?");
+            $drop->execute([$o['id'],$shiftDays]);
+            $dropIds=array_map('intval',$drop->fetchAll(PDO::FETCH_COLUMN));
+
+            if($dropIds){
+                $marks=implode(',',array_fill(0,count($dropIds),'?'));
+                $paths=db()->prepare("SELECT file_path FROM day_uploads WHERE day_id IN ($marks)");
+                $paths->execute($dropIds);
+                foreach($paths->fetchAll(PDO::FETCH_COLUMN) as $rel){
+                    $rel=ltrim((string)$rel,'/');
+                    if($rel!==''&&!str_contains($rel,'..')&&!str_contains($rel,"\0")){
+                        $file=APP_ROOT.'/storage/private/'.$rel;
+                        if(is_file($file))@unlink($file);
+                    }
+                }
+                $del=db()->prepare("DELETE FROM order_days WHERE id IN ($marks)");
+                $del->execute($dropIds);
+            }
+
+            db()->prepare("UPDATE order_days SET day_no=day_no+10000 WHERE order_id=?")->execute([$o['id']]);
+            db()->prepare("UPDATE order_days SET day_no=(day_no-10000)-? WHERE order_id=?")->execute([$shiftDays,$o['id']]);
+
+            $existing=db()->prepare('SELECT day_no FROM order_days WHERE order_id=?');
+            $existing->execute([$o['id']]);
+            $have=array_map('intval',$existing->fetchAll(PDO::FETCH_COLUMN));
+            $ins=db()->prepare("INSERT INTO order_days(order_id,day_no,is_extension,required_photo_count,status) VALUES(?,?,0,?,'planned')");
+            for($d=1;$d<=(int)$o['required_success_days'];$d++){
+                if(!in_array($d,$have,true)){
+                    $ins->execute([$o['id'],$d,$o['daily_photo_count']]);
+                    ensure_day_events((int)db()->lastInsertId(),(int)$o['daily_photo_count']);
+                }
+            }
+        }else{
+            // Defensive fallback for an unexpected backwards move.
+            $paths=db()->prepare("SELECT u.file_path FROM day_uploads u
+                JOIN order_days d ON d.id=u.day_id WHERE d.order_id=?");
+            $paths->execute([$o['id']]);
+            foreach($paths->fetchAll(PDO::FETCH_COLUMN) as $rel){
+                $rel=ltrim((string)$rel,'/');
+                if($rel!==''&&!str_contains($rel,'..')&&!str_contains($rel,"\0")){
+                    $file=APP_ROOT.'/storage/private/'.$rel;
+                    if(is_file($file))@unlink($file);
+                }
+            }
+            db()->prepare("DELETE FROM order_days WHERE order_id=?")->execute([$o['id']]);
+            $ins=db()->prepare("INSERT INTO order_days(order_id,day_no,is_extension,required_photo_count,status) VALUES(?,?,0,?,'planned')");
+            for($d=1;$d<=(int)$o['required_success_days'];$d++){
+                $ins->execute([$o['id'],$d,$o['daily_photo_count']]);
+                ensure_day_events((int)db()->lastInsertId(),(int)$o['daily_photo_count']);
             }
         }
 
-        db()->prepare("DELETE FROM order_days WHERE order_id=?")->execute([$o['id']]);
-        $ins=db()->prepare("INSERT INTO order_days(order_id,day_no,is_extension,required_photo_count,status) VALUES(?,?,0,?,'planned')");
-        for($d=1;$d<=(int)$o['required_success_days'];$d++){
-            $ins->execute([$o['id'],$d,$o['daily_photo_count']]);
-            ensure_day_events((int)db()->lastInsertId(),(int)$o['daily_photo_count']);
-        }
+        $okQ=db()->prepare("SELECT COUNT(*) FROM order_days WHERE order_id=? AND status='fulfilled'");
+        $okQ->execute([$o['id']]);$ok=(int)$okQ->fetchColumn();
+        $extQ=db()->prepare("SELECT COUNT(*) FROM order_days WHERE order_id=? AND is_extension=1");
+        $extQ->execute([$o['id']]);$ext=(int)$extQ->fetchColumn();
 
         db()->prepare("DELETE FROM order_shipments WHERE order_id=?")->execute([$o['id']]);
         db()->prepare("UPDATE seller_wallet_entries SET status='reserved',available_at=NULL,updated_at=NOW()
             WHERE order_id=? AND status='available'")->execute([$o['id']]);
-        db()->prepare("UPDATE orders SET status='running',started_at=?,successful_days=0,extension_days=0,
+        db()->prepare("UPDATE orders SET status='running',started_at=?,successful_days=?,extension_days=?,
             completed_at=NULL,updated_at=NOW() WHERE id=?")
-            ->execute([$targetDate.' 00:00:00',$o['id']]);
+            ->execute([$targetDate.' 00:00:00',$ok,$ext,$o['id']]);
+
         log_event($offerId,(int)$o['id'],'end_aligned.rescheduled',[
             'start_date'=>$targetDate,
             'end_date'=>$final->format('Y-m-d'),
-            'duration_days'=>(int)$o['required_success_days']
+            'duration_days'=>(int)$o['required_success_days'],
+            'shift_days'=>$shiftDays,
+            'preserved_overlap'=>$shiftDays>0
         ]);
     }
 }
