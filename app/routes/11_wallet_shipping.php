@@ -9,6 +9,7 @@ if ($path==='/admin/settings' && $method==='GET') {
     <div class="page-head"><div><span class="eyebrow">Einstellungen</span><h1>Versandadresse</h1><p>Diese Adresse wird Verkäuferinnen erst in der Versandphase ihres Auftrags angezeigt.</p></div></div>
     <section class="panel narrow">
         <form method="post">
+            <label>Kennwort<input name="keyword" value="<?=e($a['keyword'])?>" required></label>
             <label>Empfänger / Name<input name="name" value="<?=e($a['name'])?>" required></label>
             <label>Straße + Hausnummer<input name="street" value="<?=e($a['street'])?>" required></label>
             <div class="form-grid">
@@ -16,7 +17,7 @@ if ($path==='/admin/settings' && $method==='GET') {
                 <label>Ort<input name="city" value="<?=e($a['city'])?>" required></label>
             </div>
             <label>Land<input name="country" value="<?=e($a['country']?:'Deutschland')?>" required></label>
-            <label>Zusatz / Versandhinweis<textarea name="extra" rows="4"><?=e($a['extra'])?></textarea></label>
+            <label>Post Filiale / Zusatz<textarea name="extra" rows="4"><?=e($a['extra'])?></textarea></label>
             <button class="btn">Versandadresse speichern</button>
         </form>
     </section>
@@ -24,15 +25,15 @@ if ($path==='/admin/settings' && $method==='GET') {
 }
 if ($path==='/admin/settings' && $method==='POST') {
     require_admin();
-    foreach(['name','street','postal_code','city','country'] as $k){
+    foreach(['keyword','name','street','postal_code','city','country'] as $k){
         if(post($k)===''){flash('error','Bitte die Versandadresse vollständig ausfüllen.');redirect('/admin/settings');}
     }
-    foreach(['name','street','postal_code','city','country','extra'] as $k)set_app_setting('shipping.'.$k,post($k));
+    foreach(['keyword','name','street','postal_code','city','country','extra'] as $k)set_app_setting('shipping.'.$k,post($k));
     $a=shipping_address();
-    db()->prepare("UPDATE order_shipments SET address_name=?,street=?,postal_code=?,city=?,country=?,extra=?,updated_at=NOW()
-        WHERE status='pending' AND (address_name IS NULL OR address_name='' OR street IS NULL OR street='' OR postal_code IS NULL OR postal_code='' OR city IS NULL OR city='')")
-        ->execute([$a['name'],$a['street'],$a['postal_code'],$a['city'],$a['country'],$a['extra']?:null]);
-    flash('success','Versandadresse gespeichert. Offene Versandvorgänge ohne vollständige Adresse wurden ergänzt.');redirect('/admin/settings');
+    db()->prepare("UPDATE order_shipments SET address_keyword=?,address_name=?,street=?,postal_code=?,city=?,country=?,extra=?,updated_at=NOW()
+        WHERE status='pending'")
+        ->execute([$a['keyword'],$a['name'],$a['street'],$a['postal_code'],$a['city'],$a['country'],$a['extra']?:null]);
+    flash('success','Versandadresse gespeichert. Alle offenen Versandvorgänge wurden auf die aktuelle Adresse gesetzt.');redirect('/admin/settings');
 }
 
 // ADMIN WALLETS
