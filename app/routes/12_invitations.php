@@ -23,7 +23,7 @@ if (preg_match('#^/invite/([a-f0-9]{64})$#',$path,$m) && $method==='GET') {
         <section class="auth-copy">
             <span class="eyebrow">Einladung</span>
             <h1>Verkäuferinnenkonto anlegen</h1>
-            <p>Du wurdest eingeladen, dem privaten Auftragsportal beizutreten. Der Link ist einmalig verwendbar.</p>
+            <p>Du wurdest eingeladen, der privaten Vermittlungsplattform beizutreten. Die Plattform übernimmt die organisatorische Abwicklung deiner Angebote und Aufträge. Der Link ist einmalig verwendbar.</p>
             <div class="feature-list">
                 <div>✓ Persönliche Angebote</div>
                 <div>✓ Nachweise und Aufträge</div>
