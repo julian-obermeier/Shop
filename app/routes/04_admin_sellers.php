@@ -95,7 +95,12 @@ if ($path === '/admin/sellers' && $method === 'GET') {
             <div class="list-row static">
                 <div><strong><?=e($s['first_name'].' '.$s['last_name'])?></strong><span><?=e($s['email'])?></span></div>
                 <div class="seller-row-actions">
-                    <?php if((int)$s['active']):?><a class="btn ghost" href="<?=e(url('/admin/scent-requests').'?seller_id='.$s['id'])?>">Duftprobe anfragen</a><?php endif;?>
+                    <?php if((int)$s['active']):?>
+                        <a class="btn ghost" href="<?=e(url('/admin/scent-requests').'?seller_id='.$s['id'])?>">Duftprobe anfragen</a>
+                        <form method="post" action="<?=e(url('/admin/sellers/'.$s['id'].'/impersonate'))?>">
+                            <button class="btn ghost">Als Verkäuferin anmelden</button>
+                        </form>
+                    <?php endif;?>
                     <span class="status"><?=((int)$s['active'])?'Aktiv':'Inaktiv'?></span>
                 </div>
             </div>
@@ -104,6 +109,27 @@ if ($path === '/admin/sellers' && $method === 'GET') {
         </div>
     </section>
     <?php render('Verkäuferinnen',ob_get_clean());exit;
+}
+
+
+
+if (preg_match('#^/admin/sellers/(\d+)/impersonate$#',$path,$m) && $method==='POST') {
+    $admin=require_admin();$sellerId=(int)$m[1];
+
+    $q=db()->prepare('SELECT id,first_name,last_name,active FROM sellers WHERE id=?');
+    $q->execute([$sellerId]);$seller=$q->fetch();
+    if(!$seller||(int)$seller['active']!==1){
+        flash('error','Diese Verkäuferin ist nicht aktiv.');
+        redirect('/admin/sellers');
+    }
+
+    log_event(null,null,'impersonation.started',[
+        'seller_id'=>$sellerId,
+        'seller_name'=>trim((string)$seller['first_name'].' '.(string)$seller['last_name'])
+    ]);
+
+    start_seller_impersonation((int)$admin['id'],$sellerId);
+    redirect('/seller');
 }
 
 if ($path === '/admin/sellers' && $method === 'POST') {
