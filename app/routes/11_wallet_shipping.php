@@ -28,7 +28,11 @@ if ($path==='/admin/settings' && $method==='POST') {
         if(post($k)===''){flash('error','Bitte die Versandadresse vollständig ausfüllen.');redirect('/admin/settings');}
     }
     foreach(['name','street','postal_code','city','country','extra'] as $k)set_app_setting('shipping.'.$k,post($k));
-    flash('success','Versandadresse gespeichert.');redirect('/admin/settings');
+    $a=shipping_address();
+    db()->prepare("UPDATE order_shipments SET address_name=?,street=?,postal_code=?,city=?,country=?,extra=?,updated_at=NOW()
+        WHERE status='pending' AND (address_name IS NULL OR address_name='' OR street IS NULL OR street='' OR postal_code IS NULL OR postal_code='' OR city IS NULL OR city='')")
+        ->execute([$a['name'],$a['street'],$a['postal_code'],$a['city'],$a['country'],$a['extra']?:null]);
+    flash('success','Versandadresse gespeichert. Offene Versandvorgänge ohne vollständige Adresse wurden ergänzt.');redirect('/admin/settings');
 }
 
 // ADMIN WALLETS
