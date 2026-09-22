@@ -33,10 +33,10 @@ if (preg_match('#^/seller/order/(\d+)$#',$path,$m) && $method==='GET') {
     <section class="panel">
         <h2>1. Vorabkontrolle / Startfreigabe</h2>
         <?php if((int)$o['precheck_photo_count']===0):?>
-            <div class="notice success"><strong>Keine Vorabfotos erforderlich.</strong><br>Dieser Auftrag wartet nur noch auf die Startfreigabe durch den Admin.</div>
+            <div class="notice success"><strong>Keine Vorabfotos erforderlich.</strong><br>Dieser Auftrag wartet nur noch auf die Startfreigabe durch die Plattform.</div>
         <?php else:?>
             <p><?=nl2br(e($o['precheck_instructions']))?></p>
-            <?php if($rejection):?><div class="notice warning"><strong>Vom Admin zurückgewiesen:</strong><br><?=nl2br(e($rejection))?><br><span>Bitte die Vorabkontrolle vollständig neu einreichen.</span></div><?php endif;?>
+            <?php if($rejection):?><div class="notice warning"><strong>Von der Plattformprüfung zurückgewiesen:</strong><br><?=nl2br(e($rejection))?><br><span>Bitte die Vorabkontrolle vollständig neu einreichen.</span></div><?php endif;?>
             <p class="muted"><?=count($pre)?>/<?=e($o['precheck_photo_count'])?> Fotos hochgeladen</p>
             <?php if($pre):?><div class="photo-grid"><?php foreach($pre as $p):?><a href="<?=e(url('/file/precheck/'.$p['id']))?>" target="_blank"><img src="<?=e(url('/file/precheck/'.$p['id']))?>" alt="Vorabfoto"></a><?php endforeach;?></div><?php endif;?>
             <?php $remaining=(int)$o['precheck_photo_count']-count($pre);if($remaining>0):?>
@@ -97,7 +97,7 @@ if (preg_match('#^/seller/order/(\d+)$#',$path,$m) && $method==='GET') {
                         <?php elseif($state==='future'):?>
                             <div class="event-waiting">Noch geschlossen · <?=e(event_window_text($ev))?></div>
                         <?php elseif($state==='closed'):?>
-                            <div class="notice warning"><strong>Zeitfenster abgelaufen.</strong><br>Dieser Pflichtvorgang kann nicht mehr nachgereicht werden. Der Tag wartet auf die Bewertung durch den Admin.</div>
+                            <div class="notice warning"><strong>Zeitfenster abgelaufen.</strong><br>Dieser Pflichtvorgang kann nicht mehr nachgereicht werden. Der Tag wartet auf die Bewertung durch die Plattform.</div>
                         <?php endif;?>
                     </article>
                 <?php endforeach;?>
@@ -121,7 +121,7 @@ if (preg_match('#^/seller/order/(\d+)$#',$path,$m) && $method==='GET') {
                 <span class="dot dot-<?=e($d['status'])?>"></span>
                 <div>
                     <div><strong>Tag <?=e($d['day_no'])?><?=((int)$d['is_extension'])?' · Verlängerung':''?></strong><span><?=e(date_de($scheduled))?></span></div>
-                    <div class="timeline-meta"><span><?=e(day_status_label($d['status']))?></span><span><?=e($eventDone)?>/<?=e($eventTotal)?> Vorgänge eingereicht</span><?php if($d['admin_note']):?><span>Admin: <?=e($d['admin_note'])?></span><?php endif;?></div>
+                    <div class="timeline-meta"><span><?=e(day_status_label($d['status']))?></span><span><?=e($eventDone)?>/<?=e($eventTotal)?> Vorgänge eingereicht</span><?php if($d['admin_note']):?><span>Prüfung: <?=e($d['admin_note'])?></span><?php endif;?></div>
                 </div>
             </div>
         <?php endforeach;?>
@@ -144,7 +144,7 @@ if (preg_match('#^/seller/order/(\d+)$#',$path,$m) && $method==='GET') {
                         <?=e($shipment['postal_code'].' '.$shipment['city'])?>
                         <?php if($shipment['country'] && $shipment['country']!=='Deutschland'):?><br><?=e($shipment['country'])?><?php endif;?>
                     </address>
-                <?php else:?><div class="notice warning">Die Versandadresse wird vom Admin noch vervollständigt.</div><?php endif;?>
+                <?php else:?><div class="notice warning">Die Versandadresse wird von der Plattform noch vervollständigt.</div><?php endif;?>
             </div>
             <div>
                 <h3>Versandtermin</h3>
