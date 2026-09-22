@@ -14,8 +14,40 @@ if ($path==='/seller' && $method==='GET') {
         JOIN orders o ON o.id=d.order_id
         WHERE o.seller_id=? AND o.status='running' AND d.status IN('planned','submitted')
           AND d.id=(SELECT d2.id FROM order_days d2 WHERE d2.order_id=o.id AND d2.status IN('planned','submitted') ORDER BY d2.day_no LIMIT 1)
-        ORDER BY o.id LIMIT 8");
-    $q->execute([$s['id']]);$today=$q->fetchAll();
+        ORDER BY o.id LIMIT 30");
+    $q->execute([$s['id']]);$openSteps=$q->fetchAll();
+
+    $now=new DateTimeImmutable('now');$todayDate=new DateTimeImmutable('today');
+    $dueNow=[];$dueToday=[];$missedToday=[];$otherSteps=[];
+    foreach($openSteps as $d){
+        $scheduled=scheduled_order_day_date($d,(int)$d['day_no']);
+        $d['_scheduled']=$scheduled;$d['_next_label']=null;$d['_window']=null;$d['_window_state']=null;$d['_late']=false;
+
+        if($d['status']==='planned'&&$scheduled){
+            $events=day_events((int)$d['id']);
+            if(!$events)$events=ensure_day_events((int)$d['id'],(int)$d['required_photo_count']);
+            foreach($events as $ev){
+                if($ev['status']!=='planned')continue;
+                $d['_next_label']=$ev['label'];
+                $d['_window']=event_window_text($ev);
+                $d['_late']=event_late_submission_allowed($ev,$d,$scheduled);
+                $d['_window_state']=$d['_late']?'open':event_window_state($ev,$scheduled,$now);
+                $d['_event_start']=!empty($ev['all_day'])
+                    ?$scheduled->setTime(0,0)
+                    :new DateTimeImmutable($scheduled->format('Y-m-d').' '.substr((string)$ev['window_start'],0,5).':00');
+                break;
+            }
+        }
+
+        $isToday=$scheduled&&$scheduled->format('Y-m-d')===$todayDate->format('Y-m-d');
+        if($d['status']==='planned'&&$isToday&&$d['_next_label']){
+            if($d['_window_state']==='open'){$dueNow[]=$d;continue;}
+            if($d['_window_state']==='future'){$dueToday[]=$d;continue;}
+            if($d['_window_state']==='closed'){$missedToday[]=$d;continue;}
+        }
+        $otherSteps[]=$d;
+    }
+    usort($dueToday,static fn($a,$b)=>($a['_event_start']?->getTimestamp()??PHP_INT_MAX)<=>($b['_event_start']?->getTimestamp()??PHP_INT_MAX));
 
     $q=db()->prepare("SELECT sh.*,o.id order_id,o.offer_id,ofr.offer_no,ofr.title offer_title
         FROM order_shipments sh
@@ -54,6 +86,60 @@ if ($path==='/seller' && $method==='GET') {
         <a class="stat stat-link" href="<?=e(url('/seller/scent-requests'))?>"><span>Duftproben offen</span><strong><?=$scentOpen?></strong></a>
     </div>
 
+    <div class="stats compact seller-due-stats">
+        <div class="stat due-now-stat"><span>Jetzt fällig</span><strong><?=count($dueNow)?></strong></div>
+        <div class="stat"><span>Heute noch fällig</span><strong><?=count($dueToday)?></strong></div>
+        <div class="stat <?=count($missedToday)?'due-missed-stat':''?>"><span>Heute verpasst</span><strong><?=count($missedToday)?></strong></div>
+    </div>
+
+    <?php if($dueNow):?>
+    <section class="panel seller-due-panel due-now-panel">
+        <div class="section-head"><h2>Jetzt fällig</h2><span class="status status-submitted"><?=count($dueNow)?> offen</span></div>
+        <div class="list">
+        <?php foreach($dueNow as $d):?>
+            <a class="list-row due-task-row" href="<?=e(url('/seller/order/'.$d['order_id']))?>">
+                <div>
+                    <strong><?=e($d['order_no'].' · '.$d['_next_label'])?></strong>
+                    <span><?=e($d['title_snapshot'])?> · Tag <?=e($d['day_no'])?> · <?=e($d['_window'])?><?=!empty($d['_late'])?' · Nachreichung freigegeben':''?></span>
+                </div>
+                <span class="status status-submitted">Jetzt erledigen</span>
+            </a>
+        <?php endforeach;?>
+        </div>
+    </section>
+    <?php endif;?>
+
+    <?php if($dueToday):?>
+    <section class="panel seller-due-panel">
+        <div class="section-head"><h2>Heute fällig</h2><span class="muted">Später am heutigen Tag</span></div>
+        <div class="list">
+        <?php foreach($dueToday as $d):?>
+            <a class="list-row" href="<?=e(url('/seller/order/'.$d['order_id']))?>">
+                <div>
+                    <strong><?=e($d['order_no'].' · '.$d['_next_label'])?></strong>
+                    <span><?=e($d['title_snapshot'])?> · Tag <?=e($d['day_no'])?> · <?=e($d['_window'])?></span>
+                </div>
+                <span class="status status-planned"><?=e($d['_event_start']?->format('H:i')??'Heute')?> Uhr</span>
+            </a>
+        <?php endforeach;?>
+        </div>
+    </section>
+    <?php endif;?>
+
+    <?php if($missedToday):?>
+    <section class="panel seller-due-panel due-missed-panel">
+        <div class="section-head"><h2>Heute verpasst</h2><span class="status status-not_fulfilled"><?=count($missedToday)?> Frist(en)</span></div>
+        <div class="list">
+        <?php foreach($missedToday as $d):?>
+            <a class="list-row" href="<?=e(url('/seller/order/'.$d['order_id']))?>">
+                <div><strong><?=e($d['order_no'].' · '.$d['_next_label'])?></strong><span><?=e($d['title_snapshot'])?> · Tag <?=e($d['day_no'])?> · <?=e($d['_window'])?></span></div>
+                <span class="status status-not_fulfilled">Frist verpasst</span>
+            </a>
+        <?php endforeach;?>
+        </div>
+    </section>
+    <?php endif;?>
+
     <section class="panel"><h2>Als Nächstes</h2><div class="list">
     <?php foreach($scentRequests as $sr):?>
         <a class="list-row scent-next" href="<?=e(url('/seller/scent-requests'))?>">
@@ -62,27 +148,14 @@ if ($path==='/seller' && $method==='GET') {
         </a>
     <?php endforeach;?>
 
-    <?php foreach($today as $d):
-        $scheduled=scheduled_order_day_date($d,(int)$d['day_no']);
-        $isFuture=$scheduled && $scheduled>new DateTimeImmutable('today');
-        $nextLabel=null;$window=null;$windowState=null;
-        if($d['status']==='planned'){
-            $events=day_events((int)$d['id']);
-            if(!$events)$events=ensure_day_events((int)$d['id'],(int)$d['required_photo_count']);
-            foreach($events as $ev){
-                if($ev['status']==='planned'){
-                    $nextLabel=$ev['label'];$window=event_window_text($ev);$windowState=event_window_state($ev,$scheduled);break;
-                }
-            }
-        }
+    <?php foreach($otherSteps as $d):
+        $scheduled=$d['_scheduled'];
+        $isFuture=$scheduled&&$scheduled>$todayDate;
     ?>
         <a class="list-row" href="<?=e(url('/seller/order/'.$d['order_id']))?>">
             <div>
                 <strong><?=e($d['order_no'].' · '.$d['title_snapshot'])?></strong>
-                <span>Tag <?=e($d['day_no'])?> · <?=e(date_de($scheduled))?> ·
-                    <?=e($isFuture?'Geplant':($d['status']==='submitted'?'Wartet auf Prüfung':($nextLabel??'Offen')))?>
-                    <?php if(!$isFuture&&$nextLabel):?> · <?=e($window)?> · <?=e($windowState==='open'?'jetzt offen':($windowState==='closed'?'Frist verpasst':'noch geschlossen'))?><?php endif;?>
-                </span>
+                <span>Tag <?=e($d['day_no'])?> · <?=e(date_de($scheduled))?> · <?=e($d['status']==='submitted'?'Wartet auf Prüfung':($isFuture?'Geplant':($d['_next_label']??'Offen')))?><?php if($d['_next_label']&&$d['_window']):?> · <?=e($d['_window'])?><?php endif;?></span>
             </div><span>→</span>
         </a>
     <?php endforeach;?>
@@ -94,7 +167,7 @@ if ($path==='/seller' && $method==='GET') {
         </a>
     <?php endforeach;?>
 
-    <?php if(!$scentRequests&&!$today&&!$shipments):?><div class="empty">Aktuell ist nichts offen.</div><?php endif;?>
+    <?php if(!$scentRequests&&!$otherSteps&&!$shipments):?><div class="empty">Aktuell ist darüber hinaus nichts offen.</div><?php endif;?>
     </div></section>
 
     <?php render('Übersicht',ob_get_clean());exit;
