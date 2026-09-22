@@ -172,3 +172,18 @@ Die Startseite der Verkäuferin priorisiert jetzt nach Handlungsbedarf:
 - Nachweise ohne unmittelbaren Handlungsbedarf, Duftproben, Versand und weitere Schritte bleiben darunter unter **Als Nächstes** sichtbar.
 
 Beim Erreichen eines Countdown-Zeitpunkts aktualisiert sich die Dashboard-Seite automatisch, damit der Status von „später“ auf „jetzt fällig“ beziehungsweise anschließend auf „verpasst“ wechselt.
+
+
+## Zeitfenster nach Annahme anpassen
+Nach der Annahme eines Angebots bleiben die Nachweis-Zeitfenster bewusst administrativ anpassbar.
+
+- Die Bearbeitung erfolgt im jeweiligen Auftrag unter **Admin-Korrekturen → Nachweis-Zeitfenster anpassen**.
+- Möglich während **Vorabkontrolle** und **laufender Durchführung**.
+- Die Anzahl der täglichen Nachweisvorgänge bleibt unverändert; geändert werden deren Zeitfenster bzw. Ganztags-Einstellung.
+- Die Änderung gilt sofort für alle **noch nicht eingereichten** Nachweisvorgänge.
+- Bereits eingereichte Nachweise behalten ihre ursprünglichen Zeitfenster als Historie.
+- Künftige Durchführungstage verwenden automatisch die neuen Zeitfenster.
+- Die ursprüngliche Angebotsannahme bleibt im Annahme-Snapshot unverändert erhalten.
+- Die aktuell gültigen Zeitfenster werden zusätzlich im Auftrag und in der zugehörigen Angebotsposition aktualisiert.
+- Jede Änderung erfordert einen Grund, wird im Activity-Log dokumentiert und erzeugt eine Verkäuferinnen-Benachrichtigung.
+- Veraltete ungelesene Frist-/„beginnt bald“-Benachrichtigungen zu den geänderten Fenstern werden entfernt; die Reminder Engine erzeugt anschließend Meldungen passend zu den neuen Zeiten.
