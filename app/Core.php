@@ -782,6 +782,40 @@ function day_is_missed(array $day,array $order): bool {
     }
     return false;
 }
+function simple_pdf_download(string $filename,string $title,array $lines): never {
+    $encode=static function(string $s): string {
+        if(function_exists('iconv')){
+            $x=@iconv('UTF-8','Windows-1252//TRANSLIT',$s);
+            if($x!==false)$s=$x;
+        }
+        return str_replace(['\\','(',')'],['\\\\','\\(','\\)'],$s);
+    };
+    $stream="BT\n/F1 12 Tf\n50 790 Td\n16 TL\n(".$encode($title).") Tj\nT*\nT*\n";
+    foreach($lines as $line)$stream.="(".$encode((string)$line).") Tj\nT*\n";
+    $stream.="ET";
+    $objects=[
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+        "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n",
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n",
+        "4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n",
+        "5 0 obj\n<< /Length ".strlen($stream)." >>\nstream\n".$stream."\nendstream\nendobj\n",
+    ];
+    $pdf="%PDF-1.4\n";$offsets=[0];
+    foreach($objects as $obj){$offsets[]=strlen($pdf);$pdf.=$obj;}
+    $xref=strlen($pdf);
+    $pdf.="xref\n0 ".(count($objects)+1)."\n0000000000 65535 f \n";
+    for($i=1;$i<=count($objects);$i++)$pdf.=str_pad((string)$offsets[$i],10,'0',STR_PAD_LEFT)." 00000 n \n";
+    $pdf.="trailer\n<< /Size ".(count($objects)+1)." /Root 1 0 R >>\nstartxref\n".$xref."\n%%EOF";
+    header('Content-Type: application/pdf');
+    header('Content-Disposition: attachment; filename="'.preg_replace('/[^A-Za-z0-9._-]/','_',$filename).'"');
+    header('Content-Length: '.strlen($pdf));
+    echo $pdf;exit;
+}
+function payout_batch_number(int $id,?string $paidAt=null): string {
+    $year=$paidAt?date('Y',strtotime($paidAt)):date('Y');
+    return 'AUS-'.$year.'-'.str_pad((string)$id,5,'0',STR_PAD_LEFT);
+}
+
 function wallet_status_label(string $s): string {
     return match($s){'reserved'=>'Vorgemerkt','available'=>'Auszahlbar','paid'=>'Ausgezahlt','cancelled'=>'Storniert',default=>$s};
 }
