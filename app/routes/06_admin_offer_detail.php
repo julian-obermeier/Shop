@@ -206,7 +206,7 @@ if (preg_match('#^/admin/offer/(\d+)/position$#',$path,$m) && $method==='POST') 
         db()->prepare('INSERT INTO offer_positions(offer_id,position_no,title,description,compensation,required_success_days,align_to_offer_end,precheck_photo_count,precheck_instructions,daily_photo_count,daily_instructions,daily_event_windows_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
             ->execute([$id,$pos,post('title'),post('description')?:null,max(0,(float)post('compensation','0')),$days,$align,$pre,post('precheck_instructions'),$daily,post('daily_instructions'),event_templates_json($templates)]);
         db()->commit();
-        log_event($id,null,'position.created',['position_no'=>$pos]);flash('success','Position wurde hinzugefügt.');
+        log_event($id,null,'position.created',['position_no'=>$pos]);notify_sent_offer_change($id,'Eine Position wurde hinzugefügt.');flash('success','Position wurde hinzugefügt.');
     }catch(Throwable $e){
         if(db()->inTransaction())db()->rollBack();flash('error',$e->getMessage());
     }
@@ -228,7 +228,7 @@ if (preg_match('#^/admin/offer/(\d+)/position/(\d+)/update$#',$path,$m) && $meth
         db()->prepare('UPDATE offer_positions SET title=?,description=?,compensation=?,required_success_days=?,align_to_offer_end=?,precheck_photo_count=?,precheck_instructions=?,daily_photo_count=?,daily_instructions=?,daily_event_windows_json=? WHERE id=? AND offer_id=?')
             ->execute([post('title'),post('description')?:null,max(0,(float)post('compensation','0')),$days,$align,$pre,post('precheck_instructions'),$daily,post('daily_instructions'),event_templates_json($templates),$pid,$id]);
         db()->commit();
-        log_event($id,null,'position.updated',['position_id'=>$pid]);flash('success','Position wurde aktualisiert.');
+        log_event($id,null,'position.updated',['position_id'=>$pid]);notify_sent_offer_change($id,'Eine Position wurde geändert.');flash('success','Position wurde aktualisiert.');
     }catch(Throwable $e){
         if(db()->inTransaction())db()->rollBack();flash('error',$e->getMessage());
     }
@@ -245,7 +245,7 @@ if (preg_match('#^/admin/offer/(\d+)/position/(\d+)/delete$#',$path,$m) && $meth
         $q=db()->prepare('SELECT id FROM offer_positions WHERE offer_id=? ORDER BY position_no,id');$q->execute([$id]);$n=1;
         foreach($q->fetchAll(PDO::FETCH_COLUMN) as $x)db()->prepare('UPDATE offer_positions SET position_no=? WHERE id=?')->execute([$n++,$x]);
         db()->commit();
-        log_event($id,null,'position.deleted',['position_id'=>$pid]);flash('success','Position gelöscht.');
+        log_event($id,null,'position.deleted',['position_id'=>$pid]);notify_sent_offer_change($id,'Eine Position wurde entfernt.');flash('success','Position gelöscht.');
     }catch(Throwable $e){
         if(db()->inTransaction())db()->rollBack();flash('error',$e->getMessage());
     }
