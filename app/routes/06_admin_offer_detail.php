@@ -6,15 +6,19 @@ if (preg_match('#^/admin/offer/(\d+)$#',$path,$m) && $method==='GET') {
     $q=db()->prepare("SELECT o.*,s.first_name,s.last_name,s.email FROM offers o JOIN sellers s ON s.id=o.seller_id WHERE o.id=?");$q->execute([$id]);$o=$q->fetch();if(!$o)not_found();
     $q=db()->prepare('SELECT * FROM offer_positions WHERE offer_id=? ORDER BY position_no');$q->execute([$id]);$positions=$q->fetchAll();
     $q=db()->prepare('SELECT * FROM orders WHERE offer_id=? ORDER BY id');$q->execute([$id]);$orders=$q->fetchAll();
+    $editable=in_array($o['status'],['draft','sent'],true);
+    $sellers=$editable?db()->query('SELECT id,first_name,last_name,email FROM sellers WHERE active=1 ORDER BY first_name,last_name')->fetchAll():[];
     $totalComp=array_sum(array_map(static fn(array $p)=>(float)$p['compensation'],$positions));
     $maxDays=0;foreach($positions as $x)$maxDays=max($maxDays,(int)$x['required_success_days']);
     ob_start(); ?>
     <div class="page-head"><div><span class="eyebrow">Angebot <?=e($o['offer_no'])?></span><h1><?=e($o['title'])?></h1><p><?=e($o['first_name'].' '.$o['last_name'].' · '.$o['email'])?></p></div><span class="status status-<?=e($o['status'])?>"><?=e(offer_status_label($o['status']))?></span></div>
 
-    <?php if($o['status']==='draft'):?>
+    <?php if($editable):?>
+    <section class="notice <?=e($o['status']==='sent'?'warning':'')?>"><strong>Bis zur Annahme vollständig bearbeitbar.</strong><br><?php if($o['status']==='sent'):?>Das Angebot wurde bereits übermittelt. Gespeicherte Änderungen sind für die Verkäuferin sofort sichtbar. Erst mit ihrer Annahme wird der aktuelle Stand endgültig eingefroren.<?php else:?>Titel, Texte, Verkäuferin und Positionen können bis zur Annahme geändert werden.<?php endif;?></section>
     <details class="panel editor-panel">
-        <summary><strong>Grunddaten bearbeiten</strong><span>Titel, Hinweis und Regeln ändern</span></summary>
+        <summary><strong>Grunddaten bearbeiten</strong><span>Verkäuferin, Titel, Hinweis und Regeln ändern</span></summary>
         <form method="post" action="<?=e(url('/admin/offer/'.$id.'/update'))?>">
+            <label>Verkäuferin<select name="seller_id" required><?php foreach($sellers as $s):?><option value="<?=e($s['id'])?>" <?=(int)$s['id']===(int)$o['seller_id']?'selected':''?>><?=e($s['first_name'].' '.$s['last_name'].' · '.$s['email'])?></option><?php endforeach;?></select></label>
             <label>Titel<input name="title" maxlength="190" value="<?=e($o['title'])?>" required></label>
             <label>Hinweis zum Angebot<textarea name="intro" rows="4"><?=e($o['intro']??'')?></textarea></label>
             <label>Verbindliche Regeln<textarea name="rules_text" rows="10" required><?=e($o['rules_text'])?></textarea></label>
@@ -55,7 +59,7 @@ if (preg_match('#^/admin/offer/(\d+)$#',$path,$m) && $method==='GET') {
                 <?php foreach($templates as $t):?><div><strong><?=e($t['label'])?></strong><span><?=e(!empty($t['all_day'])?'Ganztags · 00:00–24:00':$t['start'].'–'.$t['end'].' Uhr')?></span></div><?php endforeach;?>
             </div>
 
-            <?php if($o['status']==='draft'):?>
+            <?php if($editable):?>
                 <details class="inline-editor">
                     <summary>Position bearbeiten</summary>
                     <form method="post" action="<?=e(url('/admin/offer/'.$id.'/position/'.$p['id'].'/update'))?>">
@@ -125,10 +129,16 @@ if (preg_match('#^/admin/offer/(\d+)$#',$path,$m) && $method==='GET') {
         </form>
     </section>
 
+    <?php if($o['status']==='draft'):?>
     <section class="panel action-panel">
-        <div><h2>Angebot versenden</h2><p>Nach dem Versenden sind Grunddaten und Positionen festgeschrieben.</p></div>
+        <div><h2>Angebot versenden</h2><p>Nach dem Versenden bleibt das Angebot bis zur Annahme weiterhin bearbeitbar.</p></div>
         <form method="post" action="<?=e(url('/admin/offer/'.$id.'/send'))?>"><button class="btn" <?=!$positions?'disabled':''?>>An Verkäuferin senden</button></form>
     </section>
+    <?php else:?>
+    <section class="panel action-panel">
+        <div><h2>Angebot bereits übermittelt</h2><p>Du kannst es weiterhin vollständig bearbeiten. Mit der Annahme durch die Verkäuferin wird der dann aktuelle Stand endgültig gesperrt.</p></div>
+    </section>
+    <?php endif;?>
     <?php endif;?>
 
     <?php if($orders):?>
@@ -140,53 +150,87 @@ if (preg_match('#^/admin/offer/(\d+)$#',$path,$m) && $method==='GET') {
 }
 
 if (preg_match('#^/admin/offer/(\d+)/update$#',$path,$m) && $method==='POST') {
-    require_admin();$id=(int)$m[1];
-    $q=db()->prepare('SELECT status FROM offers WHERE id=?');$q->execute([$id]);
-    if($q->fetchColumn()!=='draft'){flash('error','Nur Entwürfe können geändert werden.');redirect('/admin/offer/'.$id);}
-    if(!post('title')||!post('rules_text')){flash('error','Titel und Regeln sind erforderlich.');redirect('/admin/offer/'.$id);}
-    db()->prepare('UPDATE offers SET title=?,intro=?,rules_text=?,updated_at=NOW() WHERE id=?')->execute([post('title'),post('intro')?:null,post('rules_text'),$id]);
-    log_event($id,null,'offer.updated');flash('success','Grunddaten wurden gespeichert.');redirect('/admin/offer/'.$id);
+    require_admin();$id=(int)$m[1];$sellerId=(int)post('seller_id');
+    if(!post('title')||!post('rules_text')||!$sellerId){flash('error','Verkäuferin, Titel und Regeln sind erforderlich.');redirect('/admin/offer/'.$id);}
+    $sq=db()->prepare('SELECT COUNT(*) FROM sellers WHERE id=? AND active=1');$sq->execute([$sellerId]);
+    if((int)$sq->fetchColumn()!==1){flash('error','Bitte eine aktive Verkäuferin auswählen.');redirect('/admin/offer/'.$id);}
+
+    db()->beginTransaction();
+    try{
+        $q=db()->prepare('SELECT status,seller_id FROM offers WHERE id=? FOR UPDATE');$q->execute([$id]);$offer=$q->fetch();
+        if(!$offer||!in_array($offer['status'],['draft','sent'],true))throw new RuntimeException('Das Angebot wurde bereits angenommen und kann nicht mehr geändert werden.');
+        db()->prepare('UPDATE offers SET seller_id=?,title=?,intro=?,rules_text=?,updated_at=NOW() WHERE id=?')
+            ->execute([$sellerId,post('title'),post('intro')?:null,post('rules_text'),$id]);
+        db()->commit();
+        log_event($id,null,'offer.updated',['seller_changed'=>(int)$offer['seller_id']!==$sellerId]);
+        flash('success','Angebot wurde gespeichert. Die Änderungen gelten bis zur Annahme sofort.');
+    }catch(Throwable $e){
+        if(db()->inTransaction())db()->rollBack();
+        flash('error',$e->getMessage());
+    }
+    redirect('/admin/offer/'.$id);
 }
 
 if (preg_match('#^/admin/offer/(\d+)/position$#',$path,$m) && $method==='POST') {
     require_admin();$id=(int)$m[1];
-    $q=db()->prepare('SELECT status FROM offers WHERE id=?');$q->execute([$id]);
-    if($q->fetchColumn()!=='draft'){flash('error','Positionen können nur im Entwurf geändert werden.');redirect('/admin/offer/'.$id);}
     $days=max(1,min(365,(int)post('required_success_days','1')));
     $pre=max(0,min(20,(int)post('precheck_photo_count','1')));
     $daily=max(1,min(20,(int)post('daily_photo_count','1')));
     $align=$days===1?1:(post('align_to_offer_end')==='1'?1:0);
     if(!post('title')){flash('error','Der Positionstitel ist Pflicht.');redirect('/admin/offer/'.$id);}
     try{$templates=posted_event_templates($daily);}catch(Throwable $e){flash('error',$e->getMessage());redirect('/admin/offer/'.$id);}
-    $q=db()->prepare('SELECT COALESCE(MAX(position_no),0)+1 FROM offer_positions WHERE offer_id=?');$q->execute([$id]);$pos=(int)$q->fetchColumn();
-    db()->prepare('INSERT INTO offer_positions(offer_id,position_no,title,description,compensation,required_success_days,align_to_offer_end,precheck_photo_count,precheck_instructions,daily_photo_count,daily_instructions,daily_event_windows_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
-        ->execute([$id,$pos,post('title'),post('description')?:null,max(0,(float)post('compensation','0')),$days,$align,$pre,post('precheck_instructions'),$daily,post('daily_instructions'),event_templates_json($templates)]);
-    log_event($id,null,'position.created',['position_no'=>$pos]);flash('success','Position wurde hinzugefügt.');redirect('/admin/offer/'.$id);
+    db()->beginTransaction();
+    try{
+        $lock=db()->prepare('SELECT status FROM offers WHERE id=? FOR UPDATE');$lock->execute([$id]);$status=$lock->fetchColumn();
+        if(!in_array($status,['draft','sent'],true))throw new RuntimeException('Das Angebot wurde bereits angenommen und kann nicht mehr geändert werden.');
+        $q=db()->prepare('SELECT COALESCE(MAX(position_no),0)+1 FROM offer_positions WHERE offer_id=?');$q->execute([$id]);$pos=(int)$q->fetchColumn();
+        db()->prepare('INSERT INTO offer_positions(offer_id,position_no,title,description,compensation,required_success_days,align_to_offer_end,precheck_photo_count,precheck_instructions,daily_photo_count,daily_instructions,daily_event_windows_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
+            ->execute([$id,$pos,post('title'),post('description')?:null,max(0,(float)post('compensation','0')),$days,$align,$pre,post('precheck_instructions'),$daily,post('daily_instructions'),event_templates_json($templates)]);
+        db()->commit();
+        log_event($id,null,'position.created',['position_no'=>$pos]);flash('success','Position wurde hinzugefügt.');
+    }catch(Throwable $e){
+        if(db()->inTransaction())db()->rollBack();flash('error',$e->getMessage());
+    }
+    redirect('/admin/offer/'.$id);
 }
 
 if (preg_match('#^/admin/offer/(\d+)/position/(\d+)/update$#',$path,$m) && $method==='POST') {
     require_admin();$id=(int)$m[1];$pid=(int)$m[2];
-    $q=db()->prepare('SELECT status FROM offers WHERE id=?');$q->execute([$id]);
-    if($q->fetchColumn()!=='draft'){flash('error','Nur Entwürfe können geändert werden.');redirect('/admin/offer/'.$id);}
     $days=max(1,min(365,(int)post('required_success_days','1')));
     $pre=max(0,min(20,(int)post('precheck_photo_count','1')));
     $daily=max(1,min(20,(int)post('daily_photo_count','1')));
     $align=$days===1?1:(post('align_to_offer_end')==='1'?1:0);
     if(!post('title')){flash('error','Der Positionstitel ist Pflicht.');redirect('/admin/offer/'.$id);}
     try{$templates=posted_event_templates($daily);}catch(Throwable $e){flash('error',$e->getMessage());redirect('/admin/offer/'.$id);}
-    db()->prepare('UPDATE offer_positions SET title=?,description=?,compensation=?,required_success_days=?,align_to_offer_end=?,precheck_photo_count=?,precheck_instructions=?,daily_photo_count=?,daily_instructions=?,daily_event_windows_json=? WHERE id=? AND offer_id=?')
-        ->execute([post('title'),post('description')?:null,max(0,(float)post('compensation','0')),$days,$align,$pre,post('precheck_instructions'),$daily,post('daily_instructions'),event_templates_json($templates),$pid,$id]);
-    log_event($id,null,'position.updated',['position_id'=>$pid]);flash('success','Position wurde aktualisiert.');redirect('/admin/offer/'.$id);
+    db()->beginTransaction();
+    try{
+        $lock=db()->prepare('SELECT status FROM offers WHERE id=? FOR UPDATE');$lock->execute([$id]);$status=$lock->fetchColumn();
+        if(!in_array($status,['draft','sent'],true))throw new RuntimeException('Das Angebot wurde bereits angenommen und kann nicht mehr geändert werden.');
+        db()->prepare('UPDATE offer_positions SET title=?,description=?,compensation=?,required_success_days=?,align_to_offer_end=?,precheck_photo_count=?,precheck_instructions=?,daily_photo_count=?,daily_instructions=?,daily_event_windows_json=? WHERE id=? AND offer_id=?')
+            ->execute([post('title'),post('description')?:null,max(0,(float)post('compensation','0')),$days,$align,$pre,post('precheck_instructions'),$daily,post('daily_instructions'),event_templates_json($templates),$pid,$id]);
+        db()->commit();
+        log_event($id,null,'position.updated',['position_id'=>$pid]);flash('success','Position wurde aktualisiert.');
+    }catch(Throwable $e){
+        if(db()->inTransaction())db()->rollBack();flash('error',$e->getMessage());
+    }
+    redirect('/admin/offer/'.$id);
 }
 
 if (preg_match('#^/admin/offer/(\d+)/position/(\d+)/delete$#',$path,$m) && $method==='POST') {
     require_admin();$id=(int)$m[1];$pid=(int)$m[2];
-    $q=db()->prepare('SELECT status FROM offers WHERE id=?');$q->execute([$id]);
-    if($q->fetchColumn()!=='draft'){flash('error','Nur Entwürfe können geändert werden.');redirect('/admin/offer/'.$id);}
-    db()->prepare('DELETE FROM offer_positions WHERE id=? AND offer_id=?')->execute([$pid,$id]);
-    $q=db()->prepare('SELECT id FROM offer_positions WHERE offer_id=? ORDER BY position_no,id');$q->execute([$id]);$n=1;
-    foreach($q->fetchAll(PDO::FETCH_COLUMN) as $x)db()->prepare('UPDATE offer_positions SET position_no=? WHERE id=?')->execute([$n++,$x]);
-    log_event($id,null,'position.deleted',['position_id'=>$pid]);flash('success','Position gelöscht.');redirect('/admin/offer/'.$id);
+    db()->beginTransaction();
+    try{
+        $lock=db()->prepare('SELECT status FROM offers WHERE id=? FOR UPDATE');$lock->execute([$id]);$status=$lock->fetchColumn();
+        if(!in_array($status,['draft','sent'],true))throw new RuntimeException('Das Angebot wurde bereits angenommen und kann nicht mehr geändert werden.');
+        db()->prepare('DELETE FROM offer_positions WHERE id=? AND offer_id=?')->execute([$pid,$id]);
+        $q=db()->prepare('SELECT id FROM offer_positions WHERE offer_id=? ORDER BY position_no,id');$q->execute([$id]);$n=1;
+        foreach($q->fetchAll(PDO::FETCH_COLUMN) as $x)db()->prepare('UPDATE offer_positions SET position_no=? WHERE id=?')->execute([$n++,$x]);
+        db()->commit();
+        log_event($id,null,'position.deleted',['position_id'=>$pid]);flash('success','Position gelöscht.');
+    }catch(Throwable $e){
+        if(db()->inTransaction())db()->rollBack();flash('error',$e->getMessage());
+    }
+    redirect('/admin/offer/'.$id);
 }
 
 if (preg_match('#^/admin/offer/(\d+)/send$#',$path,$m) && $method==='POST') {
