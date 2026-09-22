@@ -212,6 +212,78 @@ function mark_order_messages_read(int $orderId,string $role): void {
     if($role==='admin')db()->prepare("UPDATE order_messages SET read_by_admin_at=COALESCE(read_by_admin_at,NOW()) WHERE order_id=? AND sender_role='seller'")->execute([$orderId]);
     elseif($role==='seller')db()->prepare("UPDATE order_messages SET read_by_seller_at=COALESCE(read_by_seller_at,NOW()) WHERE order_id=? AND sender_role='admin'")->execute([$orderId]);
 }
+function cron_token(): string {
+    static $token=null;
+    if($token!==null)return $token;
+    $dir=APP_ROOT.'/storage/private';
+    if(!is_dir($dir)&&!@mkdir($dir,0700,true)&&!is_dir($dir))throw new RuntimeException('Privater Speicher konnte nicht erstellt werden.');
+    $file=$dir.'/.cron-token';
+    if(!is_file($file)){
+        $value=bin2hex(random_bytes(32));
+        if(file_put_contents($file,$value,LOCK_EX)===false)throw new RuntimeException('Cron-Token konnte nicht gespeichert werden.');
+        @chmod($file,0600);
+        return $token=$value;
+    }
+    $value=trim((string)file_get_contents($file));
+    if(!preg_match('/^[a-f0-9]{64}$/',$value))throw new RuntimeException('Ungültiger Cron-Token.');
+    return $token=$value;
+}
+function cron_url(): string {
+    return url('/cron.php').'?token='.rawurlencode(cron_token());
+}
+function cron_status(): array {
+    return [
+        'last_started_at'=>app_setting('cron.last_started_at'),
+        'last_success_at'=>app_setting('cron.last_success_at'),
+        'last_status'=>app_setting('cron.last_status','Noch nicht ausgeführt'),
+        'last_created_count'=>(int)(app_setting('cron.last_created_count','0')??'0'),
+        'last_error'=>app_setting('cron.last_error'),
+    ];
+}
+function run_scheduled_notifications(): array {
+    $dir=APP_ROOT.'/storage/private';
+    if(!is_dir($dir)&&!@mkdir($dir,0700,true)&&!is_dir($dir))throw new RuntimeException('Privater Speicher konnte nicht erstellt werden.');
+    $lock=fopen($dir.'/.cron.lock','c+');
+    if(!$lock)throw new RuntimeException('Cron-Sperrdatei konnte nicht geöffnet werden.');
+    if(!flock($lock,LOCK_EX|LOCK_NB)){
+        fclose($lock);
+        return ['status'=>'skipped','created'=>0,'message'=>'Ein Reminder-Lauf ist bereits aktiv.'];
+    }
+
+    $started=date('Y-m-d H:i:s');
+    set_app_setting('cron.last_started_at',$started);
+    set_app_setting('cron.last_status','running');
+    set_app_setting('cron.last_error',null);
+
+    try{
+        $before=(int)db()->query('SELECT COUNT(*) FROM notifications')->fetchColumn();
+
+        $sellerIds=db()->query("SELECT id FROM sellers WHERE active=1 ORDER BY id")->fetchAll(PDO::FETCH_COLUMN);
+        foreach($sellerIds as $sellerId){
+            refresh_due_notifications(['role'=>'seller','id'=>(int)$sellerId]);
+        }
+
+        $hasAdmin=(int)db()->query('SELECT COUNT(*) FROM admins')->fetchColumn()>0;
+        if($hasAdmin)refresh_due_notifications(['role'=>'admin','id'=>0]);
+
+        $after=(int)db()->query('SELECT COUNT(*) FROM notifications')->fetchColumn();
+        $created=max(0,$after-$before);
+        $finished=date('Y-m-d H:i:s');
+        set_app_setting('cron.last_success_at',$finished);
+        set_app_setting('cron.last_status','success');
+        set_app_setting('cron.last_created_count',(string)$created);
+        set_app_setting('cron.last_error',null);
+        return ['status'=>'success','created'=>$created,'started_at'=>$started,'finished_at'=>$finished,'sellers'=>count($sellerIds)];
+    }catch(Throwable $e){
+        set_app_setting('cron.last_status','error');
+        set_app_setting('cron.last_error',mb_substr($e->getMessage(),0,1000));
+        throw $e;
+    }finally{
+        flock($lock,LOCK_UN);
+        fclose($lock);
+    }
+}
+
 function refresh_due_notifications(array $user): void {
     $now=new DateTimeImmutable('now');$today=$now->format('Y-m-d');
     if($user['role']==='seller'){
@@ -238,13 +310,29 @@ function refresh_due_notifications(array $user): void {
 
         $q=db()->prepare("SELECT e.*,d.day_no,d.id day_id,d.status day_status,o.id order_id,o.order_no,o.offer_id,o.started_at,o.required_success_days,o.align_to_offer_end
             FROM order_day_events e JOIN order_days d ON d.id=e.day_id JOIN orders o ON o.id=d.order_id
-            WHERE o.seller_id=? AND o.status='running' AND d.status='planned' AND e.status='planned' ORDER BY d.day_no,e.event_no LIMIT 40");
+            WHERE o.seller_id=? AND o.status='running' AND d.status='planned' AND e.status='planned'
+              AND d.id=(
+                  SELECT d2.id FROM order_days d2
+                  WHERE d2.order_id=o.id AND d2.status IN('planned','submitted')
+                  ORDER BY d2.day_no LIMIT 1
+              )
+            ORDER BY d.day_no,e.event_no LIMIT 100");
         $q->execute([$sellerId]);
         foreach($q->fetchAll() as $ev){
             $date=scheduled_order_day_date($ev,(int)$ev['day_no']);if(!$date)continue;
             $start=!empty($ev['all_day'])?new DateTimeImmutable($date->format('Y-m-d').' 00:00:00'):new DateTimeImmutable($date->format('Y-m-d').' '.substr((string)$ev['window_start'],0,5).':00');
             $seconds=$start->getTimestamp()-$now->getTimestamp();
-            if($seconds>=0&&$seconds<=3600)notify_seller($sellerId,'upcoming','Nachweis beginnt bald',$ev['label'].' für '.$ev['order_no'].' beginnt um '.$start->format('H:i').' Uhr.','/seller/order/'.$ev['order_id'],'event-upcoming:'.$ev['id']);
+            if($seconds>=0&&$seconds<=3600){
+                notify_seller($sellerId,'upcoming','Nachweis beginnt bald',$ev['label'].' für '.$ev['order_no'].' beginnt um '.$start->format('H:i').' Uhr.','/seller/order/'.$ev['order_id'],'event-upcoming:'.$ev['id']);
+            }
+
+            $state=event_window_state($ev,$date,$now);
+            $lateAllowed=event_late_submission_allowed($ev,$ev,$date);
+            if($state==='closed'&&!$lateAllowed){
+                $body=$ev['order_no'].' · Tag '.$ev['day_no'].' · '.$ev['label'].' wurde nicht innerhalb von '.event_window_text($ev).' eingereicht.';
+                notify_seller($sellerId,'overdue','Nachweisfrist verpasst',$body,'/seller/order/'.$ev['order_id'],'event-missed:'.$ev['id']);
+                notify_admins('overdue','Nachweisfrist verpasst',$body,'/admin/order/'.$ev['order_id'],'admin-event-missed:'.$ev['id']);
+            }
         }
     }elseif($user['role']==='admin'){
         $q=db()->query("SELECT sh.id,sh.due_date,o.id order_id,o.order_no,s.first_name,s.last_name
@@ -276,7 +364,6 @@ function render(string $title, string $content): void {
         $content
     ) ?? $content;
     $user = current_user();
-    if($user)refresh_due_notifications($user);
     $notificationUnread=$user?notification_unread_count($user):0;
     $impersonator = impersonating_admin();
     $flashes = pull_flashes();
