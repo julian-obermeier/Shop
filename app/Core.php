@@ -342,6 +342,14 @@ function offer_final_date(int $offerId): ?DateTimeImmutable {
     }
     return $latest;
 }
+function offer_has_end_alignment_anchor(int $offerId): bool {
+    $q=db()->prepare("SELECT COUNT(*) FROM orders
+        WHERE offer_id=? AND align_to_offer_end=0 AND required_success_days>1
+          AND status<>'cancelled'");
+    $q->execute([$offerId]);
+    return (int)$q->fetchColumn()>0;
+}
+
 function offer_aligned_start_date(int $offerId,int $durationDays): ?DateTimeImmutable {
     $final=offer_final_date($offerId);
     if(!$final)return null;
