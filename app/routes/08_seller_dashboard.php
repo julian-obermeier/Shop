@@ -6,7 +6,7 @@ if ($path==='/seller' && $method==='GET') {
     $q=db()->prepare("SELECT COUNT(*) FROM offers WHERE seller_id=? AND status='sent'");$q->execute([$s['id']]);$new=(int)$q->fetchColumn();
     $q=db()->prepare("SELECT COUNT(*) FROM orders WHERE seller_id=? AND status='precheck'");$q->execute([$s['id']]);$pre=(int)$q->fetchColumn();
     $q=db()->prepare("SELECT COUNT(*) FROM orders WHERE seller_id=? AND status='running'");$q->execute([$s['id']]);$running=(int)$q->fetchColumn();
-    $q=db()->prepare("SELECT COUNT(*) FROM orders WHERE seller_id=? AND status='shipping'");$q->execute([$s['id']]);$shipping=(int)$q->fetchColumn();
+    $shipping=0;
 
     $q=db()->prepare("SELECT d.*,o.title_snapshot,o.order_no,o.started_at,o.daily_photo_count,o.offer_id,o.required_success_days,o.is_final_day_position,o.align_to_offer_end
         FROM order_days d
@@ -16,11 +16,24 @@ if ($path==='/seller' && $method==='GET') {
         ORDER BY o.id LIMIT 8");
     $q->execute([$s['id']]);$today=$q->fetchAll();
 
-    $q=db()->prepare("SELECT sh.*,o.id order_id,o.order_no,o.title_snapshot
-        FROM order_shipments sh JOIN orders o ON o.id=sh.order_id
+    $q=db()->prepare("SELECT sh.*,o.id order_id,o.offer_id,ofr.offer_no,ofr.title offer_title
+        FROM order_shipments sh
+        JOIN orders o ON o.id=sh.order_id
+        JOIN offers ofr ON ofr.id=o.offer_id
         WHERE o.seller_id=? AND o.status='shipping' AND sh.status='pending'
         ORDER BY sh.due_date,o.id");
-    $q->execute([$s['id']]);$shipments=$q->fetchAll();
+    $q->execute([$s['id']]);
+    $shipmentRows=$q->fetchAll();$shipments=[];
+    foreach($shipmentRows as $sh){
+        $offerId=(int)$sh['offer_id'];
+        if(!offer_ready_for_shipping($offerId))continue;
+        if(!isset($shipments[$offerId])){
+            $shipments[$offerId]=$sh;
+        }elseif($sh['due_date']>$shipments[$offerId]['due_date']){
+            $shipments[$offerId]['due_date']=$sh['due_date'];
+        }
+    }
+    $shipments=array_values($shipments);$shipping=count($shipments);
 
     $wallet=wallet_summary((int)$s['id']);
 
@@ -64,7 +77,7 @@ if ($path==='/seller' && $method==='GET') {
 
     <?php foreach($shipments as $sh):?>
         <a class="list-row" href="<?=e(url('/seller/order/'.$sh['order_id']))?>">
-            <div><strong><?=e($sh['order_no'].' · '.$sh['title_snapshot'])?></strong><span>Versand · fällig <?=e(date_de(new DateTimeImmutable($sh['due_date'])))?></span></div>
+            <div><strong><?=e($sh['offer_no'].' · '.$sh['offer_title'])?></strong><span>Gemeinsamer Versand · fällig <?=e(date_de(new DateTimeImmutable($sh['due_date'])))?></span></div>
             <span class="status status-shipping">Versand</span>
         </a>
     <?php endforeach;?>
