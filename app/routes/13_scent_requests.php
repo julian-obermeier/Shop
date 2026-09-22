@@ -5,6 +5,7 @@ declare(strict_types=1);
 if ($path==='/admin/scent-requests' && $method==='GET') {
     require_admin();
     $sellers=db()->query("SELECT id,first_name,last_name,email FROM sellers WHERE active=1 ORDER BY first_name,last_name")->fetchAll();
+    $preselectedSeller=(int)($_GET['seller_id']??0);
     $rows=db()->query("SELECT r.*,s.first_name,s.last_name,s.email
         FROM scent_requests r
         JOIN sellers s ON s.id=r.seller_id
@@ -23,7 +24,7 @@ if ($path==='/admin/scent-requests' && $method==='GET') {
                 <label>Verkäuferin
                     <select name="seller_id" required>
                         <option value="">Bitte auswählen</option>
-                        <?php foreach($sellers as $s):?><option value="<?=e($s['id'])?>"><?=e($s['first_name'].' '.$s['last_name'].' · '.$s['email'])?></option><?php endforeach;?>
+                        <?php foreach($sellers as $s):?><option value="<?=e($s['id'])?>" <?=(int)$s['id']===$preselectedSeller?'selected':''?>><?=e($s['first_name'].' '.$s['last_name'].' · '.$s['email'])?></option><?php endforeach;?>
                     </select>
                 </label>
                 <label>Gegenstand / Probe
