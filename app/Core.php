@@ -625,7 +625,7 @@ function sync_final_day_positions(int $offerId): void {
     sync_end_aligned_positions($offerId);
 }
 function latest_precheck_rejection(int $orderId): ?string {
-    $q = db()->prepare("SELECT payload_json FROM activity_log WHERE order_id=? AND event_type='precheck.rejected' ORDER BY id DESC LIMIT 1");
+    $q = db()->prepare("SELECT payload_json FROM activity_log WHERE order_id=? AND event_type IN('precheck.rejected','precheck.photo_rejected') ORDER BY id DESC LIMIT 1");
     $q->execute([$orderId]);
     $raw = $q->fetchColumn();
     if (!$raw) return null;
