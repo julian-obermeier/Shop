@@ -73,9 +73,9 @@ if (preg_match('#^/admin/offers/from-template/([a-z0-9_-]+)$#',$path,$m) && $met
     $q=db()->prepare('SELECT COUNT(*) FROM sellers WHERE id=? AND active=1');$q->execute([$sellerId]);
     if(!$sellerId||(int)$q->fetchColumn()!==1){flash('error','Bitte eine aktive Verkäuferin auswählen.');redirect('/admin/offers/new');}
 
+    $no=offer_number();
     db()->beginTransaction();
     try{
-        $no=offer_number();
         db()->prepare("INSERT INTO offers(offer_no,seller_id,admin_id,title,intro,rules_text,status) VALUES(?,?,?,?,?,?,'draft')")
             ->execute([$no,$sellerId,$a['id'],$tpl['title'],$tpl['intro'],$tpl['rules_text']]);
         $offerId=(int)db()->lastInsertId();
