@@ -158,6 +158,9 @@ CREATE TABLE IF NOT EXISTS order_day_events (
  all_day TINYINT(1) NOT NULL DEFAULT 0,
  status ENUM('planned','submitted') NOT NULL DEFAULT 'planned',
  seller_note TEXT NULL,
+ review_note TEXT NULL,
+ resubmission_requested_at DATETIME NULL,
+ resubmission_requested_by BIGINT UNSIGNED NULL,
  submitted_at DATETIME NULL,
  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
  updated_at DATETIME NULL,
@@ -193,6 +196,10 @@ CREATE TABLE IF NOT EXISTS app_settings (
 CREATE TABLE IF NOT EXISTS seller_payout_profiles (
  seller_id BIGINT UNSIGNED PRIMARY KEY,
  payout_method ENUM('paypal','bank') NULL,
+ paypal_email_enc LONGTEXT NULL,
+ bank_holder_enc LONGTEXT NULL,
+ bank_iban_enc LONGTEXT NULL,
+ bank_bic_enc LONGTEXT NULL,
  paypal_email VARCHAR(190) NULL,
  bank_holder VARCHAR(190) NULL,
  bank_iban VARCHAR(80) NULL,
@@ -257,6 +264,61 @@ CREATE TABLE IF NOT EXISTS seller_invitations (
  INDEX(expires_at,used_at,revoked_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+
+
+CREATE TABLE IF NOT EXISTS notifications (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ user_role ENUM('admin','seller') NOT NULL,
+ user_id BIGINT UNSIGNED NOT NULL,
+ type VARCHAR(80) NOT NULL,
+ title VARCHAR(190) NOT NULL,
+ body TEXT NULL,
+ target_url VARCHAR(500) NULL,
+ dedupe_key VARCHAR(190) NULL,
+ read_at DATETIME NULL,
+ created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ UNIQUE KEY uq_notification_dedupe(user_role,user_id,dedupe_key),
+ INDEX(user_role,user_id,read_at,created_at),
+ INDEX(type,created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS order_messages (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ order_id BIGINT UNSIGNED NOT NULL,
+ sender_role ENUM('admin','seller') NOT NULL,
+ sender_id BIGINT UNSIGNED NOT NULL,
+ body TEXT NOT NULL,
+ read_by_admin_at DATETIME NULL,
+ read_by_seller_at DATETIME NULL,
+ created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE,
+ INDEX(order_id,created_at),
+ INDEX(sender_role,created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS payout_batches (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ seller_id BIGINT UNSIGNED NOT NULL,
+ admin_id BIGINT UNSIGNED NOT NULL,
+ payout_method ENUM('paypal','bank') NOT NULL,
+ amount DECIMAL(10,2) NOT NULL,
+ reference VARCHAR(190) NULL,
+ note TEXT NULL,
+ paid_at DATETIME NOT NULL,
+ created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ FOREIGN KEY(seller_id) REFERENCES sellers(id) ON DELETE CASCADE,
+ FOREIGN KEY(admin_id) REFERENCES admins(id) ON DELETE CASCADE,
+ INDEX(seller_id,paid_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS payout_batch_entries (
+ payout_batch_id BIGINT UNSIGNED NOT NULL,
+ wallet_entry_id BIGINT UNSIGNED NOT NULL UNIQUE,
+ amount DECIMAL(10,2) NOT NULL,
+ PRIMARY KEY(payout_batch_id,wallet_entry_id),
+ FOREIGN KEY(payout_batch_id) REFERENCES payout_batches(id) ON DELETE CASCADE,
+ FOREIGN KEY(wallet_entry_id) REFERENCES seller_wallet_entries(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS scent_requests (
  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
