@@ -168,7 +168,7 @@ if ($path==='/seller/wallet' && $method==='GET') {
             <div class="wallet-help">
                 <div><strong>1. Vorgemerkt</strong><span>Bei Annahme eines Angebots wird die Vergütung des Auftrags reserviert.</span></div>
                 <div><strong>2. Auszahlbar</strong><span>Nach Durchführung und bestätigtem Versand wird sie freigegeben.</span></div>
-                <div><strong>3. Ausgezahlt</strong><span>Nach PayPal-/Bankzahlung markiert der Admin den Betrag als ausgezahlt.</span></div>
+                <div><strong>3. Ausgezahlt</strong><span>Nach der PayPal-/Bankzahlung wird der Betrag durch die Plattformverwaltung als ausgezahlt bestätigt.</span></div>
             </div>
         </section>
     </div>
