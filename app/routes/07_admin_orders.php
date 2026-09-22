@@ -161,7 +161,7 @@ if (preg_match('#^/admin/order/(\d+)$#',$path,$m) && $method==='GET') {
         <?php if($rejection && $o['status']==='precheck'):?><div class="notice warning"><strong>Letzte Rückmeldung:</strong> <?=e($rejection)?></div><?php endif;?>
         <?php if($pre):?><div class="photo-grid"><?php foreach($pre as $p):?><a href="<?=e(url('/file/precheck/'.$p['id']))?>" target="_blank"><img src="<?=e(url('/file/precheck/'.$p['id']))?>" alt="Vorabnachweis"></a><?php endforeach;?></div><?php endif;?>
         <?php if($o['status']==='precheck'):?>
-            <?php $autoAligned=!empty($o['is_final_day_position']);$autoDate=$autoAligned?offer_final_date((int)$o['offer_id']):null;?>
+            <?php $autoAligned=!empty($o['align_to_offer_end']);$autoDate=$autoAligned?offer_aligned_start_date((int)$o['offer_id'],(int)$o['required_success_days']):null;?>
             <div class="review-split">
                 <form method="post" action="<?=e(url('/admin/order/'.$id.'/approve-precheck'))?>">
                     <?php if($autoAligned):?>
@@ -261,7 +261,7 @@ if (preg_match('#^/admin/order/(\d+)/approve-precheck$#',$path,$m) && $method===
     }catch(Throwable $e){if(db()->inTransaction())db()->rollBack();throw $e;}
 
     log_event((int)$o['offer_id'],$id,'precheck.approved',['start_date'=>$startDate,'end_aligned'=>(bool)$o['align_to_offer_end']]);
-    sync_final_day_positions((int)$o['offer_id']);
+    sync_end_aligned_positions((int)$o['offer_id']);
     sync_offer_status((int)$o['offer_id']);
     flash('success','Vorabkontrolle freigegeben. Start: '.date_de($start).'.');
     redirect(post('return_to')==='reviews'?'/admin/reviews':'/admin/order/'.$id);
