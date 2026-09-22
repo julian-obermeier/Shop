@@ -54,13 +54,13 @@ if ($path==='/admin/reviews' && $method==='GET') {
     <div class="section-head"><h2>Tagesnachweise</h2></div>
     <?php if($days):?><div class="review-grid">
     <?php foreach($days as $d):
-        $uq=db()->prepare('SELECT * FROM day_uploads WHERE day_id=? ORDER BY id');$uq->execute([$d['id']]);$ups=$uq->fetchAll();
+        $uq=db()->prepare('SELECT u.*,e.label,e.event_no FROM day_uploads u LEFT JOIN order_day_events e ON e.id=u.event_id WHERE u.day_id=? ORDER BY COALESCE(e.event_no,999),u.id');$uq->execute([$d['id']]);$ups=$uq->fetchAll();
         $scheduled=order_day_date($d['started_at'],$d['day_no']);
     ?>
         <article class="panel review-card">
             <div class="card-top"><div><span class="eyebrow"><?=e($d['order_no'])?> · Tag <?=e($d['day_no'])?></span><h3><?=e($d['title_snapshot'])?></h3><p class="muted"><?=e($d['first_name'].' '.$d['last_name'])?> · <?=e(date_de($scheduled))?><?=((int)$d['is_extension'])?' · Verlängerung':''?></p></div><span class="status status-submitted">Zur Prüfung</span></div>
             <?php if($d['seller_note']):?><div class="notice">Kommentar der Verkäuferin: <?=e($d['seller_note'])?></div><?php endif;?>
-            <div class="photo-grid"><?php foreach($ups as $u):?><a href="<?=e(url('/file/day/'.$u['id']))?>" target="_blank"><img src="<?=e(url('/file/day/'.$u['id']))?>" alt="Tagesnachweis"></a><?php endforeach;?></div>
+            <div class="photo-grid"><?php foreach($ups as $u):?><figure class="evidence-photo"><figcaption><?=e($u['label']??'Nachweis')?></figcaption><a href="<?=e(url('/file/day/'.$u['id']))?>" target="_blank"><img src="<?=e(url('/file/day/'.$u['id']))?>" alt="<?=e($u['label']??'Tagesnachweis')?>"></a></figure><?php endforeach;?></div>
             <form class="review-actions" method="post" action="<?=e(url('/admin/day/'.$d['id'].'/review'))?>">
                 <input type="hidden" name="return_to" value="reviews">
                 <textarea name="admin_note" rows="3" placeholder="Notiz / Begründung optional"></textarea>
@@ -116,7 +116,7 @@ if (preg_match('#^/admin/order/(\d+)$#',$path,$m) && $method==='GET') {
     <section class="panel"><h2>Durchführungstage</h2><div class="day-list">
     <?php foreach($days as $d):
         $scheduled=order_day_date($o['started_at'],$d['day_no']);
-        $uq=db()->prepare('SELECT * FROM day_uploads WHERE day_id=? ORDER BY id');$uq->execute([$d['id']]);$ups=$uq->fetchAll();
+        $uq=db()->prepare('SELECT u.*,e.label,e.event_no FROM day_uploads u LEFT JOIN order_day_events e ON e.id=u.event_id WHERE u.day_id=? ORDER BY COALESCE(e.event_no,999),u.id');$uq->execute([$d['id']]);$ups=$uq->fetchAll();
     ?>
         <div class="day-row">
             <div class="day-main">
@@ -124,7 +124,7 @@ if (preg_match('#^/admin/order/(\d+)$#',$path,$m) && $method==='GET') {
                 <span class="status status-<?=e($d['status'])?>"><?=e(day_status_label($d['status']))?></span>
                 <?php if($d['seller_note']):?><p class="muted">Kommentar: <?=e($d['seller_note'])?></p><?php endif;?>
                 <?php if($d['admin_note']):?><p class="muted">Admin-Notiz: <?=e($d['admin_note'])?></p><?php endif;?>
-                <div class="photo-grid small"><?php foreach($ups as $u):?><a href="<?=e(url('/file/day/'.$u['id']))?>" target="_blank"><img src="<?=e(url('/file/day/'.$u['id']))?>" alt="Tagesnachweis"></a><?php endforeach;?></div>
+                <div class="photo-grid small"><?php foreach($ups as $u):?><figure class="evidence-photo"><figcaption><?=e($u['label']??'Nachweis')?></figcaption><a href="<?=e(url('/file/day/'.$u['id']))?>" target="_blank"><img src="<?=e(url('/file/day/'.$u['id']))?>" alt="<?=e($u['label']??'Tagesnachweis')?>"></a></figure><?php endforeach;?></div>
             </div>
             <?php if($d['status']==='submitted'):?>
             <form class="review-actions" method="post" action="<?=e(url('/admin/day/'.$d['id'].'/review'))?>">
@@ -152,7 +152,10 @@ if (preg_match('#^/admin/order/(\d+)/approve-precheck$#',$path,$m) && $method===
     try{
         db()->prepare("UPDATE orders SET status='running',precheck_approved_at=NOW(),started_at=?,updated_at=NOW() WHERE id=?")->execute([$startDate.' 00:00:00',$id]);
         $ins=db()->prepare("INSERT INTO order_days(order_id,day_no,is_extension,required_photo_count,status) VALUES(?,?,0,?,'planned')");
-        for($d=1;$d<=(int)$o['required_success_days'];$d++)$ins->execute([$id,$d,$o['daily_photo_count']]);
+        for($d=1;$d<=(int)$o['required_success_days'];$d++){
+            $ins->execute([$id,$d,$o['daily_photo_count']]);
+            ensure_day_events((int)db()->lastInsertId(),(int)$o['daily_photo_count']);
+        }
         db()->commit();
     }catch(Throwable $e){db()->rollBack();throw $e;}
     log_event((int)$o['offer_id'],$id,'precheck.approved',['start_date'=>$startDate]);sync_offer_status((int)$o['offer_id']);
@@ -197,6 +200,7 @@ if (preg_match('#^/admin/day/(\d+)/review$#',$path,$m) && $method==='POST') {
             if(!$q->fetchColumn()){
                 $q=db()->prepare('SELECT COALESCE(MAX(day_no),0)+1 FROM order_days WHERE order_id=?');$q->execute([$d['order_id']]);$next=(int)$q->fetchColumn();
                 db()->prepare("INSERT INTO order_days(order_id,day_no,is_extension,extension_for_day_id,required_photo_count,status) VALUES(?,?,1,?,?,'planned')")->execute([$d['order_id'],$next,$dayId,$d['daily_photo_count']]);
+                ensure_day_events((int)db()->lastInsertId(),(int)$d['daily_photo_count']);
                 db()->prepare('UPDATE orders SET extension_days=extension_days+1,updated_at=NOW() WHERE id=?')->execute([$d['order_id']]);
             }
         }
