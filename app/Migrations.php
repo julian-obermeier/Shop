@@ -297,4 +297,99 @@ function run_migrations(): void {
         mark_migration($pdo,$key);
     }
 
+    $key='20260922_10_operations_center';
+    if(!migration_applied($pdo,$key)){
+        $pdo->exec("CREATE TABLE IF NOT EXISTS notifications (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            user_role ENUM('admin','seller') NOT NULL,
+            user_id BIGINT UNSIGNED NOT NULL,
+            type VARCHAR(80) NOT NULL,
+            title VARCHAR(190) NOT NULL,
+            body TEXT NULL,
+            target_url VARCHAR(500) NULL,
+            dedupe_key VARCHAR(190) NULL,
+            read_at DATETIME NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uq_notification_dedupe(user_role,user_id,dedupe_key),
+            INDEX(user_role,user_id,read_at,created_at),
+            INDEX(type,created_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+        $pdo->exec("CREATE TABLE IF NOT EXISTS order_messages (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            order_id BIGINT UNSIGNED NOT NULL,
+            sender_role ENUM('admin','seller') NOT NULL,
+            sender_id BIGINT UNSIGNED NOT NULL,
+            body TEXT NOT NULL,
+            read_by_admin_at DATETIME NULL,
+            read_by_seller_at DATETIME NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE,
+            INDEX(order_id,created_at),
+            INDEX(sender_role,created_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+        $pdo->exec("CREATE TABLE IF NOT EXISTS payout_batches (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            seller_id BIGINT UNSIGNED NOT NULL,
+            admin_id BIGINT UNSIGNED NOT NULL,
+            payout_method ENUM('paypal','bank') NOT NULL,
+            amount DECIMAL(10,2) NOT NULL,
+            reference VARCHAR(190) NULL,
+            note TEXT NULL,
+            paid_at DATETIME NOT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(seller_id) REFERENCES sellers(id) ON DELETE CASCADE,
+            FOREIGN KEY(admin_id) REFERENCES admins(id) ON DELETE CASCADE,
+            INDEX(seller_id,paid_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+        $pdo->exec("CREATE TABLE IF NOT EXISTS payout_batch_entries (
+            payout_batch_id BIGINT UNSIGNED NOT NULL,
+            wallet_entry_id BIGINT UNSIGNED NOT NULL UNIQUE,
+            amount DECIMAL(10,2) NOT NULL,
+            PRIMARY KEY(payout_batch_id,wallet_entry_id),
+            FOREIGN KEY(payout_batch_id) REFERENCES payout_batches(id) ON DELETE CASCADE,
+            FOREIGN KEY(wallet_entry_id) REFERENCES seller_wallet_entries(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+        if(!column_exists($pdo,'seller_payout_profiles','paypal_email_enc')){
+            $pdo->exec("ALTER TABLE seller_payout_profiles ADD COLUMN paypal_email_enc LONGTEXT NULL AFTER payout_method");
+        }
+        if(!column_exists($pdo,'seller_payout_profiles','bank_holder_enc')){
+            $pdo->exec("ALTER TABLE seller_payout_profiles ADD COLUMN bank_holder_enc LONGTEXT NULL AFTER paypal_email_enc");
+        }
+        if(!column_exists($pdo,'seller_payout_profiles','bank_iban_enc')){
+            $pdo->exec("ALTER TABLE seller_payout_profiles ADD COLUMN bank_iban_enc LONGTEXT NULL AFTER bank_holder_enc");
+        }
+        if(!column_exists($pdo,'seller_payout_profiles','bank_bic_enc')){
+            $pdo->exec("ALTER TABLE seller_payout_profiles ADD COLUMN bank_bic_enc LONGTEXT NULL AFTER bank_iban_enc");
+        }
+
+        $rows=$pdo->query("SELECT seller_id,paypal_email,bank_holder,bank_iban,bank_bic FROM seller_payout_profiles")->fetchAll();
+        $up=$pdo->prepare("UPDATE seller_payout_profiles SET paypal_email_enc=?,bank_holder_enc=?,bank_iban_enc=?,bank_bic_enc=?,
+            paypal_email=NULL,bank_holder=NULL,bank_iban=NULL,bank_bic=NULL WHERE seller_id=?");
+        foreach($rows as $row){
+            $up->execute([
+                !empty($row['paypal_email'])?secure_encrypt((string)$row['paypal_email']):null,
+                !empty($row['bank_holder'])?secure_encrypt((string)$row['bank_holder']):null,
+                !empty($row['bank_iban'])?secure_encrypt((string)$row['bank_iban']):null,
+                !empty($row['bank_bic'])?secure_encrypt((string)$row['bank_bic']):null,
+                $row['seller_id']
+            ]);
+        }
+
+        if(!column_exists($pdo,'order_day_events','review_note')){
+            $pdo->exec("ALTER TABLE order_day_events ADD COLUMN review_note TEXT NULL AFTER seller_note");
+        }
+        if(!column_exists($pdo,'order_day_events','resubmission_requested_at')){
+            $pdo->exec("ALTER TABLE order_day_events ADD COLUMN resubmission_requested_at DATETIME NULL AFTER review_note");
+        }
+        if(!column_exists($pdo,'order_day_events','resubmission_requested_by')){
+            $pdo->exec("ALTER TABLE order_day_events ADD COLUMN resubmission_requested_by BIGINT UNSIGNED NULL AFTER resubmission_requested_at");
+        }
+
+        mark_migration($pdo,$key);
+    }
+
 }
