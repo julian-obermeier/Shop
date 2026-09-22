@@ -254,4 +254,27 @@ function run_migrations(): void {
         mark_migration($pdo,$key);
     }
 
+    $key='20260922_08_scent_requests';
+    if(!migration_applied($pdo,$key)){
+        $pdo->exec("CREATE TABLE IF NOT EXISTS scent_requests (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            seller_id BIGINT UNSIGNED NOT NULL,
+            admin_id BIGINT UNSIGNED NOT NULL,
+            subject VARCHAR(190) NOT NULL,
+            instructions TEXT NULL,
+            status ENUM('pending','answered','cancelled') NOT NULL DEFAULT 'pending',
+            rating TINYINT UNSIGNED NULL,
+            seller_note TEXT NULL,
+            requested_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            answered_at DATETIME NULL,
+            cancelled_at DATETIME NULL,
+            updated_at DATETIME NULL,
+            FOREIGN KEY(seller_id) REFERENCES sellers(id) ON DELETE CASCADE,
+            FOREIGN KEY(admin_id) REFERENCES admins(id) ON DELETE CASCADE,
+            INDEX(seller_id,status,requested_at),
+            INDEX(status,requested_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        mark_migration($pdo,$key);
+    }
+
 }
