@@ -19,7 +19,10 @@ if ($path === '/login' && $method === 'POST') {
     if (!$row || !password_verify($pw,(string)$row['password_hash']) || ($role==='seller' && !(int)$row['active'])) {
         flash('error','E-Mail oder Passwort ist falsch.'); redirect('/login');
     }
-    session_regenerate_id(true); $_SESION['role']=$role; $_SESSION['user_id']=$row['id']; redirect('/');
+    session_regenerate_id(true);
+    $_SESSION['role'] = $role;
+    $_SESSION['user_id'] = (int)$row['id'];
+    redirect('/');
 }
 if ($path === '/logout' && $method === 'GET') { $_SESSION=[]; session_destroy(); redirect('/login'); }
 
