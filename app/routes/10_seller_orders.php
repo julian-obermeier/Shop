@@ -217,7 +217,12 @@ if (preg_match('#^/seller/order/(\d+)/precheck$#',$path,$m) && $method==='POST')
             $up=save_image_upload($f,'order-'.$id.'/precheck');
             db()->prepare('INSERT INTO precheck_uploads(order_id,seller_id,file_path,mime_type,file_size,sha256) VALUES(?,?,?,?,?,?)')->execute([$id,$s['id'],$up['path'],$up['mime'],$up['size'],$up['sha256']]);
         }
-        log_event((int)$o['offer_id'],$id,'precheck.uploaded',['count'=>count($files)]);flash('success','Vorabfotos gespeichert.');
+        log_event((int)$o['offer_id'],$id,'precheck.uploaded',['count'=>count($files)]);
+        $cq=db()->prepare('SELECT COUNT(*) FROM precheck_uploads WHERE order_id=?');$cq->execute([$id]);$nowHave=(int)$cq->fetchColumn();
+        if($nowHave>=(int)$o['precheck_photo_count']){
+            notify_admins('evidence','Vorabkontrolle vollständig',$o['order_no'].' hat alle erforderlichen Vorabfotos eingereicht.','/admin/order/'.$id,'precheck-ready:'.$id.':'.$nowHave);
+        }
+        flash('success','Vorabfotos gespeichert.');
     }catch(Throwable $e){flash('error',$e->getMessage());}
     redirect('/seller/order/'.$id);
 }
@@ -264,7 +269,7 @@ if (preg_match('#^/seller/event/(\d+)/submit$#',$path,$m) && $method==='POST') {
         $up=save_image_upload($files[0],'order-'.$ev['order_id'].'/day-'.$ev['day_no'].'/event-'.$ev['event_no']);
         db()->prepare('INSERT INTO day_uploads(day_id,event_id,seller_id,file_path,mime_type,file_size,sha256) VALUES(?,?,?,?,?,?,?)')
             ->execute([$ev['day_id'],$eventId,$s['id'],$up['path'],$up['mime'],$up['size'],$up['sha256']]);
-        db()->prepare("UPDATE order_day_events SET status='submitted',seller_note=?,submitted_at=NOW(),updated_at=NOW() WHERE id=?")
+        db()->prepare("UPDATE order_day_events SET status='submitted',seller_note=?,review_note=NULL,resubmission_requested_at=NULL,resubmission_requested_by=NULL,submitted_at=NOW(),updated_at=NOW() WHERE id=?")
             ->execute([post('seller_note')?:null,$eventId]);
 
         $q=db()->prepare("SELECT * FROM order_day_events WHERE day_id=? AND status='planned' ORDER BY event_no");
@@ -291,6 +296,7 @@ if (preg_match('#^/seller/event/(\d+)/submit$#',$path,$m) && $method==='POST') {
     ]);
     if($remaining===0){
         log_event((int)$ev['offer_id'],(int)$ev['order_id'],'day.submitted',['day_no'=>(int)$ev['day_no'],'scheduled_date'=>$scheduled?->format('Y-m-d')]);
+        notify_admins('evidence','Tagesnachweise vollständig','Auftrag #'.$ev['order_id'].' · Tag '.$ev['day_no'].' wartet auf Prüfung.','/admin/order/'.$ev['order_id'],'day-submitted:'.$ev['day_id'].':'.time());
         flash('success','Letzter Nachweisvorgang eingereicht. Der Tag wartet jetzt auf Prüfung.');
     }else{
         flash('success',$ev['label'].' wurde eingereicht. Der nächste Nachweisvorgang folgt in seinem eigenen Zeitfenster.');
