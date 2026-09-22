@@ -262,17 +262,19 @@ function set_app_setting(string $key, ?string $value): void {
 }
 function shipping_address(): array {
     return [
-        'name'=>app_setting('shipping.name','')??'',
-        'street'=>app_setting('shipping.street','')??'',
-        'postal_code'=>app_setting('shipping.postal_code','')??'',
-        'city'=>app_setting('shipping.city','')??'',
+        'keyword'=>app_setting('shipping.keyword','Suzuki2026')??'Suzuki2026',
+        'name'=>app_setting('shipping.name','Postlagernd')??'Postlagernd',
+        'street'=>app_setting('shipping.street','Hauptstraße 16')??'Hauptstraße 16',
+        'postal_code'=>app_setting('shipping.postal_code','35435')??'35435',
+        'city'=>app_setting('shipping.city','Wettenberg')??'Wettenberg',
         'country'=>app_setting('shipping.country','Deutschland')??'Deutschland',
-        'extra'=>app_setting('shipping.extra','')??'',
+        'extra'=>app_setting('shipping.extra','Post Filiale 550')??'Post Filiale 550',
     ];
 }
 function shipping_address_complete(array $a): bool {
-    return trim((string)($a['name']??''))!=='' && trim((string)($a['street']??''))!=='' &&
-        trim((string)($a['postal_code']??''))!=='' && trim((string)($a['city']??''))!=='';
+    return trim((string)($a['keyword']??''))!=='' && trim((string)($a['name']??''))!=='' &&
+        trim((string)($a['street']??''))!=='' && trim((string)($a['postal_code']??''))!=='' &&
+        trim((string)($a['city']??''))!=='';
 }
 
 function daily_event_labels(int $count): array {
@@ -417,9 +419,9 @@ function create_shipping_phase(array $order): void {
     $lastDate=scheduled_order_day_date($order,$lastDay)??new DateTimeImmutable('today');
     $due=$lastDate->modify('+1 day')->format('Y-m-d');
     $a=shipping_address();
-    db()->prepare("INSERT INTO order_shipments(order_id,due_date,address_name,street,postal_code,city,country,extra,status)
-        VALUES(?,?,?,?,?,?,?,?,'pending')")
-        ->execute([$orderId,$due,$a['name']?:null,$a['street']?:null,$a['postal_code']?:null,$a['city']?:null,$a['country']?:null,$a['extra']?:null]);
+    db()->prepare("INSERT INTO order_shipments(order_id,due_date,address_keyword,address_name,street,postal_code,city,country,extra,status)
+        VALUES(?,?,?,?,?,?,?,?,?,'pending')")
+        ->execute([$orderId,$due,$a['keyword']?:null,$a['name']?:null,$a['street']?:null,$a['postal_code']?:null,$a['city']?:null,$a['country']?:null,$a['extra']?:null]);
     db()->prepare("UPDATE orders SET status='shipping',updated_at=NOW() WHERE id=?")->execute([$orderId]);
     log_event((int)$order['offer_id'],$orderId,'order.shipping',['due_date'=>$due]);
 }
