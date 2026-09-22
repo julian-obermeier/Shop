@@ -13,6 +13,7 @@ if ($path === '/admin/offers' && $method === 'GET') {
 if ($path === '/admin/offers/new' && $method === 'GET') {
     require_admin();
     $sellers=db()->query('SELECT id,first_name,last_name,email FROM sellers WHERE active=1 ORDER BY first_name,last_name')->fetchAll();
+    $preselectedSeller=(int)($_GET['seller_id']??0);
     $templates=offer_template_catalog();
     ob_start(); ?>
     <div class="page-head"><div><span class="eyebrow">Neues Angebot</span><h1>Vorlage verwenden oder frei erstellen</h1></div></div>
@@ -35,7 +36,7 @@ if ($path === '/admin/offers/new' && $method === 'GET') {
                 <label>Verkäuferin
                     <select name="seller_id" required>
                         <option value="">Bitte auswählen</option>
-                        <?php foreach($sellers as $s):?><option value="<?=e($s['id'])?>"><?=e($s['first_name'].' '.$s['last_name'].' · '.$s['email'])?></option><?php endforeach;?>
+                        <?php foreach($sellers as $s):?><option value="<?=e($s['id'])?>" <?=(int)$s['id']===$preselectedSeller?'selected':''?>><?=e($s['first_name'].' '.$s['last_name'].' · '.$s['email'])?></option><?php endforeach;?>
                     </select>
                 </label>
                 <button class="btn full">Vorlage zuweisen</button>
@@ -46,7 +47,7 @@ if ($path === '/admin/offers/new' && $method === 'GET') {
 
     <div class="section-head"><h2>Freies Angebot</h2></div>
     <form class="panel narrow" method="post">
-        <label>Verkäuferin<select name="seller_id" required><option value="">Bitte auswählen</option><?php foreach($sellers as $s):?><option value="<?=e($s['id'])?>"><?=e($s['first_name'].' '.$s['last_name'].' · '.$s['email'])?></option><?php endforeach;?></select></label>
+        <label>Verkäuferin<select name="seller_id" required><option value="">Bitte auswählen</option><?php foreach($sellers as $s):?><option value="<?=e($s['id'])?>" <?=(int)$s['id']===$preselectedSeller?'selected':''?>><?=e($s['first_name'].' '.$s['last_name'].' · '.$s['email'])?></option><?php endforeach;?></select></label>
         <label>Titel<input name="title" maxlength="190" required placeholder="z. B. Socken & Schuhe – September"></label>
         <label>Hinweis zum Angebot<textarea name="intro" rows="4" placeholder="Kurze Einleitung für die Verkäuferin"></textarea></label>
         <label>Verbindliche Regeln<textarea name="rules_text" rows="10" required placeholder="Regeln, die vor Annahme bestätigt werden müssen"></textarea></label>
