@@ -79,6 +79,91 @@ if (preg_match('#^/admin/event/(\d+)/request-resubmission$#',$path,$m) && $metho
     redirect(post('return_to')==='reviews'?'/admin/reviews':'/admin/order/'.$ev['order_id']);
 }
 
+if (preg_match('#^/admin/order/(\d+)/update-windows$#',$path,$m) && $method==='POST') {
+    $a=require_admin();$orderId=(int)$m[1];
+    try{$reason=correction_reason();}catch(Throwable $e){flash('error',$e->getMessage());redirect('/admin/order/'.$orderId);}
+
+    $q=db()->prepare('SELECT * FROM orders WHERE id=?');
+    $q->execute([$orderId]);$o=$q->fetch();if(!$o)not_found();
+    if(!in_array($o['status'],['precheck','running'],true)){
+        flash('error','Zeitfenster können nur während Vorabkontrolle oder laufender Durchführung geändert werden.');
+        redirect('/admin/order/'.$orderId);
+    }
+
+    try{$templates=posted_event_templates((int)$o['daily_photo_count']);}
+    catch(Throwable $e){flash('error',$e->getMessage());redirect('/admin/order/'.$orderId);}
+
+    $oldTemplates=event_templates($o['daily_event_windows_json']??null,(int)$o['daily_photo_count']);
+    $newJson=event_templates_json($templates);
+    $oldJson=event_templates_json($oldTemplates);
+
+    if(hash_equals($oldJson,$newJson)){
+        flash('error','Die Zeitfenster wurden nicht verändert.');
+        redirect('/admin/order/'.$orderId);
+    }
+
+    $plannedEvents=[];
+    $q=db()->prepare("SELECT e.id,e.event_no,e.label,e.window_start,e.window_end,e.all_day
+        FROM order_day_events e
+        JOIN order_days d ON d.id=e.day_id
+        WHERE d.order_id=? AND e.status='planned'
+        ORDER BY d.day_no,e.event_no");
+    $q->execute([$orderId]);$plannedEvents=$q->fetchAll();
+
+    db()->beginTransaction();
+    try{
+        $lock=db()->prepare('SELECT status FROM orders WHERE id=? FOR UPDATE');
+        $lock->execute([$orderId]);$status=$lock->fetchColumn();
+        if(!in_array($status,['precheck','running'],true))throw new RuntimeException('Der Auftrag kann in diesem Status nicht mehr geändert werden.');
+
+        db()->prepare('UPDATE orders SET daily_event_windows_json=?,updated_at=NOW() WHERE id=?')
+            ->execute([$newJson,$orderId]);
+        db()->prepare('UPDATE offer_positions SET daily_event_windows_json=? WHERE id=?')
+            ->execute([$newJson,$o['position_id']]);
+
+        $upd=db()->prepare("UPDATE order_day_events e
+            JOIN order_days d ON d.id=e.day_id
+            SET e.label=?,e.window_start=?,e.window_end=?,e.all_day=?,e.updated_at=NOW()
+            WHERE d.order_id=? AND e.event_no=? AND e.status='planned'");
+        foreach($templates as $i=>$t){
+            $upd->execute([$t['label'],$t['start'].':00',$t['end'].':00',$t['all_day'],$orderId,$i+1]);
+        }
+
+        // Remove unread reminder notifications that refer to the old concrete window.
+        $del=db()->prepare("DELETE FROM notifications
+            WHERE read_at IS NULL AND (
+                dedupe_key LIKE ? OR dedupe_key LIKE ? OR dedupe_key LIKE ?
+            )");
+        foreach($plannedEvents as $ev){
+            $id=(int)$ev['id'];
+            $del->execute(['event-upcoming:'.$id.'%','event-missed:'.$id.'%','admin-event-missed:'.$id.'%']);
+        }
+
+        db()->commit();
+    }catch(Throwable $e){
+        if(db()->inTransaction())db()->rollBack();
+        flash('error',$e->getMessage());redirect('/admin/order/'.$orderId);
+    }
+
+    $summary=implode(', ',array_map(static fn(array $t)=>$t['label'].': '.(!empty($t['all_day'])?'ganztags':$t['start'].'–'.$t['end'].' Uhr'),$templates));
+    notify_seller((int)$o['seller_id'],'correction','Nachweis-Zeitfenster wurden geändert',
+        $o['order_no']." · Neue Zeitfenster:
+".$summary."
+Grund: ".$reason,
+        '/seller/order/'.$orderId,'windows-changed:'.$orderId.':'.time());
+
+    log_event((int)$o['offer_id'],$orderId,'order.windows_changed',[
+        'before'=>$oldTemplates,
+        'after'=>$templates,
+        'reason'=>$reason,
+        'updated_planned_events'=>count($plannedEvents),
+        'changed_by_admin_id'=>(int)$a['id'],
+    ]);
+
+    flash('success','Zeitfenster wurden aktualisiert. Bereits eingereichte Nachweise bleiben unverändert.');
+    redirect('/admin/order/'.$orderId);
+}
+
 if (preg_match('#^/admin/order/(\d+)/change-start$#',$path,$m) && $method==='POST') {
     require_admin();$orderId=(int)$m[1];
     try{$reason=correction_reason();}catch(Throwable $e){flash('error',$e->getMessage());redirect('/admin/order/'.$orderId);}
