@@ -136,8 +136,15 @@ if (preg_match('#^/admin/offer/(\d+)$#',$path,$m) && $method==='GET') {
     </section>
     <?php else:?>
     <section class="panel action-panel">
-        <div><h2>Angebot bereits übermittelt</h2><p>Du kannst es weiterhin vollständig bearbeiten. Mit der Annahme durch die Verkäuferin wird der dann aktuelle Stand endgültig gesperrt.</p></div>
+        <div>
+            <h2>Angebot bereits übermittelt</h2>
+            <p>Du kannst es weiterhin vollständig bearbeiten. Mit der Annahme durch die Verkäuferin wird der dann aktuelle Stand endgültig gesperrt.</p>
+        </div>
+        <form method="post" action="<?=e(url('/admin/offer/'.$id.'/withdraw'))?>">
+            <button class="btn ghost danger">Angebot zurückziehen</button>
+        </form>
     </section>
+    <div class="notice warning"><strong>Zurückziehen:</strong> Das Angebot verschwindet sofort bei der Verkäuferin und wird wieder als Entwurf gespeichert. Du kannst es anschließend weiter bearbeiten und später erneut senden.</div>
     <?php endif;?>
     <?php endif;?>
 
@@ -230,6 +237,38 @@ if (preg_match('#^/admin/offer/(\d+)/position/(\d+)/delete$#',$path,$m) && $meth
     }catch(Throwable $e){
         if(db()->inTransaction())db()->rollBack();flash('error',$e->getMessage());
     }
+    redirect('/admin/offer/'.$id);
+}
+
+
+
+if (preg_match('#^/admin/offer/(\d+)/withdraw$#',$path,$m) && $method==='POST') {
+    require_admin();$id=(int)$m[1];
+
+    db()->beginTransaction();
+    try{
+        $q=db()->prepare('SELECT status FROM offers WHERE id=? FOR UPDATE');
+        $q->execute([$id]);$status=$q->fetchColumn();
+
+        if($status!=='sent'){
+            throw new RuntimeException(
+                $status==='accepted'||$status==='active'||$status==='completed'
+                    ? 'Das Angebot wurde bereits angenommen und kann nicht mehr zurückgezogen werden.'
+                    : 'Dieses Angebot ist aktuell nicht versendet.'
+            );
+        }
+
+        db()->prepare("UPDATE offers SET status='draft',sent_at=NULL,updated_at=NOW() WHERE id=?")
+            ->execute([$id]);
+
+        db()->commit();
+        log_event($id,null,'offer.withdrawn');
+        flash('success','Angebot wurde zurückgezogen. Es ist für die Verkäuferin nicht mehr sichtbar und liegt wieder als Entwurf vor.');
+    }catch(Throwable $e){
+        if(db()->inTransaction())db()->rollBack();
+        flash('error',$e->getMessage());
+    }
+
     redirect('/admin/offer/'.$id);
 }
 
