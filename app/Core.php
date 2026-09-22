@@ -144,7 +144,8 @@ function offer_status_label(string $s): string {
 }
 function order_status_label(string $s): string {
     return match($s) {
-        'precheck' => 'Vorabkontrolle', 'running' => 'Läuft', 'completed' => 'Abgeschlossen', 'cancelled' => 'Storniert', default => $s,
+        'precheck' => 'Vorabkontrolle', 'running' => 'Läuft', 'shipping' => 'Versand',
+        'completed' => 'Abgeschlossen', 'cancelled' => 'Storniert', default => $s,
     };
 }
 function day_status_label(string $s): string {
@@ -177,38 +178,186 @@ function latest_precheck_rejection(int $orderId): ?string {
     return $reason !== '' ? $reason : null;
 }
 
+function app_setting(string $key, ?string $default=null): ?string {
+    $q=db()->prepare('SELECT setting_value FROM app_settings WHERE setting_key=?');
+    $q->execute([$key]);
+    $v=$q->fetchColumn();
+    return $v===false?$default:(string)$v;
+}
+function set_app_setting(string $key, ?string $value): void {
+    db()->prepare('INSERT INTO app_settings(setting_key,setting_value) VALUES(?,?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value),updated_at=NOW()')
+        ->execute([$key,$value]);
+}
+function shipping_address(): array {
+    return [
+        'name'=>app_setting('shipping.name','')??'',
+        'street'=>app_setting('shipping.street','')??'',
+        'postal_code'=>app_setting('shipping.postal_code','')??'',
+        'city'=>app_setting('shipping.city','')??'',
+        'country'=>app_setting('shipping.country','Deutschland')??'Deutschland',
+        'extra'=>app_setting('shipping.extra','')??'',
+    ];
+}
+function shipping_address_complete(array $a): bool {
+    return trim((string)($a['name']??''))!=='' && trim((string)($a['street']??''))!=='' &&
+        trim((string)($a['postal_code']??''))!=='' && trim((string)($a['city']??''))!=='';
+}
+
 function daily_event_labels(int $count): array {
-    $count = max(1, $count);
-    return match($count) {
-        1 => ['Tagesnachweis'],
-        2 => ['Morgens', 'Abends'],
-        3 => ['Morgens', 'Mittags', 'Abends'],
-        4 => ['Morgens', 'Mittags', 'Nachmittags', 'Abends'],
-        default => array_map(static fn(int $n): string => 'Nachweis ' . $n, range(1, $count)),
+    return array_column(default_event_templates($count),'label');
+}
+function default_event_templates(int $count): array {
+    $count=max(1,$count);
+    return match($count){
+        1=>[['label'=>'Ganztags','start'=>'00:00','end'=>'23:59','all_day'=>1]],
+        2=>[
+            ['label'=>'Morgens','start'=>'06:00','end'=>'12:00','all_day'=>0],
+            ['label'=>'Abends','start'=>'18:00','end'=>'22:00','all_day'=>0],
+        ],
+        3=>[
+            ['label'=>'Morgens','start'=>'06:00','end'=>'12:00','all_day'=>0],
+            ['label'=>'Mittags','start'=>'13:00','end'=>'16:00','all_day'=>0],
+            ['label'=>'Abends','start'=>'18:00','end'=>'22:00','all_day'=>0],
+        ],
+        4=>[
+            ['label'=>'Morgens','start'=>'06:00','end'=>'10:00','all_day'=>0],
+            ['label'=>'Mittags','start'=>'11:00','end'=>'14:00','all_day'=>0],
+            ['label'=>'Nachmittags','start'=>'15:00','end'=>'17:00','all_day'=>0],
+            ['label'=>'Abends','start'=>'18:00','end'=>'22:00','all_day'=>0],
+        ],
+        default=>array_map(static fn(int $n):array=>['label'=>'Nachweis '.$n,'start'=>'00:00','end'=>'23:59','all_day'=>1],range(1,$count)),
     };
 }
-
-function ensure_day_events(int $dayId, int $count): array {
-    $q = db()->prepare('SELECT * FROM order_day_events WHERE day_id=? ORDER BY event_no');
-    $q->execute([$dayId]);
-    $events = $q->fetchAll();
-    if ($events) return $events;
-
-    $labels = daily_event_labels($count);
-    $ins = db()->prepare("INSERT INTO order_day_events(day_id,event_no,label,status) VALUES(?,?,?,'planned')");
-    foreach ($labels as $i => $label) {
-        $ins->execute([$dayId, $i + 1, $label]);
+function event_templates(?string $json,int $count): array {
+    $decoded=$json?json_decode($json,true):null;
+    if(!is_array($decoded)||count($decoded)!==$count)return default_event_templates($count);
+    $out=[];
+    foreach(array_values($decoded) as $i=>$x){
+        if(!is_array($x))return default_event_templates($count);
+        $all=!empty($x['all_day']);
+        $label=trim((string)($x['label']??''))?:('Nachweis '.($i+1));
+        $start=(string)($x['start']??'00:00');
+        $end=(string)($x['end']??'23:59');
+        if(!preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d$/',$start)||!preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d$/',$end))return default_event_templates($count);
+        if(!$all && $start>=$end)return default_event_templates($count);
+        $out[]=['label'=>$label,'start'=>$all?'00:00':$start,'end'=>$all?'23:59':$end,'all_day'=>$all?1:0];
     }
-    $q->execute([$dayId]);
+    return $out;
+}
+function posted_event_templates(int $count): array {
+    $labels=$_POST['event_label']??[];
+    $starts=$_POST['event_start']??[];
+    $ends=$_POST['event_end']??[];
+    $all=$_POST['event_all_day']??[];
+    if(!is_array($labels)||count($labels)!==$count)return default_event_templates($count);
+    $out=[];
+    for($i=0;$i<$count;$i++){
+        $isAll=is_array($all)&&isset($all[$i])&&(string)$all[$i]==='1';
+        $label=trim((string)($labels[$i]??''))?:('Nachweis '.($i+1));
+        $start=trim((string)($starts[$i]??'00:00'));
+        $end=trim((string)($ends[$i]??'23:59'));
+        if($isAll){$start='00:00';$end='23:59';}
+        if(!preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d$/',$start)||!preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d$/',$end)||(!$isAll&&$start>=$end)){
+            throw new RuntimeException('Ungültiges Zeitfenster bei „'.$label.'“.');
+        }
+        $out[]=['label'=>$label,'start'=>$start,'end'=>$end,'all_day'=>$isAll?1:0];
+    }
+    return $out;
+}
+function event_templates_json(array $templates): string {
+    return (string)json_encode($templates,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+}
+function event_window_text(array $event): string {
+    if(!empty($event['all_day']))return 'Ganztags · 00:00–24:00';
+    return substr((string)($event['window_start']??$event['start']??''),0,5).'–'.substr((string)($event['window_end']??$event['end']??''),0,5).' Uhr';
+}
+function ensure_day_events(int $dayId, int $count): array {
+    $q=db()->prepare('SELECT * FROM order_day_events WHERE day_id=? ORDER BY event_no');
+    $q->execute([$dayId]);$events=$q->fetchAll();
+    if($events)return $events;
+
+    $q=db()->prepare('SELECT o.daily_event_windows_json FROM order_days d JOIN orders o ON o.id=d.order_id WHERE d.id=?');
+    $q->execute([$dayId]);$json=$q->fetchColumn();
+    $templates=event_templates($json===false?null:(string)$json,$count);
+    $ins=db()->prepare("INSERT INTO order_day_events(day_id,event_no,label,window_start,window_end,all_day,status) VALUES(?,?,?,?,?,?,'planned')");
+    foreach($templates as $i=>$t)$ins->execute([$dayId,$i+1,$t['label'],$t['start'].':00',$t['end'].':00',$t['all_day']]);
+    $q=db()->prepare('SELECT * FROM order_day_events WHERE day_id=? ORDER BY event_no');$q->execute([$dayId]);
     return $q->fetchAll();
 }
-
 function day_events(int $dayId): array {
-    $q = db()->prepare('SELECT * FROM order_day_events WHERE day_id=? ORDER BY event_no');
-    $q->execute([$dayId]);
-    return $q->fetchAll();
+    $q=db()->prepare('SELECT * FROM order_day_events WHERE day_id=? ORDER BY event_no');$q->execute([$dayId]);return $q->fetchAll();
 }
-
+function event_window_state(array $event, ?DateTimeImmutable $date, ?DateTimeImmutable $now=null): string {
+    if(($event['status']??'')==='submitted')return 'submitted';
+    if(!$date)return 'future';
+    $now=$now??new DateTimeImmutable('now');
+    $day=$date->format('Y-m-d');
+    if(!empty($event['all_day'])){
+        $start=new DateTimeImmutable($day.' 00:00:00');
+        $end=new DateTimeImmutable($day.' 23:59:59');
+    }else{
+        $start=new DateTimeImmutable($day.' '.substr((string)$event['window_start'],0,5).':00');
+        $end=new DateTimeImmutable($day.' '.substr((string)$event['window_end'],0,5).':59');
+    }
+    if($now<$start)return 'future';
+    if($now>$end)return 'closed';
+    return 'open';
+}
+function day_is_missed(array $day,array $order): bool {
+    if(($day['status']??'')!=='planned')return false;
+    $date=order_day_date($order['started_at']??null,(int)$day['day_no']);
+    if(!$date)return false;
+    $events=day_events((int)$day['id']);
+    if(!$events)$events=ensure_day_events((int)$day['id'],(int)$day['required_photo_count']);
+    foreach($events as $ev)if(event_window_state($ev,$date)==='closed' && ($ev['status']??'')!=='submitted')return true;
+    return false;
+}
+function latest_precheck_rejection(int $orderId): ?string {
+    $q=db()->prepare("SELECT payload_json FROM activity_log WHERE order_id=? AND event_type='precheck.rejected' ORDER BY id DESC LIMIT 1");
+    $q->execute([$orderId]);$raw=$q->fetchColumn();
+    if(!$raw)return null;
+    $payload=json_decode((string)$raw,true);$reason=is_array($payload)?trim((string)($payload['reason']??'')):'';
+    return $reason!==''?$reason:null;
+}
+function wallet_status_label(string $s): string {
+    return match($s){'reserved'=>'Vorgemerkt','available'=>'Auszahlbar','paid'=>'Ausgezahlt','cancelled'=>'Storniert',default=>$s};
+}
+function payout_method_label(?string $s): string {
+    return match($s){'paypal'=>'PayPal','bank'=>'Banküberweisung',default=>'Nicht festgelegt'};
+}
+function wallet_summary(int $sellerId): array {
+    $q=db()->prepare("SELECT
+        COALESCE(SUM(CASE WHEN status='reserved' THEN amount ELSE 0 END),0) reserved,
+        COALESCE(SUM(CASE WHEN status='available' THEN amount ELSE 0 END),0) available,
+        COALESCE(SUM(CASE WHEN status='paid' THEN amount ELSE 0 END),0) paid
+        FROM seller_wallet_entries WHERE seller_id=?");
+    $q->execute([$sellerId]);return $q->fetch()?:['reserved'=>0,'available'=>0,'paid'=>0];
+}
+function payout_profile(int $sellerId): array {
+    $q=db()->prepare('SELECT * FROM seller_payout_profiles WHERE seller_id=?');$q->execute([$sellerId]);
+    return $q->fetch()?:['seller_id'=>$sellerId,'payout_method'=>null,'paypal_email'=>null,'bank_holder'=>null,'bank_iban'=>null,'bank_bic'=>null];
+}
+function create_wallet_entry(int $sellerId,int $orderId,float $amount): void {
+    db()->prepare("INSERT IGNORE INTO seller_wallet_entries(seller_id,order_id,amount,status) VALUES(?,?,?,'reserved')")
+        ->execute([$sellerId,$orderId,max(0,$amount)]);
+}
+function shipment_for_order(int $orderId): ?array {
+    $q=db()->prepare('SELECT * FROM order_shipments WHERE order_id=?');$q->execute([$orderId]);$x=$q->fetch();return $x?:null;
+}
+function create_shipping_phase(array $order): void {
+    $orderId=(int)$order['id'];
+    if(shipment_for_order($orderId))return;
+    $q=db()->prepare("SELECT MAX(day_no) FROM order_days WHERE order_id=? AND status='fulfilled'");
+    $q->execute([$orderId]);$lastDay=(int)$q->fetchColumn();
+    $lastDate=order_day_date($order['started_at']??null,$lastDay)??new DateTimeImmutable('today');
+    $due=$lastDate->modify('+1 day')->format('Y-m-d');
+    $a=shipping_address();
+    db()->prepare("INSERT INTO order_shipments(order_id,due_date,address_name,street,postal_code,city,country,extra,status)
+        VALUES(?,?,?,?,?,?,?,?,'pending')")
+        ->execute([$orderId,$due,$a['name']?:null,$a['street']?:null,$a['postal_code']?:null,$a['city']?:null,$a['country']?:null,$a['extra']?:null]);
+    db()->prepare("UPDATE orders SET status='shipping',updated_at=NOW() WHERE id=?")->execute([$orderId]);
+    log_event((int)$order['offer_id'],$orderId,'order.shipping',['due_date'=>$due]);
+}
 function save_image_upload(array $file, string $folder): array {
     if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) throw new RuntimeException('Foto-Upload fehlgeschlagen.');
     $tmp = (string)($file['tmp_name'] ?? '');
@@ -247,28 +396,29 @@ function log_event(?int $offerId, ?int $orderId, string $event, array $payload =
 }
 
 function sync_order_progress(int $orderId): void {
-    $q = db()->prepare("SELECT COUNT(*) FROM order_days WHERE order_id=? AND status='fulfilled'");
-    $q->execute([$orderId]); $ok = (int)$q->fetchColumn();
-    $q = db()->prepare('SELECT required_success_days,offer_id,status FROM orders WHERE id=?');
-    $q->execute([$orderId]); $o = $q->fetch(); if (!$o) return;
+    $q=db()->prepare("SELECT COUNT(*) FROM order_days WHERE order_id=? AND status='fulfilled'");
+    $q->execute([$orderId]);$ok=(int)$q->fetchColumn();
+    $q=db()->prepare('SELECT * FROM orders WHERE id=?');$q->execute([$orderId]);$o=$q->fetch();if(!$o)return;
     db()->prepare('UPDATE orders SET successful_days=?,updated_at=NOW() WHERE id=?')->execute([$ok,$orderId]);
-    if ($ok >= (int)$o['required_success_days'] && $o['status'] === 'running') {
-        db()->prepare("UPDATE orders SET status='completed',completed_at=NOW(),updated_at=NOW() WHERE id=?")->execute([$orderId]);
-        log_event((int)$o['offer_id'],$orderId,'order.completed');
-    }
+    $o['successful_days']=$ok;
+    if($ok>=(int)$o['required_success_days'] && $o['status']==='running')create_shipping_phase($o);
     sync_offer_status((int)$o['offer_id']);
 }
 function sync_offer_status(int $offerId): void {
-    $q = db()->prepare("SELECT status FROM offers WHERE id=?"); $q->execute([$offerId]); $current = (string)$q->fetchColumn();
-    if (in_array($current,['draft','sent','cancelled'],true)) return;
-    $q = db()->prepare("SELECT COUNT(*) total, SUM(status='running') running_count, SUM(status='completed') completed_count FROM orders WHERE offer_id=?");
-    $q->execute([$offerId]); $x = $q->fetch() ?: [];
-    $total=(int)($x['total']??0); $running=(int)($x['running_count']??0); $completed=(int)($x['completed_count']??0);
-    if ($total > 0 && $completed === $total) {
+    $q=db()->prepare("SELECT status FROM offers WHERE id=?");$q->execute([$offerId]);$current=(string)$q->fetchColumn();
+    if(in_array($current,['draft','sent','cancelled'],true))return;
+    $q=db()->prepare("SELECT COUNT(*) total,
+        SUM(status='running') running_count,
+        SUM(status='shipping') shipping_count,
+        SUM(status='completed') completed_count
+        FROM orders WHERE offer_id=?");
+    $q->execute([$offerId]);$x=$q->fetch()?:[];
+    $total=(int)($x['total']??0);$active=(int)($x['running_count']??0)+(int)($x['shipping_count']??0);$completed=(int)($x['completed_count']??0);
+    if($total>0 && $completed===$total){
         db()->prepare("UPDATE offers SET status='completed',completed_at=NOW(),updated_at=NOW() WHERE id=?")->execute([$offerId]);
-    } elseif ($running > 0) {
+    }elseif($active>0){
         db()->prepare("UPDATE offers SET status='active',updated_at=NOW() WHERE id=?")->execute([$offerId]);
-    } else {
+    }else{
         db()->prepare("UPDATE offers SET status='accepted',updated_at=NOW() WHERE id=?")->execute([$offerId]);
     }
 }
