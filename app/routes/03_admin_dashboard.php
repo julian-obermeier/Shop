@@ -10,6 +10,7 @@ if ($path === '/admin' && $method === 'GET') {
         'review'=>(int)db()->query("SELECT COUNT(*) FROM order_days WHERE status='submitted'")->fetchColumn(),
         'shipping'=>(int)db()->query("SELECT COUNT(*) FROM orders WHERE status='shipping'")->fetchColumn(),
         'available'=>(float)db()->query("SELECT COALESCE(SUM(amount),0) FROM seller_wallet_entries WHERE status='available'")->fetchColumn(),
+        'scent'=>(int)db()->query("SELECT COUNT(*) FROM scent_requests WHERE status='pending'")->fetchColumn(),
     ];
 
     // Count only the first unresolved planned day of each running order when a required window has expired.
@@ -37,6 +38,7 @@ if ($path === '/admin' && $method === 'GET') {
 
     <div class="stats compact">
         <a class="stat stat-link" href="<?=e(url('/admin/wallets'))?>"><span>Aktuell auszahlbar</span><strong><?=money($stats['available'])?></strong></a>
+        <a class="stat stat-link" href="<?=e(url('/admin/scent-requests'))?>"><span>Duftproben offen</span><strong><?=$stats['scent']?></strong></a>
         <a class="stat stat-link" href="<?=e(url('/admin/settings'))?>"><span>Versandadresse</span><strong class="stat-date"><?=shipping_address_complete(shipping_address())?'Hinterlegt':'Fehlt'?></strong></a>
     </div>
 
