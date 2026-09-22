@@ -191,6 +191,100 @@ function offer_number(): string {
     }
 }
 
+function offer_template_catalog(): array {
+    $three=event_templates_json(default_event_templates(3));
+    $evening=event_templates_json([['label'=>'Abendnachweis','start'=>'18:00','end'=>'22:00','all_day'=>0]]);
+    $allDay=event_templates_json([['label'=>'Nachweis','start'=>'00:00','end'=>'23:59','all_day'=>1]]);
+
+    return [
+        'angebot1_850'=>[
+            'name'=>'Angebot 1 · 14 Tage · 850 €',
+            'title'=>'14-Tage-Trageauftrag · Nylonstrumpfhose, Socken & Schuhe',
+            'intro'=>'Persönliches 14-Tage-Angebot mit mehreren aufeinander abgestimmten Positionen. Kürzere Zusatzpositionen sind automatisch an die letzten Gesamttage gekoppelt.',
+            'rules_text'=>"Die angegebenen Artikel werden ausschließlich von dir selbst getragen und bearbeitet.\n"
+                ."Die vereinbarten Tragezeiten und Nachweisfenster sind einzuhalten.\n"
+                ."Nylonstrumpfhose und Socken werden während der jeweiligen 14 erfolgreichen Tage tagsüber und nachts getragen.\n"
+                ."Die Schuhe werden an allen 14 erfolgreichen Tagen ganztägig getragen, auch zu Hause.\n"
+                ."Die Nylonstrumpfhose wird an den ersten 10 Gesamttagen ohne Unterwäsche getragen; an den letzten 4 Gesamttagen zusätzlich mit dem dafür vorgesehenen Slip.\n"
+                ."Die Schweiß-Einlagen beginnen an den letzten 4 Gesamttagen. Am ersten dieser vier Tage wird geduscht; danach wird bis zum Abschluss dieser Position kein Deo verwendet.\n"
+                ."Ein-Tages-Positionen werden automatisch auf den letzten Gesamttag gelegt. Endet eine längere Position später, verschieben sich gekoppelte Zusatzpositionen automatisch mit.\n"
+                ."Jeder Nachweisvorgang ist einzeln und innerhalb seines Zeitfensters einzureichen. Ein verpasstes oder nicht erfülltes Pflichtfenster kann dazu führen, dass der Tag als nicht erfüllt bewertet und ein zusätzlicher Tag angehängt wird.\n"
+                ."Nach vollständigem Abschluss werden die für den Versand bestimmten Sachen gemeinsam an die in der Versandphase angezeigte Adresse versendet.\n"
+                ."Die Gesamtvergütung dieser Vorlage beträgt 850,00 €. Sie bleibt bis zum vollständigen Abschluss des vermittelten Auftrags einschließlich Versand vorgemerkt.",
+            'positions'=>[
+                [
+                    'title'=>'Nylonstrumpfhose · 14 Tage Tag & Nacht',
+                    'description'=>'Dieselbe Nylonstrumpfhose 14 erfolgreiche Tage durchgehend tagsüber und nachts tragen. Tage 1–10 ohne Unterwäsche; während der letzten 4 Gesamttage zusätzlich mit dem vorgesehenen Slip.',
+                    'compensation'=>250.00,'required_success_days'=>14,'align_to_offer_end'=>0,
+                    'precheck_photo_count'=>2,'precheck_instructions'=>'Vor Start: Nylonstrumpfhose vollständig sowie einmal angezogen fotografieren.',
+                    'daily_photo_count'=>3,'daily_instructions'=>'Die vereinbarte Nylonstrumpfhose weiter tragen. Nicht wechseln oder waschen. In den letzten 4 Gesamttagen zusätzlich den vorgesehenen Slip tragen.',
+                    'daily_event_windows_json'=>$three,
+                ],
+                [
+                    'title'=>'Socken · 14 Tage Tag & Nacht',
+                    'description'=>'Dasselbe Paar Socken 14 erfolgreiche Tage tagsüber und nachts tragen.',
+                    'compensation'=>200.00,'required_success_days'=>14,'align_to_offer_end'=>0,
+                    'precheck_photo_count'=>2,'precheck_instructions'=>'Vor Start: beide Socken und die nackten Füße fotografieren.',
+                    'daily_photo_count'=>3,'daily_instructions'=>'Dasselbe Paar Socken weiterhin Tag und Nacht tragen. Nicht wechseln oder waschen.',
+                    'daily_event_windows_json'=>$three,
+                ],
+                [
+                    'title'=>'Schuhe · 14 Tage ganztägig',
+                    'description'=>'Dasselbe Paar Schuhe an 14 erfolgreichen Tagen den ganzen Tag tragen, ausdrücklich auch zu Hause.',
+                    'compensation'=>200.00,'required_success_days'=>14,'align_to_offer_end'=>0,
+                    'precheck_photo_count'=>4,'precheck_instructions'=>'Vor Start: Schuhe außen, innen, Sohlen und die nackten Füße fotografieren.',
+                    'daily_photo_count'=>3,'daily_instructions'=>'Dasselbe Paar Schuhe ganztägig tragen, auch zu Hause.',
+                    'daily_event_windows_json'=>$three,
+                ],
+                [
+                    'title'=>'Slip · letzte 4 Gesamttage',
+                    'description'=>'Während der letzten 4 Gesamttage einen Slip unter der Nylonstrumpfhose tragen. Diese Position endet automatisch gemeinsam mit den längsten Tragepositionen.',
+                    'compensation'=>50.00,'required_success_days'=>4,'align_to_offer_end'=>1,
+                    'precheck_photo_count'=>1,'precheck_instructions'=>'Vor Beginn der letzten 4 Gesamttage den vorgesehenen Slip fotografieren.',
+                    'daily_photo_count'=>1,'daily_instructions'=>'Slip unter der Nylonstrumpfhose tragen. Der Nachweis erfolgt am Abend.',
+                    'daily_event_windows_json'=>$evening,
+                ],
+                [
+                    'title'=>'Schweiß-Einlagen · letzte 4 Gesamttage',
+                    'description'=>'Am ersten der letzten 4 Gesamttage duschen. Danach bis zum Ende kein Deo verwenden und Binden/Einlagen unter den Achseln tragen, um dort Schweiß zu sammeln.',
+                    'compensation'=>75.00,'required_success_days'=>4,'align_to_offer_end'=>1,
+                    'precheck_photo_count'=>0,'precheck_instructions'=>'',
+                    'daily_photo_count'=>1,'daily_instructions'=>'Am ersten Durchführungstag dieser Position duschen und danach kein Deo mehr verwenden. Einlagen unter den Achseln tragen und bis zum Abschluss täglich weiterführen.',
+                    'daily_event_windows_json'=>$evening,
+                ],
+                [
+                    'title'=>'Spucke abgefüllt · letzter Gesamttag',
+                    'description'=>'Am letzten Gesamttag Spucke in einem geeigneten, dicht verschließbaren Behälter sammeln und für den gemeinsamen Versand vorbereiten.',
+                    'compensation'=>25.00,'required_success_days'=>1,'align_to_offer_end'=>1,
+                    'precheck_photo_count'=>0,'precheck_instructions'=>'',
+                    'daily_photo_count'=>1,'daily_instructions'=>'Abgefüllten, verschlossenen Behälter als Nachweis fotografieren.',
+                    'daily_event_windows_json'=>$evening,
+                ],
+                [
+                    'title'=>'Geschnittene Fußnägel · letzter Gesamttag',
+                    'description'=>'Am letzten Gesamttag die geschnittenen Fußnägel sammeln und für den gemeinsamen Versand verpacken.',
+                    'compensation'=>25.00,'required_success_days'=>1,'align_to_offer_end'=>1,
+                    'precheck_photo_count'=>0,'precheck_instructions'=>'',
+                    'daily_photo_count'=>1,'daily_instructions'=>'Gesammelte und verpackte Fußnägel als Nachweis fotografieren.',
+                    'daily_event_windows_json'=>$allDay,
+                ],
+                [
+                    'title'=>'Hornhaut · falls vorhanden · letzter Gesamttag',
+                    'description'=>'Falls Hornhaut vorhanden ist, diese am letzten Gesamttag vorsichtig abreiben, sammeln und für den gemeinsamen Versand verpacken. Falls keine Hornhaut vorhanden ist, wird stattdessen ein Foto der Fußsohlen als Nachweis eingereicht.',
+                    'compensation'=>25.00,'required_success_days'=>1,'align_to_offer_end'=>1,
+                    'precheck_photo_count'=>0,'precheck_instructions'=>'',
+                    'daily_photo_count'=>1,'daily_instructions'=>'Falls vorhanden: gesammelte Hornhaut fotografieren. Falls nicht vorhanden: Fußsohlen fotografieren und im Kommentar „keine Hornhaut vorhanden“ angeben.',
+                    'daily_event_windows_json'=>$allDay,
+                ],
+            ],
+        ],
+    ];
+}
+function offer_template(string $key): ?array {
+    $all=offer_template_catalog();
+    return $all[$key]??null;
+}
+
 function offer_status_label(string $s): string {
     return match($s) {
         'draft' => 'Entwurf', 'sent' => 'Gesendet', 'accepted' => 'Angenommen',
@@ -228,7 +322,7 @@ function offer_final_date(int $offerId): ?DateTimeImmutable {
     $q=db()->prepare("SELECT o.id,o.started_at,o.required_success_days,COALESCE(MAX(d.day_no),0) max_day
         FROM orders o
         LEFT JOIN order_days d ON d.order_id=o.id
-        WHERE o.offer_id=? AND o.is_final_day_position=0 AND o.required_success_days>1
+        WHERE o.offer_id=? AND o.align_to_offer_end=0 AND o.required_success_days>1
           AND o.started_at IS NOT NULL AND o.status<>'cancelled'
         GROUP BY o.id,o.started_at,o.required_success_days");
     $q->execute([$offerId]);
@@ -240,32 +334,39 @@ function offer_final_date(int $offerId): ?DateTimeImmutable {
     }
     return $latest;
 }
+function offer_aligned_start_date(int $offerId,int $durationDays): ?DateTimeImmutable {
+    $final=offer_final_date($offerId);
+    if(!$final)return null;
+    return $final->modify('-'.max(0,$durationDays-1).' days');
+}
 function scheduled_order_day_date(array $order,int $dayNo): ?DateTimeImmutable {
-    if(!empty($order['is_final_day_position']) && !empty($order['offer_id'])){
-        $final=offer_final_date((int)$order['offer_id']);
-        if($final)return $final->modify('+'.max(0,$dayNo-1).' days');
+    if(!empty($order['align_to_offer_end']) && !empty($order['offer_id'])){
+        $start=offer_aligned_start_date((int)$order['offer_id'],(int)($order['required_success_days']??1));
+        if($start)return $start->modify('+'.max(0,$dayNo-1).' days');
     }
     return order_day_date($order['started_at']??null,$dayNo);
 }
 function final_day_positions_ready_for_review(int $offerId): bool {
     $q=db()->prepare("SELECT COUNT(*) FROM orders
-        WHERE offer_id=? AND is_final_day_position=0 AND required_success_days>1
+        WHERE offer_id=? AND align_to_offer_end=0 AND required_success_days>1
           AND status NOT IN('shipping','completed','cancelled')");
     $q->execute([$offerId]);
     return (int)$q->fetchColumn()===0;
 }
-function sync_final_day_positions(int $offerId): void {
+function sync_end_aligned_positions(int $offerId): void {
     $final=offer_final_date($offerId);
     if(!$final)return;
-    $finalDate=$final->format('Y-m-d');
 
     $q=db()->prepare("SELECT * FROM orders
-        WHERE offer_id=? AND is_final_day_position=1 AND status IN('running','shipping','completed')");
+        WHERE offer_id=? AND align_to_offer_end=1 AND status IN('running','shipping','completed')");
     $q->execute([$offerId]);
 
     foreach($q->fetchAll() as $o){
+        $target=offer_aligned_start_date($offerId,(int)$o['required_success_days']);
+        if(!$target)continue;
+        $targetDate=$target->format('Y-m-d');
         $current=$o['started_at']?substr((string)$o['started_at'],0,10):null;
-        if($current===$finalDate)continue;
+        if($current===$targetDate)continue;
 
         $paths=db()->prepare("SELECT u.file_path FROM day_uploads u
             JOIN order_days d ON d.id=u.day_id WHERE d.order_id=?");
@@ -278,22 +379,28 @@ function sync_final_day_positions(int $offerId): void {
             }
         }
 
-        db()->prepare("DELETE u FROM day_uploads u JOIN order_days d ON d.id=u.day_id WHERE d.order_id=?")->execute([$o['id']]);
-        db()->prepare("DELETE FROM order_days WHERE order_id=? AND day_no>1")->execute([$o['id']]);
-        db()->prepare("UPDATE order_day_events e JOIN order_days d ON d.id=e.day_id
-            SET e.status='planned',e.seller_note=NULL,e.submitted_at=NULL,e.updated_at=NOW()
-            WHERE d.order_id=?")->execute([$o['id']]);
-        db()->prepare("UPDATE order_days SET status='planned',seller_note=NULL,admin_note=NULL,
-            submitted_at=NULL,reviewed_at=NULL,reviewed_by=NULL,updated_at=NOW()
-            WHERE order_id=?")->execute([$o['id']]);
+        db()->prepare("DELETE FROM order_days WHERE order_id=?")->execute([$o['id']]);
+        $ins=db()->prepare("INSERT INTO order_days(order_id,day_no,is_extension,required_photo_count,status) VALUES(?,?,0,?,'planned')");
+        for($d=1;$d<=(int)$o['required_success_days'];$d++){
+            $ins->execute([$o['id'],$d,$o['daily_photo_count']]);
+            ensure_day_events((int)db()->lastInsertId(),(int)$o['daily_photo_count']);
+        }
+
         db()->prepare("DELETE FROM order_shipments WHERE order_id=?")->execute([$o['id']]);
         db()->prepare("UPDATE seller_wallet_entries SET status='reserved',available_at=NULL,updated_at=NOW()
             WHERE order_id=? AND status='available'")->execute([$o['id']]);
         db()->prepare("UPDATE orders SET status='running',started_at=?,successful_days=0,extension_days=0,
             completed_at=NULL,updated_at=NOW() WHERE id=?")
-            ->execute([$finalDate.' 00:00:00',$o['id']]);
-        log_event($offerId,(int)$o['id'],'final_day.rescheduled',['scheduled_date'=>$finalDate]);
+            ->execute([$targetDate.' 00:00:00',$o['id']]);
+        log_event($offerId,(int)$o['id'],'end_aligned.rescheduled',[
+            'start_date'=>$targetDate,
+            'end_date'=>$final->format('Y-m-d'),
+            'duration_days'=>(int)$o['required_success_days']
+        ]);
     }
+}
+function sync_final_day_positions(int $offerId): void {
+    sync_end_aligned_positions($offerId);
 }
 function latest_precheck_rejection(int $orderId): ?string {
     $q = db()->prepare("SELECT payload_json FROM activity_log WHERE order_id=? AND event_type='precheck.rejected' ORDER BY id DESC LIMIT 1");
