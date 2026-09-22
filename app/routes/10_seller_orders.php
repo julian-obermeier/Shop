@@ -65,6 +65,9 @@ if (preg_match('#^/seller/order/(\d+)$#',$path,$m) && $method==='GET') {
                 <span class="eyebrow"><?=((int)$current['is_extension'])?'Verlängerungstag':'Aktueller Tag'?></span>
                 <h3>Tag <?=e($current['day_no'])?> · <?=e(date_de($currentDate))?></h3>
 
+                <?php if(!empty($current['late_submission_allowed'])):?>
+                    <div class="notice warning"><strong>Nachreichung freigegeben.</strong><br>Die Plattform hat die fehlenden Nachweise für diesen Tag erneut geöffnet. Die fehlenden Fotos können jetzt unabhängig vom ursprünglichen Zeitfenster nachgereicht werden.<?php if($current['late_submission_note']):?><br><span><?=nl2br(e($current['late_submission_note']))?></span><?php endif;?></div>
+                <?php endif;?>
                 <?php if($current['status']==='submitted'):?>
                     <div class="notice success">Alle Nachweisvorgänge dieses Tages wurden einzeln eingereicht. Der Tag wartet jetzt auf Prüfung.</div>
                 <?php elseif($currentDate && $currentDate>$today):?>
@@ -78,7 +81,7 @@ if (preg_match('#^/seller/order/(\d+)$#',$path,$m) && $method==='GET') {
                 <?php if($currentEvents):?><div class="evidence-events">
                 <?php foreach($currentEvents as $ev):
                     $uq=db()->prepare('SELECT * FROM day_uploads WHERE event_id=? ORDER BY id LIMIT 1');$uq->execute([$ev['id']]);$upload=$uq->fetch();
-                    $state=event_window_state($ev,$currentDate);
+                    $state=(!empty($current['late_submission_allowed'])&&$ev['status']==='planned')?'open':event_window_state($ev,$currentDate);
                 ?>
                     <article class="evidence-event <?=e($ev['status'])?> window-<?=e($state)?>">
                         <div class="evidence-event-head">
@@ -95,7 +98,7 @@ if (preg_match('#^/seller/order/(\d+)$#',$path,$m) && $method==='GET') {
                             <form method="post" enctype="multipart/form-data" action="<?=e(url('/seller/event/'.$ev['id'].'/submit'))?>">
                                 <label>1 Foto für „<?=e($ev['label'])?>“<input type="file" name="photo" accept="image/jpeg,image/png,image/webp" capture="environment" required></label>
                                 <label>Kommentar (optional)<textarea name="seller_note" rows="2"></textarea></label>
-                                <button class="btn full"><?=e($ev['label'])?> einreichen</button>
+                                <button class="btn full"><?=e(!empty($current['late_submission_allowed'])?'Nachweis nachreichen':$ev['label'].' einreichen')?></button>
                             </form>
                         <?php elseif($state==='future'):?>
                             <div class="event-waiting">Noch geschlossen · <?=e(event_window_text($ev))?></div>
@@ -201,7 +204,7 @@ if (preg_match('#^/seller/order/(\d+)/precheck$#',$path,$m) && $method==='POST')
 
 if (preg_match('#^/seller/event/(\d+)/submit$#',$path,$m) && $method==='POST') {
     $s=require_seller();$eventId=(int)$m[1];
-    $q=db()->prepare("SELECT e.*,d.order_id,d.day_no,d.status day_status,d.required_photo_count,
+    $q=db()->prepare("SELECT e.*,d.order_id,d.day_no,d.status day_status,d.required_photo_count,d.late_submission_allowed,d.late_submission_note,
         o.offer_id,o.seller_id,o.status order_status,o.started_at,o.required_success_days,o.is_final_day_position,o.align_to_offer_end
         FROM order_day_events e
         JOIN order_days d ON d.id=e.day_id
@@ -214,7 +217,8 @@ if (preg_match('#^/seller/event/(\d+)/submit$#',$path,$m) && $method==='POST') {
     }
 
     $scheduled=scheduled_order_day_date($ev,(int)$ev['day_no']);
-    if(event_window_state($ev,$scheduled)!=='open'){
+    $isLateSubmission=!empty($ev['late_submission_allowed']);
+    if(!$isLateSubmission && event_window_state($ev,$scheduled)!=='open'){
         flash('error','Dieser Nachweis kann nur innerhalb seines festgelegten Zeitfensters eingereicht werden.');redirect('/seller/order/'.$ev['order_id']);
     }
 
@@ -245,7 +249,7 @@ if (preg_match('#^/seller/event/(\d+)/submit$#',$path,$m) && $method==='POST') {
 
         $q=db()->prepare("SELECT COUNT(*) FROM order_day_events WHERE day_id=? AND status='planned'");
         $q->execute([$ev['day_id']]);$remaining=(int)$q->fetchColumn();
-        if($remaining===0)db()->prepare("UPDATE order_days SET status='submitted',submitted_at=NOW(),updated_at=NOW() WHERE id=?")->execute([$ev['day_id']]);
+        if($remaining===0)db()->prepare("UPDATE order_days SET status='submitted',submitted_at=NOW(),late_submission_allowed=0,updated_at=NOW() WHERE id=?")->execute([$ev['day_id']]);
         db()->commit();
     }catch(Throwable $e){
         if(db()->inTransaction())db()->rollBack();
@@ -254,7 +258,8 @@ if (preg_match('#^/seller/event/(\d+)/submit$#',$path,$m) && $method==='POST') {
 
     log_event((int)$ev['offer_id'],(int)$ev['order_id'],'evidence_event.submitted',[
         'day_no'=>(int)$ev['day_no'],'event_no'=>(int)$ev['event_no'],'label'=>$ev['label'],
-        'scheduled_date'=>$scheduled?->format('Y-m-d'),'window'=>event_window_text($ev)
+        'scheduled_date'=>$scheduled?->format('Y-m-d'),'window'=>event_window_text($ev),
+        'late_submission'=>$isLateSubmission
     ]);
     if($remaining===0){
         log_event((int)$ev['offer_id'],(int)$ev['order_id'],'day.submitted',['day_no'=>(int)$ev['day_no'],'scheduled_date'=>$scheduled?->format('Y-m-d')]);
