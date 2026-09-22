@@ -59,3 +59,21 @@ Bestehende Installationen werden beim ersten Aufruf nach einem `git pull` automa
 - Falls der automatische Mailversand auf dem Hosting fehlschlägt, bleibt der Link sichtbar und kann manuell kopiert werden.
 
 Optional kann in `config/app.php` ein Mail-Absender über `mail.from` und `mail.from_name` gesetzt werden.
+
+
+## Vorlage „Angebot 1 · 14 Tage · 850 €“
+Die Anwendung enthält eine direkt zuweisbare Admin-Vorlage unter **Angebote → Neues Angebot**.
+
+Enthalten sind:
+- Nylonstrumpfhose: 14 Tage, Tag und Nacht.
+- Socken: 14 Tage, Tag und Nacht.
+- Schuhe: 14 Tage, ganztägig einschließlich zu Hause.
+- Slip: die letzten 4 Gesamttage, automatisch ans Angebotsende gekoppelt.
+- Schweiß-Einlagen: die letzten 4 Gesamttage; am ersten dieser vier Tage duschen, danach kein Deo.
+- Spucke: letzter Gesamttag.
+- Fußnägel: letzter Gesamttag.
+- Hornhaut: falls vorhanden am letzten Gesamttag, sonst dokumentierter Ersatznachweis.
+
+Die drei 14-Tage-Hauptpositionen teilen sich einen gemeinsamen Start. Kürzere Endpositionen verschieben sich automatisch mit, wenn sich das späteste Ende einer Hauptposition durch Verlängerung nach hinten verschiebt. Bei einer Verschiebung bleiben Nachweise erhalten, deren Kalendertag weiterhin innerhalb des neuen Endfensters liegt.
+
+Der Versand wird erst freigegeben, wenn alle Positionen abgeschlossen sind. Danach gibt es genau eine gemeinsame Versandbestätigung; erst anschließend wird die gesamte vorgemerkte Vergütung auszahlbar.
