@@ -200,7 +200,7 @@ if (preg_match('#^/seller/order/(\d+)/confirm-shipment$#',$path,$m) && $method==
     if($o['status']!=='shipping'||!$shipment||$shipment['status']!=='pending'){flash('error','Für diesen Auftrag ist keine Versandbestätigung offen.');redirect('/seller/order/'.$orderId);}
     if(post('confirm_shipped')!=='1'){flash('error','Bitte den Versand verbindlich bestätigen.');redirect('/seller/order/'.$orderId);}
     if(new DateTimeImmutable('today')<new DateTimeImmutable($shipment['due_date'])){flash('error','Der Versand kann erst am vorgesehenen Versandtag bestätigt werden.');redirect('/seller/order/'.$orderId);}
-    if(!$shipment['address_name']||!$shipment['street']||!$shipment['postal_code']||!$shipment['city']){flash('error','Die Versandadresse ist noch nicht vollständig hinterlegt.');redirect('/seller/order/'.$orderId);}
+    if(!$shipment['address_keyword']||!$shipment['address_name']||!$shipment['street']||!$shipment['postal_code']||!$shipment['city']){flash('error','Die Versandadresse ist noch nicht vollständig hinterlegt.');redirect('/seller/order/'.$orderId);}
 
     db()->beginTransaction();
     try{
