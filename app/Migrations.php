@@ -149,4 +149,26 @@ function run_migrations(): void {
 
         mark_migration($pdo,$key);
     }
+    $key='20260922_03_final_day_positions_optional_precheck';
+    if(!migration_applied($pdo,$key)){
+        if(!column_exists($pdo,'orders','is_final_day_position')){
+            $pdo->exec("ALTER TABLE orders ADD COLUMN is_final_day_position TINYINT(1) NOT NULL DEFAULT 0 AFTER extension_days");
+        }
+        if(!index_exists($pdo,'orders','idx_offer_final_day')){
+            $pdo->exec("ALTER TABLE orders ADD INDEX idx_offer_final_day(offer_id,is_final_day_position,status)");
+        }
+
+        $pdo->exec("UPDATE orders child
+            JOIN (
+                SELECT o1.offer_id, MAX(o1.required_success_days) max_days
+                FROM orders o1
+                GROUP BY o1.offer_id
+                HAVING max_days>1
+            ) mx ON mx.offer_id=child.offer_id
+            SET child.is_final_day_position=1
+            WHERE child.required_success_days=1");
+
+        mark_migration($pdo,$key);
+    }
+
 }
