@@ -7,6 +7,28 @@ function correction_reason(): string {
     return mb_substr($reason,0,1500);
 }
 
+if (preg_match('#^/admin/precheck-upload/(\d+)/request-resubmission$#',$path,$m) && $method==='POST') {
+    $a=require_admin();$uploadId=(int)$m[1];
+    try{$reason=correction_reason();}catch(Throwable $e){flash('error',$e->getMessage());redirect('/admin/reviews');}
+
+    $q=db()->prepare("SELECT p.*,o.id order_id,o.offer_id,o.seller_id,o.order_no,o.status order_status
+        FROM precheck_uploads p JOIN orders o ON o.id=p.order_id WHERE p.id=?");
+    $q->execute([$uploadId]);$p=$q->fetch();if(!$p)not_found();
+    if($p['order_status']!=='precheck'){flash('error','Dieses Vorabfoto kann nicht mehr neu angefordert werden.');redirect('/admin/order/'.$p['order_id']);}
+
+    db()->prepare('DELETE FROM precheck_uploads WHERE id=?')->execute([$uploadId]);
+    $rel=ltrim((string)$p['file_path'],'/');
+    if($rel!==''&&!str_contains($rel,'..')&&!str_contains($rel,"\0")){
+        $file=APP_ROOT.'/storage/private/'.$rel;if(is_file($file))@unlink($file);
+    }
+
+    log_event((int)$p['offer_id'],(int)$p['order_id'],'precheck.photo_rejected',['upload_id'=>$uploadId,'reason'=>$reason]);
+    notify_seller((int)$p['seller_id'],'evidence','Vorabfoto muss erneut eingereicht werden',
+        $p['order_no'].":\n".$reason,'/seller/order/'.$p['order_id'],'precheck-photo:'.$uploadId.':'.time());
+    flash('success','Das einzelne Vorabfoto wurde verworfen und neu angefordert.');
+    redirect(post('return_to')==='reviews'?'/admin/reviews':'/admin/order/'.$p['order_id']);
+}
+
 if (preg_match('#^/admin/event/(\d+)/request-resubmission$#',$path,$m) && $method==='POST') {
     $a=require_admin();$eventId=(int)$m[1];
     try{$reason=correction_reason();}catch(Throwable $e){flash('error',$e->getMessage());redirect('/admin/reviews');}
