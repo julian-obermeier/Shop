@@ -3,7 +3,7 @@
 Komplett neue, schlanke PHP/MySQL-Anwendung für Direktangebote zwischen Admin/Käufer und Verkäuferin.
 
 ## Kernworkflow
-1. Admin legt Verkäuferinnenkonto an.
+1. Admin legt Verkäuferinnenkonto direkt an oder lädt eine Verkäuferin per einmaligem Link bzw. E-Mail ein.
 2. Admin erstellt ein Angebot für genau eine Verkäuferin.
 3. Angebot enthält beliebig viele Positionen.
 4. Jede Position definiert Vergütung, erfolgreiche Tage, Vorabkontrolle und getrennte tägliche Nachweisvorgänge.
@@ -47,3 +47,15 @@ Komplett neue, schlanke PHP/MySQL-Anwendung für Direktangebote zwischen Admin/K
 Bestehende Installationen werden beim ersten Aufruf nach einem `git pull` automatisch um neue Tabellen und Spalten erweitert.
 
 `config/app.php` und hochgeladene Nachweise werden nicht versioniert.
+
+
+## Verkäuferinnen-Einladungen
+- Admin kann einen allgemeinen Einladungslink erstellen.
+- Optional kann eine E-Mail-Adresse fest an die Einladung gebunden werden.
+- Mit **Per E-Mail einladen** wird der Link direkt per PHP-Mail versendet.
+- Einladungen sind standardmäßig 7 Tage gültig und nur einmal verwendbar.
+- Verkäuferin legt Vorname, Nachname und Passwort selbst fest.
+- Verwendete, abgelaufene oder widerrufene Links können nicht erneut genutzt werden.
+- Falls der automatische Mailversand auf dem Hosting fehlschlägt, bleibt der Link sichtbar und kann manuell kopiert werden.
+
+Optional kann in `config/app.php` ein Mail-Absender über `mail.from` und `mail.from_name` gesetzt werden.
