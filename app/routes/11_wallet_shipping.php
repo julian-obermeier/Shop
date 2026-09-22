@@ -309,6 +309,7 @@ if (preg_match('#^/seller/order/(\d+)/confirm-shipment$#',$path,$m) && $method==
 
     log_event((int)$o['offer_id'],$orderId,'shipment.confirmed_group',['tracking_number'=>$reference]);
     log_event((int)$o['offer_id'],$orderId,'wallet.available_group',['amount'=>$amount]);
+    notify_admins('shipping','Gemeinsamer Versand bestätigt','Angebot #'.$o['offer_id'].' wurde von der Verkäuferin als versendet bestätigt. '.money($amount).' sind jetzt auszahlbar.','/admin/order/'.$orderId,'shipment-confirmed:'.$o['offer_id']);
     sync_offer_status((int)$o['offer_id']);
     flash('success','Gemeinsamer Versand bestätigt. Das Angebot ist abgeschlossen und die gesamte vorgemerkte Vergütung ist jetzt auszahlbar.');
     redirect('/seller/order/'.$orderId);
