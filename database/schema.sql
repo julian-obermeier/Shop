@@ -126,6 +126,7 @@ CREATE TABLE IF NOT EXISTS order_days (
  order_id BIGINT UNSIGNED NOT NULL,
  day_no INT NOT NULL,
  is_extension TINYINT(1) NOT NULL DEFAULT 0,
+ manual_extension TINYINT(1) NOT NULL DEFAULT 0,
  extension_for_day_id BIGINT UNSIGNED NULL UNIQUE,
  required_photo_count INT NOT NULL,
  status ENUM('planned','submitted','fulfilled','not_fulfilled') NOT NULL DEFAULT 'planned',
