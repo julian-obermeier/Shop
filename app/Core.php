@@ -168,6 +168,78 @@ function date_de(?DateTimeInterface $date): string {
     static $days = ['So','Mo','Di','Mi','Do','Fr','Sa'];
     return $days[(int)$date->format('w')] . ', ' . $date->format('d.m.Y');
 }
+
+function offer_final_date(int $offerId): ?DateTimeImmutable {
+    $q=db()->prepare("SELECT o.id,o.started_at,o.required_success_days,COALESCE(MAX(d.day_no),0) max_day
+        FROM orders o
+        LEFT JOIN order_days d ON d.order_id=o.id
+        WHERE o.offer_id=? AND o.is_final_day_position=0 AND o.required_success_days>1
+          AND o.started_at IS NOT NULL AND o.status<>'cancelled'
+        GROUP BY o.id,o.started_at,o.required_success_days");
+    $q->execute([$offerId]);
+    $latest=null;
+    foreach($q->fetchAll() as $row){
+        $dayNo=max((int)$row['required_success_days'],(int)$row['max_day']);
+        $date=order_day_date((string)$row['started_at'],$dayNo);
+        if($date && (!$latest || $date>$latest))$latest=$date;
+    }
+    return $latest;
+}
+function scheduled_order_day_date(array $order,int $dayNo): ?DateTimeImmutable {
+    if(!empty($order['is_final_day_position']) && !empty($order['offer_id'])){
+        $final=offer_final_date((int)$order['offer_id']);
+        if($final)return $final->modify('+'.max(0,$dayNo-1).' days');
+    }
+    return order_day_date($order['started_at']??null,$dayNo);
+}
+function final_day_positions_ready_for_review(int $offerId): bool {
+    $q=db()->prepare("SELECT COUNT(*) FROM orders
+        WHERE offer_id=? AND is_final_day_position=0 AND required_success_days>1
+          AND status NOT IN('shipping','completed','cancelled')");
+    $q->execute([$offerId]);
+    return (int)$q->fetchColumn()===0;
+}
+function sync_final_day_positions(int $offerId): void {
+    $final=offer_final_date($offerId);
+    if(!$final)return;
+    $finalDate=$final->format('Y-m-d');
+
+    $q=db()->prepare("SELECT * FROM orders
+        WHERE offer_id=? AND is_final_day_position=1 AND status IN('running','shipping','completed')");
+    $q->execute([$offerId]);
+
+    foreach($q->fetchAll() as $o){
+        $current=$o['started_at']?substr((string)$o['started_at'],0,10):null;
+        if($current===$finalDate)continue;
+
+        $paths=db()->prepare("SELECT u.file_path FROM day_uploads u
+            JOIN order_days d ON d.id=u.day_id WHERE d.order_id=?");
+        $paths->execute([$o['id']]);
+        foreach($paths->fetchAll(PDO::FETCH_COLUMN) as $rel){
+            $rel=ltrim((string)$rel,'/');
+            if($rel!==''&&!str_contains($rel,'..')&&!str_contains($rel,"\0")){
+                $file=APP_ROOT.'/storage/private/'.$rel;
+                if(is_file($file))@unlink($file);
+            }
+        }
+
+        db()->prepare("DELETE u FROM day_uploads u JOIN order_days d ON d.id=u.day_id WHERE d.order_id=?")->execute([$o['id']]);
+        db()->prepare("DELETE FROM order_days WHERE order_id=? AND day_no>1")->execute([$o['id']]);
+        db()->prepare("UPDATE order_day_events e JOIN order_days d ON d.id=e.day_id
+            SET e.status='planned',e.seller_note=NULL,e.submitted_at=NULL,e.updated_at=NOW()
+            WHERE d.order_id=?")->execute([$o['id']]);
+        db()->prepare("UPDATE order_days SET status='planned',seller_note=NULL,admin_note=NULL,
+            submitted_at=NULL,reviewed_at=NULL,reviewed_by=NULL,updated_at=NOW()
+            WHERE order_id=?")->execute([$o['id']]);
+        db()->prepare("DELETE FROM order_shipments WHERE order_id=?")->execute([$o['id']]);
+        db()->prepare("UPDATE seller_wallet_entries SET status='reserved',available_at=NULL,updated_at=NOW()
+            WHERE order_id=? AND status='available'")->execute([$o['id']]);
+        db()->prepare("UPDATE orders SET status='running',started_at=?,successful_days=0,extension_days=0,
+            completed_at=NULL,updated_at=NOW() WHERE id=?")
+            ->execute([$finalDate.' 00:00:00',$o['id']]);
+        log_event($offerId,(int)$o['id'],'final_day.rescheduled',['scheduled_date'=>$finalDate]);
+    }
+}
 function latest_precheck_rejection(int $orderId): ?string {
     $q = db()->prepare("SELECT payload_json FROM activity_log WHERE order_id=? AND event_type='precheck.rejected' ORDER BY id DESC LIMIT 1");
     $q->execute([$orderId]);
@@ -305,7 +377,7 @@ function event_window_state(array $event, ?DateTimeImmutable $date, ?DateTimeImm
 }
 function day_is_missed(array $day,array $order): bool {
     if(($day['status']??'')!=='planned')return false;
-    $date=order_day_date($order['started_at']??null,(int)$day['day_no']);
+    $date=scheduled_order_day_date($order,(int)$day['day_no']);
     if(!$date)return false;
     $events=day_events((int)$day['id']);
     if(!$events)$events=ensure_day_events((int)$day['id'],(int)$day['required_photo_count']);
@@ -342,7 +414,7 @@ function create_shipping_phase(array $order): void {
     if(shipment_for_order($orderId))return;
     $q=db()->prepare("SELECT MAX(day_no) FROM order_days WHERE order_id=? AND status='fulfilled'");
     $q->execute([$orderId]);$lastDay=(int)$q->fetchColumn();
-    $lastDate=order_day_date($order['started_at']??null,$lastDay)??new DateTimeImmutable('today');
+    $lastDate=scheduled_order_day_date($order,$lastDay)??new DateTimeImmutable('today');
     $due=$lastDate->modify('+1 day')->format('Y-m-d');
     $a=shipping_address();
     db()->prepare("INSERT INTO order_shipments(order_id,due_date,address_name,street,postal_code,city,country,extra,status)
