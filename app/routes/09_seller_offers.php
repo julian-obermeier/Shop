@@ -111,6 +111,7 @@ if (preg_match('#^/seller/offer/(\d+)/accept$#',$path,$m) && $method==='POST') {
     }
 
     log_event($id,null,'offer.accepted');
+    notify_admins('offer','Angebot angenommen',$o['offer_no'].' · '.$o['title'].' wurde von der Verkäuferin angenommen.','/admin/offer/'.$id,'offer-accepted:'.$id);
     flash('success','Angebot angenommen. Die Vergütung wurde vorgemerkt. Gekoppelte Zusatzpositionen werden automatisch mit dem Ende der längsten Position synchronisiert.');
     redirect('/seller/offer/'.$id);
 }
