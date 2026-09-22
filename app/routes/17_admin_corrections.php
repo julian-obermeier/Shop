@@ -86,7 +86,7 @@ if (preg_match('#^/admin/order/(\d+)/change-start$#',$path,$m) && $method==='POS
     if(!$start||$start->format('Y-m-d')!==$date){flash('error','Bitte ein gültiges Startdatum angeben.');redirect('/admin/order/'.$orderId);}
 
     $q=db()->prepare('SELECT * FROM orders WHERE id=?');$q->execute([$orderId]);$o=$q->fetch();if(!$o)not_found();
-    if(!in_array($o['status'],['running','precheck'],true)){flash('error','Das Startdatum kann in diesem Status nicht geändert werden.');redirect('/admin/order/'.$orderId);}
+    if($o['status']!=='running'||empty($o['started_at'])){flash('error','Das Startdatum kann erst bei einem bereits laufenden, terminierten Auftrag korrigiert werden.');redirect('/admin/order/'.$orderId);}
     if(!empty($o['align_to_offer_end'])){flash('error','Endgekoppelte Positionen werden über die Basisposition korrigiert.');redirect('/admin/order/'.$orderId);}
     $old=$o['started_at'];
 
