@@ -135,13 +135,14 @@ if (preg_match('#^/seller/order/(\d+)$#',$path,$m) && $method==='GET') {
         <div class="grid two">
             <div>
                 <h3>Versandadresse</h3>
-                <?php if($shipment['address_name']&&$shipment['street']&&$shipment['postal_code']&&$shipment['city']):?>
+                <?php if($shipment['address_keyword']&&$shipment['address_name']&&$shipment['street']&&$shipment['postal_code']&&$shipment['city']):?>
                     <address class="shipping-address">
-                        <strong><?=e($shipment['address_name'])?></strong><br>
+                        <?php if($shipment['address_keyword']):?><strong>Kennwort: <?=e($shipment['address_keyword'])?></strong><br><?php endif;?>
+                        <?=e($shipment['address_name'])?><br>
+                        <?php if($shipment['extra']):?><?=nl2br(e($shipment['extra']))?><br><?php endif;?>
                         <?=e($shipment['street'])?><br>
-                        <?=e($shipment['postal_code'].' '.$shipment['city'])?><br>
-                        <?=e($shipment['country']?:'Deutschland')?>
-                        <?php if($shipment['extra']):?><br><br><?=nl2br(e($shipment['extra']))?><?php endif;?>
+                        <?=e($shipment['postal_code'].' '.$shipment['city'])?>
+                        <?php if($shipment['country'] && $shipment['country']!=='Deutschland'):?><br><?=e($shipment['country'])?><?php endif;?>
                     </address>
                 <?php else:?><div class="notice warning">Die Versandadresse wird vom Admin noch vervollständigt.</div><?php endif;?>
             </div>
@@ -153,7 +154,7 @@ if (preg_match('#^/seller/order/(\d+)$#',$path,$m) && $method==='GET') {
                     <?php if($shipment['tracking_number']):?><p>Sendungsnummer: <strong><?=e($shipment['tracking_number'])?></strong></p><?php endif;?>
                 <?php elseif(new DateTimeImmutable('today')<new DateTimeImmutable($shipment['due_date'])):?>
                     <div class="notice">Die Versandbestätigung wird am vorgesehenen Versandtag freigeschaltet.</div>
-                <?php elseif($shipment['address_name']&&$shipment['street']&&$shipment['postal_code']&&$shipment['city']):?>
+                <?php elseif($shipment['address_keyword']&&$shipment['address_name']&&$shipment['street']&&$shipment['postal_code']&&$shipment['city']):?>
                     <form method="post" action="<?=e(url('/seller/order/'.$id.'/confirm-shipment'))?>">
                         <label class="check"><input type="checkbox" name="confirm_shipped" value="1" required><span>Ich bestätige verbindlich, dass ich alles aus diesem Auftrag an die angegebene Versandadresse versendet habe.</span></label>
                         <label>Sendungsnummer (optional)<input name="tracking_number" maxlength="190"></label>
