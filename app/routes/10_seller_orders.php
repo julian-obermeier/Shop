@@ -39,7 +39,7 @@ if (preg_match('#^/seller/order/(\d+)$#',$path,$m) && $method==='GET') {
             <div class="notice success"><strong>Keine Vorabfotos erforderlich.</strong><br>Dieser Auftrag wartet nur noch auf die Startfreigabe durch die Plattform.</div>
         <?php else:?>
             <p><?=nl2br(e($o['precheck_instructions']))?></p>
-            <?php if($rejection):?><div class="notice warning"><strong>Von der Plattformprüfung zurückgewiesen:</strong><br><?=nl2br(e($rejection))?><br><span>Bitte die Vorabkontrolle vollständig neu einreichen.</span></div><?php endif;?>
+            <?php if($rejection):?><div class="notice warning"><strong>Von der Plattformprüfung zurückgewiesen:</strong><br><?=nl2br(e($rejection))?><br><span>Bitte die jetzt fehlenden Vorabfotos erneut einreichen.</span></div><?php endif;?>
             <p class="muted"><?=count($pre)?>/<?=e($o['precheck_photo_count'])?> Fotos hochgeladen</p>
             <?php if($pre):?><div class="photo-grid"><?php foreach($pre as $p):?><a href="<?=e(url('/file/precheck/'.$p['id']))?>" target="_blank"><img src="<?=e(url('/file/precheck/'.$p['id']))?>" alt="Vorabfoto"></a><?php endforeach;?></div><?php endif;?>
             <?php $remaining=(int)$o['precheck_photo_count']-count($pre);if($remaining>0):?>
