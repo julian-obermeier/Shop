@@ -95,3 +95,8 @@
 .scent-row-actions,.seller-row-actions{display:flex!important;align-items:center;gap:8px;flex-direction:row!important}
 .scent-request-card{border-color:#dbeafe}
 @media(max-width:700px){.rating-scale{grid-template-columns:repeat(5,1fr)}.scent-row-actions,.seller-row-actions{align-items:flex-start!important;flex-direction:column!important}}
+
+.impersonation-bar{max-width:1164px;margin:12px auto 0;padding:10px 14px;border:1px solid #c7d2fe;border-radius:12px;background:#eef2ff;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.impersonation-bar span{font-size:13px;font-weight:800;color:#3730a3}
+.impersonation-bar form{margin:0}
+@media(max-width:640px){.impersonation-bar{margin:10px 12px 0;align-items:stretch;flex-direction:column}.impersonation-bar .btn{width:100%}}
