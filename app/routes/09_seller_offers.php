@@ -85,8 +85,8 @@ if (preg_match('#^/seller/offer/(\d+)/accept$#',$path,$m) && $method==='POST') {
         $ins=db()->prepare("INSERT INTO orders(
             order_no,offer_id,position_id,seller_id,title_snapshot,description_snapshot,compensation,
             required_success_days,precheck_photo_count,precheck_instructions,daily_photo_count,daily_instructions,
-            daily_event_windows_json,is_final_day_position,align_to_offer_end,status
-        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'precheck')");
+            daily_event_windows_json,is_final_day_position,align_to_offer_end,sync_start_with_offer,status
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'precheck')");
 
         foreach($positions as $p){
             $windows=$p['daily_event_windows_json']??event_templates_json(default_event_templates((int)$p['daily_photo_count']));
@@ -96,7 +96,8 @@ if (preg_match('#^/seller/offer/(\d+)/accept$#',$path,$m) && $method==='POST') {
                 $p['required_success_days'],$p['precheck_photo_count'],$p['precheck_instructions'],
                 $p['daily_photo_count'],$p['daily_instructions'],$windows,
                 (!empty($p['align_to_offer_end']) && (int)$p['required_success_days']===1)?1:0,
-                !empty($p['align_to_offer_end'])?1:0
+                !empty($p['align_to_offer_end'])?1:0,
+                !empty($p['sync_start_with_offer'])?1:0
             ]);
             $orderId=(int)db()->lastInsertId();
             create_wallet_entry((int)$s['id'],$orderId,(float)$p['compensation']);
