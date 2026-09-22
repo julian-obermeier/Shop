@@ -6,6 +6,7 @@ if (preg_match('#^/seller/offer/(\d+)$#',$path,$m) && $method==='GET') {
     $q=db()->prepare("SELECT * FROM offers WHERE id=? AND seller_id=? AND status<>'draft'");$q->execute([$id,$s['id']]);$o=$q->fetch();if(!$o)not_found();
     $q=db()->prepare('SELECT * FROM offer_positions WHERE offer_id=? ORDER BY position_no');$q->execute([$id]);$positions=$q->fetchAll();
     $q=db()->prepare('SELECT * FROM orders WHERE offer_id=? AND seller_id=? ORDER BY id');$q->execute([$id,$s['id']]);$orders=$q->fetchAll();
+    $maxDays=0;foreach($positions as $x)$maxDays=max($maxDays,(int)$x['required_success_days']);
 
     ob_start();?>
     <div class="page-head"><div><span class="eyebrow">Angebot <?=e($o['offer_no'])?></span><h1><?=e($o['title'])?></h1></div><span class="status status-<?=e($o['status'])?>"><?=e(offer_status_label($o['status']))?></span></div>
@@ -27,7 +28,12 @@ if (preg_match('#^/seller/offer/(\d+)$#',$path,$m) && $method==='GET') {
                 <span><b><?=e($p['precheck_photo_count'])?></b> Vorabfotos</span>
                 <span><b><?=e($p['daily_photo_count'])?></b> Vorgänge / Tag</span>
             </div>
-            <p class="muted"><strong>Vorab:</strong> <?=e($p['precheck_instructions'])?></p>
+            <?php if((int)$p['precheck_photo_count']>0):?>
+                <p class="muted"><strong>Vorab:</strong> <?=e($p['precheck_instructions']?:'Vorabfotos gemäß Vorgabe')?></p>
+            <?php else:?><p class="muted"><strong>Vorab:</strong> Keine Vorabfotos erforderlich.</p><?php endif;?>
+            <?php if($maxDays>1 && (int)$p['required_success_days']===1):?>
+                <div class="notice"><strong>Synchronisierte Ein-Tages-Position:</strong> Dieser Auftrag wird automatisch am letzten Tag der längsten Position durchgeführt und verschiebt sich mit, wenn sich das Gesamtende nach hinten verschiebt.</div>
+            <?php endif;?>
             <p class="muted"><strong>Je Vorgang:</strong> <?=e($p['daily_instructions'])?></p>
             <div class="window-list">
                 <?php foreach($templates as $t):?>
@@ -70,6 +76,7 @@ if (preg_match('#^/seller/offer/(\d+)/accept$#',$path,$m) && $method==='POST') {
         $q->execute([$id]);$positions=$q->fetchAll();
         if(!$positions)throw new RuntimeException('Angebot enthält keine Positionen.');
 
+        $maxDays=0;foreach($positions as $p)$maxDays=max($maxDays,(int)$p['required_success_days']);
         $snap=json_encode($positions,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
         db()->prepare('INSERT INTO offer_acceptances(offer_id,seller_id,rules_snapshot,positions_snapshot) VALUES(?,?,?,?)')
             ->execute([$id,$s['id'],$o['rules_text'],$snap]);
@@ -78,8 +85,8 @@ if (preg_match('#^/seller/offer/(\d+)/accept$#',$path,$m) && $method==='POST') {
         $ins=db()->prepare("INSERT INTO orders(
             order_no,offer_id,position_id,seller_id,title_snapshot,description_snapshot,compensation,
             required_success_days,precheck_photo_count,precheck_instructions,daily_photo_count,daily_instructions,
-            daily_event_windows_json,status
-        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,'precheck')");
+            daily_event_windows_json,is_final_day_position,status
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,'precheck')");
 
         foreach($positions as $p){
             $windows=$p['daily_event_windows_json']??event_templates_json(default_event_templates((int)$p['daily_photo_count']));
@@ -87,7 +94,8 @@ if (preg_match('#^/seller/offer/(\d+)/accept$#',$path,$m) && $method==='POST') {
                 $o['offer_no'].'-'.str_pad((string)$p['position_no'],2,'0',STR_PAD_LEFT),
                 $id,$p['id'],$s['id'],$p['title'],$p['description'],$p['compensation'],
                 $p['required_success_days'],$p['precheck_photo_count'],$p['precheck_instructions'],
-                $p['daily_photo_count'],$p['daily_instructions'],$windows
+                $p['daily_photo_count'],$p['daily_instructions'],$windows,
+                ($maxDays>1 && (int)$p['required_success_days']===1)?1:0
             ]);
             $orderId=(int)db()->lastInsertId();
             create_wallet_entry((int)$s['id'],$orderId,(float)$p['compensation']);
@@ -101,6 +109,6 @@ if (preg_match('#^/seller/offer/(\d+)/accept$#',$path,$m) && $method==='POST') {
     }
 
     log_event($id,null,'offer.accepted');
-    flash('success','Angebot angenommen. Die Vergütung wurde vorgemerkt. Bitte führe nun die Vorabkontrolle je Position durch.');
+    flash('success','Angebot angenommen. Die Vergütung wurde vorgemerkt. Ein-Tages-Positionen werden automatisch mit dem letzten Tag der längsten Position synchronisiert.');
     redirect('/seller/offer/'.$id);
 }
