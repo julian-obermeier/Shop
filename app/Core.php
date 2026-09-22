@@ -215,7 +215,7 @@ function offer_template_catalog(): array {
                 [
                     'title'=>'Nylonstrumpfhose · 14 Tage Tag & Nacht',
                     'description'=>'Dieselbe Nylonstrumpfhose 14 erfolgreiche Tage durchgehend tagsüber und nachts tragen. Tage 1–10 ohne Unterwäsche; während der letzten 4 Gesamttage zusätzlich mit dem vorgesehenen Slip.',
-                    'compensation'=>250.00,'required_success_days'=>14,'align_to_offer_end'=>0,
+                    'compensation'=>250.00,'required_success_days'=>14,'align_to_offer_end'=>0,'sync_start_with_offer'=>1,
                     'precheck_photo_count'=>2,'precheck_instructions'=>'Vor Start: Nylonstrumpfhose vollständig sowie einmal angezogen fotografieren.',
                     'daily_photo_count'=>3,'daily_instructions'=>'Die vereinbarte Nylonstrumpfhose weiter tragen. Nicht wechseln oder waschen. In den letzten 4 Gesamttagen zusätzlich den vorgesehenen Slip tragen.',
                     'daily_event_windows_json'=>$three,
@@ -223,7 +223,7 @@ function offer_template_catalog(): array {
                 [
                     'title'=>'Socken · 14 Tage Tag & Nacht',
                     'description'=>'Dasselbe Paar Socken 14 erfolgreiche Tage tagsüber und nachts tragen.',
-                    'compensation'=>200.00,'required_success_days'=>14,'align_to_offer_end'=>0,
+                    'compensation'=>200.00,'required_success_days'=>14,'align_to_offer_end'=>0,'sync_start_with_offer'=>1,
                     'precheck_photo_count'=>2,'precheck_instructions'=>'Vor Start: beide Socken und die nackten Füße fotografieren.',
                     'daily_photo_count'=>3,'daily_instructions'=>'Dasselbe Paar Socken weiterhin Tag und Nacht tragen. Nicht wechseln oder waschen.',
                     'daily_event_windows_json'=>$three,
@@ -231,7 +231,7 @@ function offer_template_catalog(): array {
                 [
                     'title'=>'Schuhe · 14 Tage ganztägig',
                     'description'=>'Dasselbe Paar Schuhe an 14 erfolgreichen Tagen den ganzen Tag tragen, ausdrücklich auch zu Hause.',
-                    'compensation'=>200.00,'required_success_days'=>14,'align_to_offer_end'=>0,
+                    'compensation'=>200.00,'required_success_days'=>14,'align_to_offer_end'=>0,'sync_start_with_offer'=>1,
                     'precheck_photo_count'=>4,'precheck_instructions'=>'Vor Start: Schuhe außen, innen, Sohlen und die nackten Füße fotografieren.',
                     'daily_photo_count'=>3,'daily_instructions'=>'Dasselbe Paar Schuhe ganztägig tragen, auch zu Hause.',
                     'daily_event_windows_json'=>$three,
@@ -239,7 +239,7 @@ function offer_template_catalog(): array {
                 [
                     'title'=>'Slip · letzte 4 Gesamttage',
                     'description'=>'Während der letzten 4 Gesamttage einen Slip unter der Nylonstrumpfhose tragen. Diese Position endet automatisch gemeinsam mit den längsten Tragepositionen.',
-                    'compensation'=>50.00,'required_success_days'=>4,'align_to_offer_end'=>1,
+                    'compensation'=>50.00,'required_success_days'=>4,'align_to_offer_end'=>1,'sync_start_with_offer'=>0,
                     'precheck_photo_count'=>1,'precheck_instructions'=>'Vor Beginn der letzten 4 Gesamttage den vorgesehenen Slip fotografieren.',
                     'daily_photo_count'=>1,'daily_instructions'=>'Slip unter der Nylonstrumpfhose tragen. Der Nachweis erfolgt am Abend.',
                     'daily_event_windows_json'=>$evening,
@@ -247,7 +247,7 @@ function offer_template_catalog(): array {
                 [
                     'title'=>'Schweiß-Einlagen · letzte 4 Gesamttage',
                     'description'=>'Am ersten der letzten 4 Gesamttage duschen. Danach bis zum Ende kein Deo verwenden und Binden/Einlagen unter den Achseln tragen, um dort Schweiß zu sammeln.',
-                    'compensation'=>75.00,'required_success_days'=>4,'align_to_offer_end'=>1,
+                    'compensation'=>75.00,'required_success_days'=>4,'align_to_offer_end'=>1,'sync_start_with_offer'=>0,
                     'precheck_photo_count'=>0,'precheck_instructions'=>'',
                     'daily_photo_count'=>1,'daily_instructions'=>'Am ersten Durchführungstag dieser Position duschen und danach kein Deo mehr verwenden. Einlagen unter den Achseln tragen und bis zum Abschluss täglich weiterführen.',
                     'daily_event_windows_json'=>$evening,
@@ -255,7 +255,7 @@ function offer_template_catalog(): array {
                 [
                     'title'=>'Spucke abgefüllt · letzter Gesamttag',
                     'description'=>'Am letzten Gesamttag Spucke in einem geeigneten, dicht verschließbaren Behälter sammeln und für den gemeinsamen Versand vorbereiten.',
-                    'compensation'=>25.00,'required_success_days'=>1,'align_to_offer_end'=>1,
+                    'compensation'=>25.00,'required_success_days'=>1,'align_to_offer_end'=>1,'sync_start_with_offer'=>0,
                     'precheck_photo_count'=>0,'precheck_instructions'=>'',
                     'daily_photo_count'=>1,'daily_instructions'=>'Abgefüllten, verschlossenen Behälter als Nachweis fotografieren.',
                     'daily_event_windows_json'=>$evening,
@@ -263,7 +263,7 @@ function offer_template_catalog(): array {
                 [
                     'title'=>'Geschnittene Fußnägel · letzter Gesamttag',
                     'description'=>'Am letzten Gesamttag die geschnittenen Fußnägel sammeln und für den gemeinsamen Versand verpacken.',
-                    'compensation'=>25.00,'required_success_days'=>1,'align_to_offer_end'=>1,
+                    'compensation'=>25.00,'required_success_days'=>1,'align_to_offer_end'=>1,'sync_start_with_offer'=>0,
                     'precheck_photo_count'=>0,'precheck_instructions'=>'',
                     'daily_photo_count'=>1,'daily_instructions'=>'Gesammelte und verpackte Fußnägel als Nachweis fotografieren.',
                     'daily_event_windows_json'=>$allDay,
@@ -271,7 +271,7 @@ function offer_template_catalog(): array {
                 [
                     'title'=>'Hornhaut · falls vorhanden · letzter Gesamttag',
                     'description'=>'Falls Hornhaut vorhanden ist, diese am letzten Gesamttag vorsichtig abreiben, sammeln und für den gemeinsamen Versand verpacken. Falls keine Hornhaut vorhanden ist, wird stattdessen ein Foto der Fußsohlen als Nachweis eingereicht.',
-                    'compensation'=>25.00,'required_success_days'=>1,'align_to_offer_end'=>1,
+                    'compensation'=>25.00,'required_success_days'=>1,'align_to_offer_end'=>1,'sync_start_with_offer'=>0,
                     'precheck_photo_count'=>0,'precheck_instructions'=>'',
                     'daily_photo_count'=>1,'daily_instructions'=>'Falls vorhanden: gesammelte Hornhaut fotografieren. Falls nicht vorhanden: Fußsohlen fotografieren und im Kommentar „keine Hornhaut vorhanden“ angeben.',
                     'daily_event_windows_json'=>$allDay,
@@ -316,6 +316,14 @@ function date_de(?DateTimeInterface $date): string {
     if (!$date) return '–';
     static $days = ['So','Mo','Di','Mi','Do','Fr','Sa'];
     return $days[(int)$date->format('w')] . ', ' . $date->format('d.m.Y');
+}
+
+function offer_synced_start_date(int $offerId): ?DateTimeImmutable {
+    $q=db()->prepare("SELECT MIN(started_at) FROM orders
+        WHERE offer_id=? AND sync_start_with_offer=1 AND align_to_offer_end=0
+          AND started_at IS NOT NULL AND status<>'cancelled'");
+    $q->execute([$offerId]);$d=$q->fetchColumn();
+    return $d?new DateTimeImmutable((string)$d):null;
 }
 
 function offer_final_date(int $offerId): ?DateTimeImmutable {
