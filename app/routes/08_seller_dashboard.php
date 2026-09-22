@@ -25,9 +25,15 @@ if ($path==='/seller' && $method==='GET') {
     <?php foreach($today as $d):
         $scheduled=order_day_date($d['started_at'],$d['day_no']);
         $isFuture=$scheduled && $scheduled>new DateTimeImmutable('today');
+        $nextLabel=null;
+        if($d['status']==='planned'){
+            $events=day_events((int)$d['id']);
+            if(!$events)$events=ensure_day_events((int)$d['id'],(int)$d['required_photo_count']);
+            foreach($events as $ev){if($ev['status']==='planned'){$nextLabel=$ev['label'];break;}}
+        }
     ?>
         <a class="list-row" href="<?=e(url('/seller/order/'.$d['order_id']))?>">
-            <div><strong><?=e($d['order_no'].' · '.$d['title_snapshot'])?></strong><span>Tag <?=e($d['day_no'])?> · <?=e(date_de($scheduled))?> · <?=e($isFuture?'Geplant':day_status_label($d['status']))?></span></div><span>→</span>
+            <div><strong><?=e($d['order_no'].' · '.$d['title_snapshot'])?></strong><span>Tag <?=e($d['day_no'])?> · <?=e(date_de($scheduled))?> · <?=e($isFuture?'Geplant':($d['status']==='submitted'?'Wartet auf Prüfung':($nextLabel??'Offen')))?><?=(!$isFuture && $nextLabel)?' als Nächstes':''?></span></div><span>→</span>
         </a>
     <?php endforeach;?>
     <?php if(!$today):?><div class="empty">Aktuell ist nichts offen.</div><?php endif;?>
