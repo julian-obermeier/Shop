@@ -8,6 +8,7 @@ $files=[
     'app/OperationsRoutes.php',
     'app/OrderChangeRoutes.php',
     'app/PublicPages.php',
+    'app/DirectOfferRoutes.php',
 ];
 
 $routes=[];
@@ -47,6 +48,8 @@ $required=[
     'GET /admin/kalender',
     'GET /admin/fristen',
     'GET /admin/entscheidungen',
+    'GET /admin/direktangebote',
+    'GET /direktangebote',
 ];
 foreach($required as $sig){
     if(empty($routes[$sig])) $errors[]='Required route missing: '.$sig;
