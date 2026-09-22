@@ -7,6 +7,7 @@ if ($path==='/seller' && $method==='GET') {
     $q=db()->prepare("SELECT COUNT(*) FROM orders WHERE seller_id=? AND status='precheck'");$q->execute([$s['id']]);$pre=(int)$q->fetchColumn();
     $q=db()->prepare("SELECT COUNT(*) FROM orders WHERE seller_id=? AND status='running'");$q->execute([$s['id']]);$running=(int)$q->fetchColumn();
     $shipping=0;
+    $q=db()->prepare("SELECT COUNT(*) FROM scent_requests WHERE seller_id=? AND status='pending'");$q->execute([$s['id']]);$scentOpen=(int)$q->fetchColumn();
 
     $q=db()->prepare("SELECT d.*,o.title_snapshot,o.order_no,o.started_at,o.daily_photo_count,o.offer_id,o.required_success_days,o.is_final_day_position,o.align_to_offer_end
         FROM order_days d
@@ -35,6 +36,9 @@ if ($path==='/seller' && $method==='GET') {
     }
     $shipments=array_values($shipments);$shipping=count($shipments);
 
+    $q=db()->prepare("SELECT id,subject,instructions,requested_at FROM scent_requests WHERE seller_id=? AND status='pending' ORDER BY requested_at ASC LIMIT 3");
+    $q->execute([$s['id']]);$scentRequests=$q->fetchAll();
+
     $wallet=wallet_summary((int)$s['id']);
 
     ob_start();?>
@@ -47,9 +51,17 @@ if ($path==='/seller' && $method==='GET') {
         <div class="stat"><span>Vorabkontrollen</span><strong><?=$pre?></strong></div>
         <div class="stat"><span>Laufende Aufträge</span><strong><?=$running?></strong></div>
         <div class="stat"><span>Versand offen</span><strong><?=$shipping?></strong></div>
+        <a class="stat stat-link" href="<?=e(url('/seller/scent-requests'))?>"><span>Duftproben offen</span><strong><?=$scentOpen?></strong></a>
     </div>
 
     <section class="panel"><h2>Als Nächstes</h2><div class="list">
+    <?php foreach($scentRequests as $sr):?>
+        <a class="list-row scent-next" href="<?=e(url('/seller/scent-requests'))?>">
+            <div><strong>Duftprobe · <?=e($sr['subject'])?></strong><span>Bewertung von 1 bis 10 erforderlich · angefragt <?=e(date('d.m.Y H:i',strtotime($sr['requested_at'])))?> Uhr</span></div>
+            <span class="status status-submitted">Offen</span>
+        </a>
+    <?php endforeach;?>
+
     <?php foreach($today as $d):
         $scheduled=scheduled_order_day_date($d,(int)$d['day_no']);
         $isFuture=$scheduled && $scheduled>new DateTimeImmutable('today');
@@ -82,7 +94,7 @@ if ($path==='/seller' && $method==='GET') {
         </a>
     <?php endforeach;?>
 
-    <?php if(!$today&&!$shipments):?><div class="empty">Aktuell ist nichts offen.</div><?php endif;?>
+    <?php if(!$scentRequests&&!$today&&!$shipments):?><div class="empty">Aktuell ist nichts offen.</div><?php endif;?>
     </div></section>
 
     <?php render('Übersicht',ob_get_clean());exit;
