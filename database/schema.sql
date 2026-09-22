@@ -90,6 +90,7 @@ CREATE TABLE IF NOT EXISTS orders (
  daily_event_windows_json LONGTEXT NULL,
  successful_days INT NOT NULL DEFAULT 0,
  extension_days INT NOT NULL DEFAULT 0,
+ is_final_day_position TINYINT(1) NOT NULL DEFAULT 0,
  status ENUM('precheck','running','shipping','completed','cancelled') NOT NULL DEFAULT 'precheck',
  precheck_approved_at DATETIME NULL,
  started_at DATETIME NULL,
@@ -99,7 +100,7 @@ CREATE TABLE IF NOT EXISTS orders (
  FOREIGN KEY(offer_id) REFERENCES offers(id) ON DELETE CASCADE,
  FOREIGN KEY(position_id) REFERENCES offer_positions(id),
  FOREIGN KEY(seller_id) REFERENCES sellers(id),
- INDEX(offer_id,status), INDEX(seller_id,status)
+ INDEX(offer_id,status), INDEX(seller_id,status), INDEX idx_offer_final_day(offer_id,is_final_day_position,status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS precheck_uploads (
