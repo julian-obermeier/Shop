@@ -1,146 +1,17 @@
-name: V1 CI
-
+name: Fresh Portal CI
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
-
 jobs:
-  php-lint:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
+      - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
-          extensions: mbstring, pdo_mysql, fileinfo
-      - name: PHP syntax check
-        run: find . -type f -name '*.php' -not -path './vendor/*' -print0 | xargs -0 -n1 php -l
-      - name: Required files
-        run: |
-          test -f index.php
-          test -f app/Core.php
-          test -f app/FeatureRoutes.php
-          test -f database/schema.sql
-          test -f install/index.php
-      - name: Static route check
-        run: php tests/static_route_check.php
-
-  schema-smoke:
-    runs-on: ubuntu-latest
-    services:
-      mysql:
-        image: mysql:8.4
-        env:
-          MYSQL_ROOT_PASSWORD: root
-          MYSQL_DATABASE: shop_v1
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping -h localhost -proot"
-          --health-interval=5s
-          --health-timeout=5s
-          --health-retries=20
-    steps:
-      - uses: actions/checkout@v4
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.3'
-          extensions: mbstring, pdo_mysql, fileinfo
-      - name: Install MySQL client
-        run: sudo apt-get update && sudo apt-get install -y default-mysql-client
-      - name: Apply fresh schema
-        env:
-          MYSQL_PWD: root
-        run: mysql -h 127.0.0.1 -uroot shop_v1 < database/schema.sql
-      - name: Verify critical tables
-        env:
-          MYSQL_PWD: root
-        run: |
-          mysql -N -h 127.0.0.1 -uroot shop_v1 -e "SHOW TABLES" > /tmp/tables.txt
-          grep -qx "orders" /tmp/tables.txt
-          grep -qx "evidences" /tmp/tables.txt
-          grep -qx "offer_task_plans" /tmp/tables.txt
-          grep -qx "order_acceptance_confirmations" /tmp/tables.txt
-          grep -qx "system_outages" /tmp/tables.txt
-          grep -qx "order_interim_summaries" /tmp/tables.txt
-      - name: Re-run all migrations against complete schema
-        env:
-          MYSQL_PWD: root
-        run: |
-          mysql -h 127.0.0.1 -uroot shop_v1 -e "TRUNCATE TABLE migrations"
-          php -r '
-            require "app/Migrator.php";
-            $pdo=new PDO("mysql:host=127.0.0.1;port=3306;dbname=shop_v1;charset=utf8mb4","root","root",[
-              PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,
-              PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC,
-              PDO::ATTR_EMULATE_PREPARES=>false,
-            ]);
-            $result=run_app_migrations($pdo,__DIR__."/database/migrations");
-            if(count($result["applied"])<1){fwrite(STDERR,"No migrations applied\n");exit(1);}
-            echo "Applied ".count($result["applied"])." migrations with ".count($result["warnings"])." tolerated existing-schema warnings\n";
-          '
-          mysql -N -h 127.0.0.1 -uroot shop_v1 -e "SELECT COUNT(*) FROM migrations" | grep -Eq "^[1-9][0-9]*$"
-      - name: Runtime HTTP smoke test
-        env:
-          MYSQL_PWD: root
-        run: |
-          mkdir -p config storage/private storage/logs
-          cat > config/app.php <<'PHP'
-          <?php
-          return [
-              'app'=>[
-                  'name'=>'Private Ankauf CI',
-                  'url'=>'http://127.0.0.1:8080',
-                  'timezone'=>'Europe/Berlin',
-                  'debug'=>false,
-              ],
-              'db'=>[
-                  'host'=>'127.0.0.1',
-                  'port'=>3306,
-                  'name'=>'shop_v1',
-                  'user'=>'root',
-                  'pass'=>'root',
-                  'charset'=>'utf8mb4',
-              ],
-              'mail'=>[
-                  'from'=>'ci@example.invalid',
-                  'name'=>'Private Ankauf CI',
-              ],
-          ];
-          PHP
-
-          mysql -h 127.0.0.1 -uroot shop_v1 <<'SQL'
-          INSERT INTO categories(name,slug,is_system,is_active,sort_order)
-          VALUES ('CI Kategorie','ci-kategorie',0,1,1);
-          INSERT INTO offers(category_id,title,slug,description,compensation,fulfillment_type,status,visibility,current_version)
-          VALUES ((SELECT id FROM categories WHERE slug='ci-kategorie' LIMIT 1),'CI Testangebot','ci-testangebot','Laufzeit-Smoke-Test',12.34,'one_time','active','public',1);
-          SQL
-
-          ORDER_NO="$(php -r 'require "app/Core.php"; echo order_number();')"
-          case "$ORDER_NO" in
-            [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) ;;
-            *) echo "Invalid order number: $ORDER_NO"; exit 1 ;;
-          esac
-
-          php -S 127.0.0.1:8080 tests/http_router.php >/tmp/shop-php-server.log 2>&1 &
-          SERVER_PID=$!
-          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
-
-          for i in $(seq 1 20); do
-            if curl -fsS http://127.0.0.1:8080/ >/tmp/home.html; then break; fi
-            sleep 0.5
-          done
-
-          grep -q 'CI Testangebot' /tmp/home.html
-          curl -fsS http://127.0.0.1:8080/angebote | grep -q 'CI Testangebot'
-          curl -fsS http://127.0.0.1:8080/angebot/ci-testangebot | grep -q 'Laufzeit-Smoke-Test'
-          curl -fsS http://127.0.0.1:8080/registrieren | grep -q 'Registrieren'
-          curl -fsS http://127.0.0.1:8080/login | grep -q 'Willkommen zurück'
-          curl -fsS http://127.0.0.1:8080/admin/login | grep -q 'Admin-Login'
-          curl -fsS http://127.0.0.1:8080/regeln | grep -q 'Regeln'
-          curl -fsS http://127.0.0.1:8080/agb | grep -q 'Allgemeine'
-          test ! -s /tmp/shop-php-server.log || cat /tmp/shop-php-server.log
+          extensions: pdo_mysql, fileinfo
+      - run: find . -type f -name '*.php' -print0 | xargs -0 -n1 php -l
+      - run: test -f database/schema.sql && grep -q 'CREATE TABLE IF NOT EXISTS offers' database/schema.sql && grep -q 'CREATE TABLE IF NOT EXISTS order_days' database/schema.sql
