@@ -112,6 +112,61 @@ function render(string $title, string $content): void {
 }
 function not_found(): never { http_response_code(404); render('Nicht gefunden', '<div class="empty"><h1>404</h1><p>Seite nicht gefunden.</p></div>'); exit; }
 
+function create_seller_invitation(int $adminId, ?string $email = null): array {
+    $email=$email!==null&&trim($email)!==''?strtolower(trim($email)):null;
+    if($email!==null&&!filter_var($email,FILTER_VALIDATE_EMAIL)) throw new RuntimeException('Bitte eine gültige E-Mail-Adresse angeben.');
+    if($email!==null){
+        $q=db()->prepare('SELECT COUNT(*) FROM sellers WHERE email=?');$q->execute([$email]);
+        if((int)$q->fetchColumn()>0) throw new RuntimeException('Für diese E-Mail-Adresse existiert bereits ein Verkäuferinnenkonto.');
+        db()->prepare("UPDATE seller_invitations SET revoked_at=NOW() WHERE email=? AND used_at IS NULL AND revoked_at IS NULL AND expires_at>NOW()")->execute([$email]);
+    }
+    $token=bin2hex(random_bytes(32));
+    $hash=hash('sha256',$token);
+    $expires=(new DateTimeImmutable('+7 days'))->format('Y-m-d H:i:s');
+    db()->prepare('INSERT INTO seller_invitations(admin_id,email,token_hash,expires_at) VALUES(?,?,?,?)')
+        ->execute([$adminId,$email,$hash,$expires]);
+    return [
+        'id'=>(int)db()->lastInsertId(),
+        'token'=>$token,
+        'link'=>url('/invite/'.$token),
+        'email'=>$email,
+        'expires_at'=>$expires,
+    ];
+}
+function seller_invitation_by_token(string $token): ?array {
+    if(!preg_match('/^[a-f0-9]{64}$/',$token)) return null;
+    $q=db()->prepare("SELECT i.*,a.name admin_name
+        FROM seller_invitations i JOIN admins a ON a.id=i.admin_id
+        WHERE i.token_hash=? AND i.used_at IS NULL AND i.revoked_at IS NULL AND i.expires_at>NOW()
+        LIMIT 1");
+    $q->execute([hash('sha256',$token)]);
+    $row=$q->fetch();
+    return $row?:null;
+}
+function send_seller_invitation_email(string $email,string $link,string $expiresAt): bool {
+    if(!filter_var($email,FILTER_VALIDATE_EMAIL)) return false;
+    $host=(string)(parse_url((string)app_config('app.url',''),PHP_URL_HOST)?:'localhost');
+    $from=(string)app_config('mail.from','noreply@'.$host);
+    $fromName=(string)app_config('mail.from_name',app_config('app.name','Auftragsportal'));
+    $subject='Einladung zum Auftragsportal';
+    $body="Hallo,\n\n"
+        ."du wurdest eingeladen, ein Verkäuferinnenkonto im ".app_config('app.name','Auftragsportal')." anzulegen.\n\n"
+        ."Einladungslink:\n".$link."\n\n"
+        ."Der Link ist einmalig verwendbar und gültig bis ".date('d.m.Y H:i',strtotime($expiresAt))." Uhr.\n\n"
+        ."Falls du diese Einladung nicht erwartet hast, kannst du diese E-Mail ignorieren.";
+    $headers=[
+        'MIME-Version: 1.0',
+        'Content-Type: text/plain; charset=UTF-8',
+        'From: '.$fromName.' <'.$from.'>',
+    ];
+    return @mail($email,$subject,$body,implode("\r\n",$headers));
+}
+function pull_created_invitation(): ?array {
+    $x=$_SESSION['_created_invitation']??null;
+    unset($_SESSION['_created_invitation']);
+    return is_array($x)?$x:null;
+}
+
 function offer_number(): string {
     $year = date('Y');
     $pdo = db();
