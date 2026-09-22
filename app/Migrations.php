@@ -201,4 +201,25 @@ function run_migrations(): void {
         mark_migration($pdo,$key);
     }
 
+    $key='20260922_05_seller_invitations';
+    if(!migration_applied($pdo,$key)){
+        $pdo->exec("CREATE TABLE IF NOT EXISTS seller_invitations (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            admin_id BIGINT UNSIGNED NOT NULL,
+            email VARCHAR(190) NULL,
+            token_hash CHAR(64) NOT NULL UNIQUE,
+            expires_at DATETIME NOT NULL,
+            sent_at DATETIME NULL,
+            used_at DATETIME NULL,
+            used_by_seller_id BIGINT UNSIGNED NULL,
+            revoked_at DATETIME NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(admin_id) REFERENCES admins(id) ON DELETE CASCADE,
+            FOREIGN KEY(used_by_seller_id) REFERENCES sellers(id) ON DELETE SET NULL,
+            INDEX(email),
+            INDEX(expires_at,used_at,revoked_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        mark_migration($pdo,$key);
+    }
+
 }
