@@ -277,4 +277,24 @@ function run_migrations(): void {
         mark_migration($pdo,$key);
     }
 
+    $key='20260922_09_late_evidence_and_override';
+    if(!migration_applied($pdo,$key)){
+        if(!column_exists($pdo,'order_days','late_submission_allowed')){
+            $pdo->exec("ALTER TABLE order_days ADD COLUMN late_submission_allowed TINYINT(1) NOT NULL DEFAULT 0 AFTER admin_note");
+        }
+        if(!column_exists($pdo,'order_days','late_submission_note')){
+            $pdo->exec("ALTER TABLE order_days ADD COLUMN late_submission_note TEXT NULL AFTER late_submission_allowed");
+        }
+        if(!column_exists($pdo,'order_days','late_submission_requested_at')){
+            $pdo->exec("ALTER TABLE order_days ADD COLUMN late_submission_requested_at DATETIME NULL AFTER late_submission_note");
+        }
+        if(!column_exists($pdo,'order_days','late_submission_requested_by')){
+            $pdo->exec("ALTER TABLE order_days ADD COLUMN late_submission_requested_by BIGINT UNSIGNED NULL AFTER late_submission_requested_at");
+        }
+        if(!column_exists($pdo,'order_days','fulfilled_by_override')){
+            $pdo->exec("ALTER TABLE order_days ADD COLUMN fulfilled_by_override TINYINT(1) NOT NULL DEFAULT 0 AFTER late_submission_requested_by");
+        }
+        mark_migration($pdo,$key);
+    }
+
 }
