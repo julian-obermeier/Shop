@@ -171,4 +171,34 @@ function run_migrations(): void {
         mark_migration($pdo,$key);
     }
 
+    $key='20260922_04_shipping_keyword_default_address';
+    if(!migration_applied($pdo,$key)){
+        if(!column_exists($pdo,'order_shipments','address_keyword')){
+            $pdo->exec("ALTER TABLE order_shipments ADD COLUMN address_keyword VARCHAR(190) NULL AFTER due_date");
+        }
+
+        $pdo->exec("INSERT INTO app_settings(setting_key,setting_value) VALUES
+            ('shipping.keyword','Suzuki2026'),
+            ('shipping.name','Postlagernd'),
+            ('shipping.extra','Post Filiale 550'),
+            ('shipping.street','Hauptstraße 16'),
+            ('shipping.postal_code','35435'),
+            ('shipping.city','Wettenberg'),
+            ('shipping.country','Deutschland')
+            ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value),updated_at=NOW()");
+
+        $pdo->exec("UPDATE order_shipments SET
+            address_keyword='Suzuki2026',
+            address_name='Postlagernd',
+            extra='Post Filiale 550',
+            street='Hauptstraße 16',
+            postal_code='35435',
+            city='Wettenberg',
+            country='Deutschland',
+            updated_at=NOW()
+            WHERE status='pending'");
+
+        mark_migration($pdo,$key);
+    }
+
 }
