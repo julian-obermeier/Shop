@@ -222,4 +222,22 @@ function run_migrations(): void {
         mark_migration($pdo,$key);
     }
 
+    $key='20260922_06_end_aligned_positions';
+    if(!migration_applied($pdo,$key)){
+        if(!column_exists($pdo,'offer_positions','align_to_offer_end')){
+            $pdo->exec("ALTER TABLE offer_positions ADD COLUMN align_to_offer_end TINYINT(1) NOT NULL DEFAULT 0 AFTER required_success_days");
+        }
+        if(!column_exists($pdo,'orders','align_to_offer_end')){
+            $pdo->exec("ALTER TABLE orders ADD COLUMN align_to_offer_end TINYINT(1) NOT NULL DEFAULT 0 AFTER is_final_day_position");
+        }
+        if(!index_exists($pdo,'orders','idx_offer_end_aligned')){
+            $pdo->exec("ALTER TABLE orders ADD INDEX idx_offer_end_aligned(offer_id,align_to_offer_end,status)");
+        }
+
+        $pdo->exec("UPDATE offer_positions SET align_to_offer_end=1 WHERE required_success_days=1");
+        $pdo->exec("UPDATE orders SET align_to_offer_end=1 WHERE is_final_day_position=1 OR required_success_days=1");
+
+        mark_migration($pdo,$key);
+    }
+
 }
