@@ -177,6 +177,38 @@ function latest_precheck_rejection(int $orderId): ?string {
     return $reason !== '' ? $reason : null;
 }
 
+function daily_event_labels(int $count): array {
+    $count = max(1, $count);
+    return match($count) {
+        1 => ['Tagesnachweis'],
+        2 => ['Morgens', 'Abends'],
+        3 => ['Morgens', 'Mittags', 'Abends'],
+        4 => ['Morgens', 'Mittags', 'Nachmittags', 'Abends'],
+        default => array_map(static fn(int $n): string => 'Nachweis ' . $n, range(1, $count)),
+    };
+}
+
+function ensure_day_events(int $dayId, int $count): array {
+    $q = db()->prepare('SELECT * FROM order_day_events WHERE day_id=? ORDER BY event_no');
+    $q->execute([$dayId]);
+    $events = $q->fetchAll();
+    if ($events) return $events;
+
+    $labels = daily_event_labels($count);
+    $ins = db()->prepare("INSERT INTO order_day_events(day_id,event_no,label,status) VALUES(?,?,?,'planned')");
+    foreach ($labels as $i => $label) {
+        $ins->execute([$dayId, $i + 1, $label]);
+    }
+    $q->execute([$dayId]);
+    return $q->fetchAll();
+}
+
+function day_events(int $dayId): array {
+    $q = db()->prepare('SELECT * FROM order_day_events WHERE day_id=? ORDER BY event_no');
+    $q->execute([$dayId]);
+    return $q->fetchAll();
+}
+
 function save_image_upload(array $file, string $folder): array {
     if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) throw new RuntimeException('Foto-Upload fehlgeschlagen.');
     $tmp = (string)($file['tmp_name'] ?? '');
