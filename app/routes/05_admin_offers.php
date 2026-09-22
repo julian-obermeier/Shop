@@ -81,14 +81,14 @@ if (preg_match('#^/admin/offers/from-template/([a-z0-9_-]+)$#',$path,$m) && $met
         $offerId=(int)db()->lastInsertId();
 
         $ins=db()->prepare('INSERT INTO offer_positions(
-            offer_id,position_no,title,description,compensation,required_success_days,align_to_offer_end,
+            offer_id,position_no,title,description,compensation,required_success_days,align_to_offer_end,sync_start_with_offer,
             precheck_photo_count,precheck_instructions,daily_photo_count,daily_instructions,daily_event_windows_json
-        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)');
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)');
 
         foreach(array_values($tpl['positions']) as $i=>$p){
             $ins->execute([
                 $offerId,$i+1,$p['title'],$p['description']??null,$p['compensation']??0,
-                $p['required_success_days']??1,$p['align_to_offer_end']??0,
+                $p['required_success_days']??1,$p['align_to_offer_end']??0,$p['sync_start_with_offer']??0,
                 $p['precheck_photo_count']??0,$p['precheck_instructions']??'',
                 $p['daily_photo_count']??1,$p['daily_instructions']??'',
                 $p['daily_event_windows_json']??event_templates_json(default_event_templates((int)($p['daily_photo_count']??1)))
