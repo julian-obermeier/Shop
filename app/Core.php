@@ -99,6 +99,13 @@ function require_admin(): array { $u = require_login(); if ($u['role'] !== 'admi
 function require_seller(): array { $u = require_login(); if ($u['role'] !== 'seller') { http_response_code(403); exit('Zugriff verweigert.'); } return $u; }
 
 function render(string $title, string $content): void {
+    // Every rendered POST form gets a CSRF token automatically. This keeps route views concise
+    // while ensuring all state-changing form submissions pass the global CSRF check.
+    $content = preg_replace_callback(
+        '/<form\b([^>]*)method=[\"\']post[\"\']([^>]*)>/i',
+        static fn(array $m): string => $m[0] . csrf_field(),
+        $content
+    ) ?? $content;
     $user = current_user();
     $flashes = pull_flashes();
     require APP_ROOT . '/app/View.php';
