@@ -1,8 +1,6 @@
-/.env
 /config/app.php
 /storage/private/*
 !/storage/private/.gitkeep
+!/storage/private/.htaccess
 /storage/logs/*
 !/storage/logs/.gitkeep
-.DS_Store
-Thumbs.db

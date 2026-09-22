@@ -1,12 +1,6 @@
 Options -Indexes
 RewriteEngine On
-
-# Interne Projektdateien niemals direkt über HTTP ausliefern.
-RewriteRule ^(?:config|database|storage/private|app|tests|bin|\.github)(?:/|$) - [F,L,NC]
-RewriteRule ^(?:cron\.php|README\.md|\.gitignore)$ - [F,L,NC]
-
-RewriteCond %{REQUEST_FILENAME} -f [OR]
-RewriteCond %{REQUEST_FILENAME} -d
-RewriteRule ^ - [L]
-
+RewriteRule ^(?:config|database|storage)/ - [F,L]
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^ index.php [QSA,L]
