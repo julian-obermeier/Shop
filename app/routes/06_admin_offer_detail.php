@@ -51,7 +51,7 @@ if (preg_match('#^/admin/offer/(\d+)$#',$path,$m) && $method==='GET') {
                             <label>Vergütung (€)<input type="number" step="0.01" min="0" name="compensation" value="<?=e($p['compensation'])?>" required></label>
                             <label>Erfolgreiche Tage<input type="number" min="1" max="365" name="required_success_days" value="<?=e($p['required_success_days'])?>" required></label>
                             <label>Vorabfotos<input type="number" min="1" max="20" name="precheck_photo_count" value="<?=e($p['precheck_photo_count'])?>" required></label>
-                            <label>Nachweisvorgänge je Tag<input type="number" min="1" max="20" name="daily_photo_count" value="<?=e($p['daily_photo_count'])?>" required></label>
+                            <label>Nachweisvorgänge je Tag<input type="number" min="1" max="20" name="daily_photo_count" value="<?=e($p['daily_photo_count'])?>" required><span class="field-hint">Bei 3: Morgens, Mittags, Abends – jeweils 1 Foto.</span></label>
                         </div>
                         <label>Beschreibung<textarea name="description" rows="3"><?=e($p['description']??'')?></textarea></label>
                         <label>Anforderung Vorabkontrolle<textarea name="precheck_instructions" rows="3" required><?=e($p['precheck_instructions'])?></textarea></label>
@@ -75,7 +75,7 @@ if (preg_match('#^/admin/offer/(\d+)$#',$path,$m) && $method==='GET') {
                 <label>Vergütung (€)<input type="number" step="0.01" min="0" name="compensation" value="0.00" required></label>
                 <label>Erfolgreiche Durchführungstage<input type="number" min="1" max="365" name="required_success_days" value="1" required></label>
                 <label>Vorabfotos<input type="number" min="1" max="20" name="precheck_photo_count" value="1" required></label>
-                <label>Nachweisvorgänge je Tag<input type="number" min="1" max="20" name="daily_photo_count" value="3" required></label>
+                <label>Nachweisvorgänge je Tag<input type="number" min="1" max="20" name="daily_photo_count" value="3" required><span class="field-hint">Bei 3: Morgens, Mittags, Abends – jeweils 1 Foto.</span></label>
             </div>
             <label>Beschreibung<textarea name="description" rows="3"></textarea></label>
             <label>Anforderung Vorabkontrolle<textarea name="precheck_instructions" rows="3" required></textarea></label>
