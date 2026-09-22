@@ -49,6 +49,7 @@ if ($path==='/admin/reviews' && $method==='GET') {
         $uq=db()->prepare('SELECT * FROM precheck_uploads WHERE order_id=? ORDER BY id');$uq->execute([$o['id']]);$ups=$uq->fetchAll();
         $autoAligned=!empty($o['align_to_offer_end']);
         $autoDate=$autoAligned?offer_aligned_start_date((int)$o['offer_id'],(int)$o['required_success_days']):null;
+        $syncedStart=(!$autoAligned&&!empty($o['sync_start_with_offer']))?offer_synced_start_date((int)$o['offer_id']):null;
     ?>
         <article class="panel review-card">
             <div class="card-top"><div><span class="eyebrow"><?=e($o['order_no'])?></span><h3><?=e($o['title_snapshot'])?></h3><p class="muted"><?=e($o['first_name'].' '.$o['last_name'])?></p></div><span class="status status-precheck">Vorabkontrolle</span></div>
@@ -59,6 +60,8 @@ if ($path==='/admin/reviews' && $method==='GET') {
                     <input type="hidden" name="return_to" value="reviews">
                     <?php if($autoAligned):?>
                         <div class="notice"><strong>Automatisch ans Angebotsende gekoppelt</strong><br><?=e($autoDate?date_de($autoDate):'Noch nicht berechenbar – zuerst eine mehrtägige Position starten.')?></div>
+                    <?php elseif($syncedStart):?>
+                        <div class="notice"><strong>Gemeinsamer Hauptstart</strong><br><?=e(date_de($syncedStart))?> · wird automatisch von der bereits gestarteten Hauptposition übernommen.</div>
                     <?php else:?>
                         <label>Startdatum<input type="date" name="start_date" min="<?=e(date('Y-m-d'))?>" value="<?=e(date('Y-m-d'))?>" required></label>
                     <?php endif;?>
@@ -161,11 +164,17 @@ if (preg_match('#^/admin/order/(\d+)$#',$path,$m) && $method==='GET') {
         <?php if($rejection && $o['status']==='precheck'):?><div class="notice warning"><strong>Letzte Rückmeldung:</strong> <?=e($rejection)?></div><?php endif;?>
         <?php if($pre):?><div class="photo-grid"><?php foreach($pre as $p):?><a href="<?=e(url('/file/precheck/'.$p['id']))?>" target="_blank"><img src="<?=e(url('/file/precheck/'.$p['id']))?>" alt="Vorabnachweis"></a><?php endforeach;?></div><?php endif;?>
         <?php if($o['status']==='precheck'):?>
-            <?php $autoAligned=!empty($o['align_to_offer_end']);$autoDate=$autoAligned?offer_aligned_start_date((int)$o['offer_id'],(int)$o['required_success_days']):null;?>
+            <?php
+                $autoAligned=!empty($o['align_to_offer_end']);
+                $autoDate=$autoAligned?offer_aligned_start_date((int)$o['offer_id'],(int)$o['required_success_days']):null;
+                $syncedStart=(!$autoAligned&&!empty($o['sync_start_with_offer']))?offer_synced_start_date((int)$o['offer_id']):null;
+            ?>
             <div class="review-split">
                 <form method="post" action="<?=e(url('/admin/order/'.$id.'/approve-precheck'))?>">
                     <?php if($autoAligned):?>
                         <div class="notice"><strong>Synchronisierter Zeitraum</strong><br><?=e($autoDate?date_de($autoDate):'Noch nicht berechenbar – zuerst eine mehrtägige Position starten.')?></div>
+                    <?php elseif($syncedStart):?>
+                        <div class="notice"><strong>Gemeinsamer Hauptstart</strong><br><?=e(date_de($syncedStart))?> · wird automatisch übernommen.</div>
                     <?php else:?>
                         <label>Geplanter Start<input type="date" name="start_date" min="<?=e(date('Y-m-d'))?>" value="<?=e(date('Y-m-d'))?>" required></label>
                     <?php endif;?>
@@ -240,9 +249,13 @@ if (preg_match('#^/admin/order/(\d+)/approve-precheck$#',$path,$m) && $method===
     $c=db()->prepare('SELECT COUNT(*) FROM precheck_uploads WHERE order_id=?');$c->execute([$id]);
     if((int)$c->fetchColumn()<(int)$o['precheck_photo_count']){flash('error','Es fehlen Vorabfotos.');redirect('/admin/order/'.$id);}
     $today=new DateTimeImmutable('today');
+    $syncedStart=!empty($o['sync_start_with_offer'])?offer_synced_start_date((int)$o['offer_id']):null;
     if(!empty($o['align_to_offer_end'])){
         $start=offer_aligned_start_date((int)$o['offer_id'],(int)$o['required_success_days']);
         if(!$start){flash('error','Der gekoppelte Zeitraum ist noch nicht berechenbar. Bitte zuerst mindestens eine nicht gekoppelte mehrtägige Position starten.');redirect('/admin/order/'.$id);}
+        $startDate=$start->format('Y-m-d');
+    }elseif($syncedStart){
+        $start=$syncedStart;
         $startDate=$start->format('Y-m-d');
     }else{
         $startDate=post('start_date');$start=DateTimeImmutable::createFromFormat('!Y-m-d',$startDate);
@@ -260,7 +273,7 @@ if (preg_match('#^/admin/order/(\d+)/approve-precheck$#',$path,$m) && $method===
         db()->commit();
     }catch(Throwable $e){if(db()->inTransaction())db()->rollBack();throw $e;}
 
-    log_event((int)$o['offer_id'],$id,'precheck.approved',['start_date'=>$startDate,'end_aligned'=>(bool)$o['align_to_offer_end']]);
+    log_event((int)$o['offer_id'],$id,'precheck.approved',['start_date'=>$startDate,'end_aligned'=>(bool)$o['align_to_offer_end'],'synced_start'=>(bool)$o['sync_start_with_offer']]);
     sync_end_aligned_positions((int)$o['offer_id']);
     sync_offer_status((int)$o['offer_id']);
     flash('success','Vorabkontrolle freigegeben. Start: '.date_de($start).'.');
