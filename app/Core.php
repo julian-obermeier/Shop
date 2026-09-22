@@ -604,14 +604,25 @@ function event_window_state(array $event, ?DateTimeImmutable $date, ?DateTimeImm
     if($now>$end)return 'closed';
     return 'open';
 }
+function event_late_submission_allowed(array $event,array $day,?DateTimeImmutable $date): bool {
+    if(empty($day['late_submission_allowed'])||empty($day['late_submission_requested_at'])||!$date)return false;
+    if(($event['status']??'')==='submitted')return false;
+    try{$requestedAt=new DateTimeImmutable((string)$day['late_submission_requested_at']);}
+    catch(Throwable){return false;}
+    return event_window_state($event,$date,$requestedAt)==='closed';
+}
 function day_is_missed(array $day,array $order): bool {
     if(($day['status']??'')!=='planned')return false;
-    if(!empty($day['late_submission_allowed']))return false;
     $date=scheduled_order_day_date($order,(int)$day['day_no']);
     if(!$date)return false;
     $events=day_events((int)$day['id']);
     if(!$events)$events=ensure_day_events((int)$day['id'],(int)$day['required_photo_count']);
-    foreach($events as $ev)if(event_window_state($ev,$date)==='closed' && ($ev['status']??'')!=='submitted')return true;
+    foreach($events as $ev){
+        if(($ev['status']??'')==='submitted')continue;
+        if(event_window_state($ev,$date)!=='closed')continue;
+        if(event_late_submission_allowed($ev,$day,$date))continue;
+        return true;
+    }
     return false;
 }
 function wallet_status_label(string $s): string {
