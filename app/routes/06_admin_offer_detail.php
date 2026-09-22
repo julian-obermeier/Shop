@@ -38,10 +38,10 @@ if (preg_match('#^/admin/offer/(\d+)$#',$path,$m) && $method==='GET') {
             <div class="mini-grid">
                 <span><b><?=e($p['required_success_days'])?></b> erfolgreiche Tage</span>
                 <span><b><?=e($p['precheck_photo_count'])?></b> Vorabfotos</span>
-                <span><b><?=e($p['daily_photo_count'])?></b> Fotos / Tag</span>
+                <span><b><?=e($p['daily_photo_count'])?></b> Vorgänge / Tag</span>
             </div>
             <p class="muted"><strong>Vorab:</strong> <?=e($p['precheck_instructions'])?></p>
-            <p class="muted"><strong>Täglich:</strong> <?=e($p['daily_instructions'])?></p>
+            <p class="muted"><strong>Je Vorgang:</strong> <?=e($p['daily_instructions'])?></p>
             <?php if($o['status']==='draft'):?>
                 <details class="inline-editor">
                     <summary>Position bearbeiten</summary>
@@ -51,11 +51,11 @@ if (preg_match('#^/admin/offer/(\d+)$#',$path,$m) && $method==='GET') {
                             <label>Vergütung (€)<input type="number" step="0.01" min="0" name="compensation" value="<?=e($p['compensation'])?>" required></label>
                             <label>Erfolgreiche Tage<input type="number" min="1" max="365" name="required_success_days" value="<?=e($p['required_success_days'])?>" required></label>
                             <label>Vorabfotos<input type="number" min="1" max="20" name="precheck_photo_count" value="<?=e($p['precheck_photo_count'])?>" required></label>
-                            <label>Fotos je Tag<input type="number" min="1" max="20" name="daily_photo_count" value="<?=e($p['daily_photo_count'])?>" required></label>
+                            <label>Nachweisvorgänge je Tag<input type="number" min="1" max="20" name="daily_photo_count" value="<?=e($p['daily_photo_count'])?>" required></label>
                         </div>
                         <label>Beschreibung<textarea name="description" rows="3"><?=e($p['description']??'')?></textarea></label>
                         <label>Anforderung Vorabkontrolle<textarea name="precheck_instructions" rows="3" required><?=e($p['precheck_instructions'])?></textarea></label>
-                        <label>Anforderung je Tag<textarea name="daily_instructions" rows="3" required><?=e($p['daily_instructions'])?></textarea></label>
+                        <label>Anforderung je Nachweisvorgang<textarea name="daily_instructions" rows="3" required><?=e($p['daily_instructions'])?></textarea></label>
                         <button class="btn">Änderungen speichern</button>
                     </form>
                 </details>
@@ -75,11 +75,11 @@ if (preg_match('#^/admin/offer/(\d+)$#',$path,$m) && $method==='GET') {
                 <label>Vergütung (€)<input type="number" step="0.01" min="0" name="compensation" value="0.00" required></label>
                 <label>Erfolgreiche Durchführungstage<input type="number" min="1" max="365" name="required_success_days" value="1" required></label>
                 <label>Vorabfotos<input type="number" min="1" max="20" name="precheck_photo_count" value="1" required></label>
-                <label>Fotos je Tag<input type="number" min="1" max="20" name="daily_photo_count" value="3" required></label>
+                <label>Nachweisvorgänge je Tag<input type="number" min="1" max="20" name="daily_photo_count" value="3" required></label>
             </div>
             <label>Beschreibung<textarea name="description" rows="3"></textarea></label>
             <label>Anforderung Vorabkontrolle<textarea name="precheck_instructions" rows="3" required></textarea></label>
-            <label>Anforderung je Tag<textarea name="daily_instructions" rows="3" required></textarea></label>
+            <label>Anforderung je Nachweisvorgang<textarea name="daily_instructions" rows="3" required></textarea></label>
             <button class="btn">Position hinzufügen</button>
         </form>
     </section>
