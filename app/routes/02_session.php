@@ -24,5 +24,25 @@ if ($path === '/login' && $method === 'POST') {
     $_SESSION['user_id'] = (int)$row['id'];
     redirect('/');
 }
+
+if ($path === '/impersonation/stop' && $method === 'POST') {
+    $impersonator=impersonating_admin();
+    if(!$impersonator){
+        http_response_code(403);
+        exit('Zugriff verweigert.');
+    }
+
+    $sellerId=(int)($_SESSION['_impersonated_seller_id']??0);
+    $startedAt=(string)($_SESSION['_impersonation_started_at']??'');
+    log_event(null,null,'impersonation.stopped',[
+        'seller_id'=>$sellerId,
+        'started_at'=>$startedAt?:null
+    ]);
+
+    stop_seller_impersonation();
+    flash('success','Verkäuferinnenansicht beendet. Du bist wieder in der Verwaltung.');
+    redirect('/admin/sellers');
+}
+
 if ($path === '/logout' && $method === 'GET') { $_SESSION=[]; session_destroy(); redirect('/login'); }
 
