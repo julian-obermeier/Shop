@@ -26,7 +26,7 @@ if ($path==='/seller' && $method==='GET') {
 
     ob_start();?>
     <div class="page-head">
-        <div><span class="eyebrow">Verkäuferin</span><h1>Hallo <?=e($s['first_name'])?></h1><p>Deine offenen Schritte, Versandaufgaben und Vergütung.</p></div>
+        <div><span class="eyebrow">Verkäuferin</span><h1>Hallo <?=e($s['first_name'])?></h1><p>Deine offenen Schritte, Versandaufgaben und Vergütung. Angebote und Abläufe werden zentral über die Vermittlungsplattform organisiert.</p></div>
         <a class="btn ghost" href="<?=e(url('/seller/wallet'))?>">Wallet · <?=money($wallet['available'])?> auszahlbar</a>
     </div>
     <div class="stats">
