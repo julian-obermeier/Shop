@@ -83,17 +83,21 @@ if ($path==='/admin/scent-requests' && $method==='POST') {
         ->execute([$sellerId,$a['id'],$subject,$instructions?:null]);
     $requestId=(int)db()->lastInsertId();
     log_event(null,null,'scent.requested',['scent_request_id'=>$requestId,'seller_id'=>$sellerId,'subject'=>$subject]);
+    notify_seller($sellerId,'scent','Neue Duftprobe angefragt',$subject.($instructions!==''?":
+".$instructions:''),'/seller/scent-requests','scent-requested:'.$requestId);
     flash('success','Duftprobe wurde angefragt. Die Verkäuferin muss sie mit 1 bis 10 beantworten.');
     redirect('/admin/scent-requests');
 }
 
 if (preg_match('#^/admin/scent-request/(\d+)/cancel$#',$path,$m) && $method==='POST') {
     require_admin();$id=(int)$m[1];
+    $q=db()->prepare("SELECT seller_id,subject,status FROM scent_requests WHERE id=?");$q->execute([$id]);$r=$q->fetch();if(!$r)not_found();
     $q=db()->prepare("UPDATE scent_requests SET status='cancelled',cancelled_at=NOW(),updated_at=NOW()
         WHERE id=? AND status='pending'");
     $q->execute([$id]);
     if(!$q->rowCount()){flash('error','Diese Duftprobe ist nicht mehr offen.');redirect('/admin/scent-requests');}
     log_event(null,null,'scent.cancelled',['scent_request_id'=>$id]);
+    notify_seller((int)$r['seller_id'],'scent','Duftprobe zurückgezogen','Die Anfrage „'.$r['subject'].'“ wurde von der Plattform zurückgezogen.','/seller/scent-requests','scent-cancelled:'.$id);
     flash('success','Duftprobe wurde widerrufen.');
     redirect('/admin/scent-requests');
 }
@@ -166,6 +170,7 @@ if (preg_match('#^/seller/scent-request/(\d+)/answer$#',$path,$m) && $method==='
     }
 
     log_event(null,null,'scent.answered',['scent_request_id'=>$id,'rating'=>$rating]);
+    notify_admins('scent','Duftprobe beantwortet',$r['subject'].' wurde mit '.$rating.' von 10 beantwortet.','/admin/scent-requests','scent-answered:'.$id);
     flash('success','Duftbewertung wurde mit '.$rating.' von 10 übermittelt.');
     redirect('/seller/scent-requests');
 }
