@@ -8,7 +8,7 @@ if (preg_match('#^/seller/order/(\d+)$#',$path,$m) && $method==='GET') {
     $q=db()->prepare('SELECT * FROM order_days WHERE order_id=? ORDER BY day_no');$q->execute([$id]);$days=$q->fetchAll();
     $current=null;foreach($days as $d){if(in_array($d['status'],['planned','submitted'],true)){$current=$d;break;}}
     $rejection=latest_precheck_rejection($id);
-    $currentDate=$current?order_day_date($o['started_at'],$current['day_no']):null;
+    $currentDate=$current?scheduled_order_day_date($o,(int)$current['day_no']):null;
     $today=new DateTimeImmutable('today');
     $currentEvents=[];
     if($current){
@@ -31,17 +31,22 @@ if (preg_match('#^/seller/order/(\d+)$#',$path,$m) && $method==='GET') {
 
     <?php if($o['status']==='precheck'):?>
     <section class="panel">
-        <h2>1. Vorabkontrolle</h2>
-        <p><?=nl2br(e($o['precheck_instructions']))?></p>
-        <?php if($rejection):?><div class="notice warning"><strong>Vom Admin zurückgewiesen:</strong><br><?=nl2br(e($rejection))?><br><span>Bitte die Vorabkontrolle vollständig neu einreichen.</span></div><?php endif;?>
-        <p class="muted"><?=count($pre)?>/<?=e($o['precheck_photo_count'])?> Fotos hochgeladen</p>
-        <?php if($pre):?><div class="photo-grid"><?php foreach($pre as $p):?><a href="<?=e(url('/file/precheck/'.$p['id']))?>" target="_blank"><img src="<?=e(url('/file/precheck/'.$p['id']))?>" alt="Vorabfoto"></a><?php endforeach;?></div><?php endif;?>
-        <?php $remaining=(int)$o['precheck_photo_count']-count($pre);if($remaining>0):?>
-            <form method="post" enctype="multipart/form-data" action="<?=e(url('/seller/order/'.$id.'/precheck'))?>">
-                <label>Noch <?=e($remaining)?> Foto(s) erforderlich<input type="file" name="photos[]" accept="image/jpeg,image/png,image/webp" capture="environment" multiple required></label>
-                <button class="btn">Vorabfotos hochladen</button>
-            </form>
-        <?php else:?><div class="notice success">Vorabkontrolle vollständig eingereicht. Sie wartet auf Freigabe.</div><?php endif;?>
+        <h2>1. Vorabkontrolle / Startfreigabe</h2>
+        <?php if((int)$o['precheck_photo_count']===0):?>
+            <div class="notice success"><strong>Keine Vorabfotos erforderlich.</strong><br>Dieser Auftrag wartet nur noch auf die Startfreigabe durch den Admin.</div>
+        <?php else:?>
+            <p><?=nl2br(e($o['precheck_instructions']))?></p>
+            <?php if($rejection):?><div class="notice warning"><strong>Vom Admin zurückgewiesen:</strong><br><?=nl2br(e($rejection))?><br><span>Bitte die Vorabkontrolle vollständig neu einreichen.</span></div><?php endif;?>
+            <p class="muted"><?=count($pre)?>/<?=e($o['precheck_photo_count'])?> Fotos hochgeladen</p>
+            <?php if($pre):?><div class="photo-grid"><?php foreach($pre as $p):?><a href="<?=e(url('/file/precheck/'.$p['id']))?>" target="_blank"><img src="<?=e(url('/file/precheck/'.$p['id']))?>" alt="Vorabfoto"></a><?php endforeach;?></div><?php endif;?>
+            <?php $remaining=(int)$o['precheck_photo_count']-count($pre);if($remaining>0):?>
+                <form method="post" enctype="multipart/form-data" action="<?=e(url('/seller/order/'.$id.'/precheck'))?>">
+                    <label>Noch <?=e($remaining)?> Foto(s) erforderlich<input type="file" name="photos[]" accept="image/jpeg,image/png,image/webp" capture="environment" multiple required></label>
+                    <button class="btn">Vorabfotos hochladen</button>
+                </form>
+            <?php else:?><div class="notice success">Vorabkontrolle vollständig eingereicht. Sie wartet auf Freigabe.</div><?php endif;?>
+        <?php endif;?>
+        <?php if(!empty($o['is_final_day_position'])):?><div class="notice"><strong>Ein-Tages-Position:</strong> Der Durchführungstermin wird automatisch auf den letzten Tag der längsten Position gelegt und verschiebt sich bei Verlängerungen mit.</div><?php endif;?>
     </section>
     <?php endif;?>
 
@@ -50,7 +55,7 @@ if (preg_match('#^/seller/order/(\d+)$#',$path,$m) && $method==='GET') {
         <h2>2. Durchführung</h2>
         <p><strong>Je Nachweisvorgang:</strong><br><?=nl2br(e($o['daily_instructions']))?></p>
         <p class="muted"><?=e($o['daily_photo_count'])?> getrennte Nachweisvorgänge pro Tag · jeweils genau 1 Foto · nur im jeweiligen Zeitfenster</p>
-        <?php if($o['started_at']):?><div class="notice"><strong>Geplanter Start:</strong> <?=e(date_de(order_day_date($o['started_at'],1)))?></div><?php endif;?>
+        <?php if($o['started_at']):?><div class="notice"><strong><?=!empty($o['is_final_day_position'])?'Synchronisierter letzter Gesamttag':'Geplanter Start'?>:</strong> <?=e(date_de(scheduled_order_day_date($o,1)))?><?php if(!empty($o['is_final_day_position'])):?><br><span>Dieser Termin verschiebt sich automatisch mit dem spätesten Ende der mehrtägigen Positionen.</span><?php endif;?></div><?php endif;?>
 
         <?php if($o['status']==='running' && $current):?>
             <div class="current-day">
@@ -106,7 +111,7 @@ if (preg_match('#^/seller/order/(\d+)$#',$path,$m) && $method==='GET') {
 
         <div class="timeline">
         <?php foreach($days as $d):
-            $scheduled=order_day_date($o['started_at'],$d['day_no']);
+            $scheduled=scheduled_order_day_date($o,(int)$d['day_no']);
             $events=day_events((int)$d['id']);
             $eventDone=0;foreach($events as $ev){if($ev['status']==='submitted')$eventDone++;}
             $eventTotal=$events?count($events):(int)$d['required_photo_count'];
@@ -168,6 +173,7 @@ if (preg_match('#^/seller/order/(\d+)/precheck$#',$path,$m) && $method==='POST')
     $s=require_seller();$id=(int)$m[1];
     $q=db()->prepare('SELECT * FROM orders WHERE id=? AND seller_id=?');$q->execute([$id,$s['id']]);$o=$q->fetch();if(!$o)not_found();
     if($o['status']!=='precheck'){flash('error','Vorabkontrolle ist geschlossen.');redirect('/seller/order/'.$id);}
+    if((int)$o['precheck_photo_count']===0){flash('error','Für diese Position sind keine Vorabfotos erforderlich.');redirect('/seller/order/'.$id);}
     $q=db()->prepare('SELECT COUNT(*) FROM precheck_uploads WHERE order_id=?');$q->execute([$id]);$have=(int)$q->fetchColumn();
     $remaining=(int)$o['precheck_photo_count']-$have;$files=normalized_uploads('photos');
     if(!$files||count($files)>$remaining){flash('error','Bitte höchstens die noch benötigten '.$remaining.' Foto(s) hochladen.');redirect('/seller/order/'.$id);}
@@ -184,7 +190,7 @@ if (preg_match('#^/seller/order/(\d+)/precheck$#',$path,$m) && $method==='POST')
 if (preg_match('#^/seller/event/(\d+)/submit$#',$path,$m) && $method==='POST') {
     $s=require_seller();$eventId=(int)$m[1];
     $q=db()->prepare("SELECT e.*,d.order_id,d.day_no,d.status day_status,d.required_photo_count,
-        o.offer_id,o.seller_id,o.status order_status,o.started_at
+        o.offer_id,o.seller_id,o.status order_status,o.started_at,o.is_final_day_position
         FROM order_day_events e
         JOIN order_days d ON d.id=e.day_id
         JOIN orders o ON o.id=d.order_id
@@ -195,7 +201,7 @@ if (preg_match('#^/seller/event/(\d+)/submit$#',$path,$m) && $method==='POST') {
         flash('error','Dieser Nachweisvorgang kann nicht eingereicht werden.');redirect('/seller/order/'.$ev['order_id']);
     }
 
-    $scheduled=order_day_date($ev['started_at'],$ev['day_no']);
+    $scheduled=scheduled_order_day_date($ev,(int)$ev['day_no']);
     if(event_window_state($ev,$scheduled)!=='open'){
         flash('error','Dieser Nachweis kann nur innerhalb seines festgelegten Zeitfensters eingereicht werden.');redirect('/seller/order/'.$ev['order_id']);
     }
