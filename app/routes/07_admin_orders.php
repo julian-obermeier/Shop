@@ -107,7 +107,19 @@ if ($path==='/admin/reviews' && $method==='GET') {
                 ?>
                     <div class="event-review-row">
                         <div><strong><?=e($ev['label'])?></strong><span><?=e(event_window_text($ev))?></span></div>
-                        <?php if($u):?><a href="<?=e(url('/file/day/'.$u['id']))?>" target="_blank"><img src="<?=e(url('/file/day/'.$u['id']))?>" alt="<?=e($ev['label'])?>"></a>
+                        <?php if($u):?>
+                            <div class="evidence-admin-tools">
+                                <a href="<?=e(url('/file/day/'.$u['id']))?>" target="_blank"><img src="<?=e(url('/file/day/'.$u['id']))?>" alt="<?=e($ev['label'])?>"></a>
+                                <a class="text-link compact" href="<?=e(url('/file/day/'.$u['id']).'?download=1')?>">Herunterladen</a>
+                                <details>
+                                    <summary>Foto neu anfordern</summary>
+                                    <form method="post" action="<?=e(url('/admin/event/'.$ev['id'].'/request-resubmission'))?>">
+                                        <input type="hidden" name="return_to" value="reviews">
+                                        <label>Grund<textarea name="reason" rows="2" required placeholder="Was soll neu fotografiert werden?"></textarea></label>
+                                        <button class="btn ghost danger full">Dieses Foto verwerfen & neu anfordern</button>
+                                    </form>
+                                </details>
+                            </div>
                         <?php else:?><span class="status <?=e($state==='closed'?'status-not_fulfilled':'status-planned')?>"><?=e($state==='closed'?'Verpasst':'Offen')?></span><?php endif;?>
                     </div>
                 <?php endforeach;?>
@@ -160,6 +172,7 @@ if (preg_match('#^/admin/order/(\d+)$#',$path,$m) && $method==='GET') {
     $q=db()->prepare('SELECT * FROM order_days WHERE order_id=? ORDER BY day_no');$q->execute([$id]);$days=$q->fetchAll();
     $rejection=latest_precheck_rejection($id);$shipment=shipment_for_order($id);
     $q=db()->prepare('SELECT * FROM seller_wallet_entries WHERE order_id=?');$q->execute([$id]);$wallet=$q->fetch();
+    mark_order_messages_read($id,'admin');$messages=order_messages($id);
 
     ob_start();?>
     <div class="page-head"><div><span class="eyebrow">Auftrag <?=e($o['order_no'])?></span><h1><?=e($o['title_snapshot'])?></h1><p><?=e($o['first_name'].' '.$o['last_name'])?> · <?=money($o['compensation'])?></p></div><span class="status status-<?=e($o['status'])?>"><?=e(order_status_label($o['status']))?></span></div>
@@ -228,7 +241,7 @@ if (preg_match('#^/admin/order/(\d+)$#',$path,$m) && $method==='GET') {
                     $state=event_window_state($ev,$scheduled);
                     $hasUpload=false;foreach($ups as $u){if((int)($u['event_id']??0)===(int)$ev['id']){$hasUpload=true;break;}}
                 ?><div><span><strong><?=e($ev['label'])?></strong> · <?=e(event_window_text($ev))?></span><span class="status <?=e($hasUpload?'status-fulfilled':($state==='closed'?'status-not_fulfilled':'status-planned'))?>"><?=e($hasUpload?'Eingereicht':($state==='closed'?'Verpasst':'Offen'))?></span></div><?php endforeach;?></div><?php endif;?>
-                <div class="photo-grid small"><?php foreach($ups as $u):?><figure class="evidence-photo"><figcaption><?=e($u['label']??'Nachweis')?></figcaption><a href="<?=e(url('/file/day/'.$u['id']))?>" target="_blank"><img src="<?=e(url('/file/day/'.$u['id']))?>" alt="<?=e($u['label']??'Tagesnachweis')?>"></a></figure><?php endforeach;?></div>
+                <div class="photo-grid small"><?php foreach($ups as $u):?><figure class="evidence-photo"><figcaption><?=e($u['label']??'Nachweis')?></figcaption><a href="<?=e(url('/file/day/'.$u['id']))?>" target="_blank"><img src="<?=e(url('/file/day/'.$u['id']))?>" alt="<?=e($u['label']??'Tagesnachweis')?>"></a><a class="text-link compact" href="<?=e(url('/file/day/'.$u['id']).'?download=1')?>">Download</a><?php if(!empty($u['event_id'])&&in_array($d['status'],['planned','submitted'],true)):?><details class="photo-action"><summary>Neu anfordern</summary><form method="post" action="<?=e(url('/admin/event/'.$u['event_id'].'/request-resubmission'))?>"><label>Grund<textarea name="reason" rows="2" required></textarea></label><button class="btn ghost danger full">Foto verwerfen</button></form></details><?php endif;?></figure><?php endforeach;?></div>
             </div>
 
             <?php if($d['status']==='submitted' || $missed):
@@ -255,8 +268,45 @@ if (preg_match('#^/admin/order/(\d+)$#',$path,$m) && $method==='GET') {
                 </div>
                 <?php endif;?>
             <?php endif;?>
+            <?php if(in_array($d['status'],['fulfilled','not_fulfilled'],true)&&$o['status']!=='completed'):?>
+                <details class="correction-inline">
+                    <summary>Tagesentscheidung korrigieren</summary>
+                    <form method="post" action="<?=e(url('/admin/day/'.$d['id'].'/reset-review'))?>">
+                        <label>Grund der Korrektur<textarea name="reason" rows="2" required></textarea></label>
+                        <button class="btn ghost danger">Entscheidung zurücksetzen</button>
+                    </form>
+                </details>
+            <?php endif;?>
         </div>
     <?php endforeach;?></div></section>
+    <?php endif;?>
+
+    <?php if(in_array($o['status'],['precheck','running'],true)):?>
+    <section class="panel correction-panel">
+        <div class="section-head"><h2>Admin-Korrekturen</h2><span class="muted">Jede Änderung wird protokolliert.</span></div>
+        <?php if(empty($o['align_to_offer_end'])):?>
+        <details class="inline-editor">
+            <summary>Startdatum korrigieren</summary>
+            <form method="post" action="<?=e(url('/admin/order/'.$id.'/change-start'))?>">
+                <div class="form-grid"><label>Neues Startdatum<input type="date" name="start_date" value="<?=e($o['started_at']?substr($o['started_at'],0,10):date('Y-m-d'))?>" required></label><label>Grund<textarea name="reason" rows="2" required></textarea></label></div>
+                <button class="btn ghost">Startdatum übernehmen</button>
+            </form>
+        </details>
+        <?php endif;?>
+        <?php if($o['status']==='running'&&$o['started_at']):?>
+        <div class="grid two correction-actions">
+            <form method="post" action="<?=e(url('/admin/order/'.$id.'/add-manual-day'))?>">
+                <label>Zusätzlicher Pflichttag · Grund<textarea name="reason" rows="2" required></textarea></label>
+                <button class="btn ghost">+ Pflichttag anhängen</button>
+            </form>
+            <?php $manualOpen=array_values(array_filter($days,static fn($x)=>!empty($x['manual_extension'])&&$x['status']==='planned'));?>
+            <?php if($manualOpen):?><form method="post" action="<?=e(url('/admin/order/'.$id.'/remove-manual-day'))?>">
+                <label>Manuellen Tag entfernen · Grund<textarea name="reason" rows="2" required></textarea></label>
+                <button class="btn ghost danger">Letzten manuellen Tag entfernen</button>
+            </form><?php endif;?>
+        </div>
+        <?php endif;?>
+    </section>
     <?php endif;?>
 
     <?php if($shipment):?>
@@ -267,6 +317,18 @@ if (preg_match('#^/admin/order/(\d+)$#',$path,$m) && $method==='GET') {
         <?php if($shipment['confirmed_at']):?><p>Bestätigt: <?=e(date('d.m.Y H:i',strtotime($shipment['confirmed_at'])))?> Uhr<?php if($shipment['tracking_number']):?> · Sendungsnummer <?=e($shipment['tracking_number'])?><?php endif;?></p><?php endif;?>
     </section>
     <?php endif;?>
+
+    <section class="panel message-panel">
+        <div class="section-head"><h2>Nachrichten</h2><span class="muted">Kommunikation mit der Verkäuferin</span></div>
+        <div class="message-thread">
+            <?php foreach($messages as $msg):?><div class="message-bubble <?=e($msg['sender_role']==='admin'?'from-platform':'from-seller')?>"><div><strong><?=e($msg['sender_role']==='admin'?'Plattform':'Verkäuferin')?></strong><span><?=e(date('d.m.Y H:i',strtotime($msg['created_at'])))?> Uhr</span></div><p><?=nl2br(e($msg['body']))?></p></div><?php endforeach;?>
+            <?php if(!$messages):?><div class="empty">Noch keine Nachrichten zu diesem Auftrag.</div><?php endif;?>
+        </div>
+        <form method="post" action="<?=e(url('/admin/order/'.$id.'/message'))?>">
+            <label>Nachricht an Verkäuferin<textarea name="body" rows="4" maxlength="4000" required placeholder="Nachricht der Plattform"></textarea></label>
+            <button class="btn">Nachricht senden</button>
+        </form>
+    </section>
 
     <?php render('Auftrag '.$o['order_no'],ob_get_clean());exit;
 }
