@@ -157,6 +157,9 @@ if (preg_match('#^/admin/offer/(\d+)$#',$path,$m) && $method==='GET') {
     <?php endif;?>
 
     <?php if($orders):?>
+    <?php if(in_array($o['status'],['accepted','active'],true)):?>
+        <div class="notice"><strong>Zeitfenster bleiben anpassbar.</strong><br>Auch nach der Annahme kannst du die Nachweis-Zeitfenster weiterhin ändern. Öffne dafür den jeweiligen Auftrag und wähle unter <strong>Admin-Korrekturen → Nachweis-Zeitfenster anpassen</strong>.</div>
+    <?php endif;?>
     <div class="section-head"><h2>Aufträge aus diesem Angebot</h2></div>
     <div class="list"><?php foreach($orders as $ord):?><a class="list-row" href="<?=e(url('/admin/order/'.$ord['id']))?>"><div><strong><?=e($ord['order_no'].' · '.$ord['title_snapshot'])?></strong><span><?=e($ord['successful_days'])?>/<?=e($ord['required_success_days'])?> erfolgreiche Tage · +<?=e($ord['extension_days'])?> Verlängerung<?php if($ord['started_at']):?> · Termin <?=e(date_de(scheduled_order_day_date($ord,1)))?><?php endif;?></span></div><span class="status status-<?=e($ord['status'])?>"><?=e(order_status_label($ord['status']))?></span></a><?php endforeach;?></div>
     <?php endif;?>
