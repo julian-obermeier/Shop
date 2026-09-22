@@ -284,11 +284,11 @@ if (preg_match('#^/admin/order/(\d+)$#',$path,$m) && $method==='GET') {
     <?php if(in_array($o['status'],['precheck','running'],true)):?>
     <section class="panel correction-panel">
         <div class="section-head"><h2>Admin-Korrekturen</h2><span class="muted">Jede Änderung wird protokolliert.</span></div>
-        <?php if(empty($o['align_to_offer_end'])):?>
+        <?php if($o['status']==='running'&&$o['started_at']&&empty($o['align_to_offer_end'])):?>
         <details class="inline-editor">
             <summary>Startdatum korrigieren</summary>
             <form method="post" action="<?=e(url('/admin/order/'.$id.'/change-start'))?>">
-                <div class="form-grid"><label>Neues Startdatum<input type="date" name="start_date" value="<?=e($o['started_at']?substr($o['started_at'],0,10):date('Y-m-d'))?>" required></label><label>Grund<textarea name="reason" rows="2" required></textarea></label></div>
+                <div class="form-grid"><label>Neues Startdatum<input type="date" name="start_date" value="<?=e(substr($o['started_at'],0,10))?>" required></label><label>Grund<textarea name="reason" rows="2" required></textarea></label></div>
                 <button class="btn ghost">Startdatum übernehmen</button>
             </form>
         </details>
