@@ -5,7 +5,7 @@
 <link rel="stylesheet" href="<?=e(url('/assets/app.css'))?>"></head><body>
 <header class="topbar"><a class="brand" href="<?=e(url('/'))?>"><span class="brand-mark">A</span><span><?=e(app_config('app.name','Auftragsportal'))?></span></a>
 <?php if($user):?><nav><?php if($user['role']==='admin'):?>
-<a href="<?=e(url('/admin'))?>">Übersicht</a><a href="<?=e(url('/admin/offers'))?>">Angebote</a><a href="<?=e(url('/admin/orders'))?>">Aufträge</a><a href="<?=e(url('/admin/sellers'))?>">Verkäuferinnen</a>
+<a href="<?=e(url('/admin'))?>">Übersicht</a><a href="<?=e(url('/admin/reviews'))?>">Prüfcenter</a><a href="<?=e(url('/admin/offers'))?>">Angebote</a><a href="<?=e(url('/admin/orders'))?>">Aufträge</a><a href="<?=e(url('/admin/sellers'))?>">Verkäuferinnen</a>
 <?php else:?><a href="<?=e(url('/seller'))?>">Übersicht</a><a href="<?=e(url('/seller/offers'))?>">Angebote</a><a href="<?=e(url('/seller/orders'))?>">Aufträge</a><?php endif;?><a href="<?=e(url('/logout'))?>">Abmelden</a></nav><?php endif;?></header>
 <?php foreach($flashes as [$type,$message]):?><div class="flash <?=e($type)?>"><?=e($message)?></div><?php endforeach;?>
 <main><?= $content ?></main>
