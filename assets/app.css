@@ -38,3 +38,5 @@
 .evidence-photo figcaption{font-size:12px;font-weight:800;color:#374151;margin-bottom:5px}
 .evidence-photo a{display:block}
 @media(max-width:900px){.evidence-events{grid-template-columns:1fr}}
+
+.field-hint{display:block;margin-top:6px;color:var(--muted);font-size:12px;font-weight:600}
