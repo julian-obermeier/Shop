@@ -88,3 +88,49 @@ Der Versand wird erst freigegeben, wenn alle Positionen abgeschlossen sind. Dana
 - Antworten werden mit Zeitstempel gespeichert und in der Admin-Historie angezeigt.
 - Offene Duftproben können vor der Antwort widerrufen werden.
 - Offene Anfragen erscheinen direkt im Verkäuferinnen-Dashboard.
+
+
+## Großupdate · Operations Center
+Das Portal enthält jetzt zusätzlich eine operative Arbeitszentrale für die tägliche Bearbeitung.
+
+### Benachrichtigungen & Fristen
+- Eigene Mitteilungszentrale für Plattformverwaltung und Verkäuferinnen.
+- Hinweise bei neuen/aktualisierten/zurückgezogenen Angeboten, Annahmen, Vorabkontrollen, Tagesprüfungen, Nachforderungen, Nachrichten, Duftproben, Versand und Auszahlungen.
+- In-App-Erinnerungen für überfällige Nachforderungen, offene Duftproben, fehlende Vorabfotos, bevorstehende Nachweisfenster und überfälligen Versand.
+- Wiederkehrende Erinnerungen werden höchstens einmal pro Kalendertag erzeugt.
+
+### Verkäuferinnen-Akte
+- Zentrale Detailseite je Verkäuferin mit Angeboten, Aufträgen, Wallet, Auszahlungsverlauf, Duftproben und offenen Nachforderungen.
+- Schnellaktionen für neues Angebot, Duftprobe und Verkäuferinnen-Vorschau.
+
+### Admin-Korrekturen
+- Startdatum eines laufenden Auftrags mit Pflichtbegründung korrigieren.
+- Zusätzlichen Pflichttag manuell anhängen bzw. einen noch unberührten manuell hinzugefügten Tag wieder entfernen.
+- Tagesentscheidung zurücksetzen, sofern der Folgeprozess dies noch sicher zulässt.
+- Jede Korrektur wird im Activity-Log protokolliert und relevante Änderungen werden der Verkäuferin mitgeteilt.
+
+### Nachweise & Fotos
+- Große Admin-Fotoansicht mit Vor/Zurück, Metadaten und geschütztem Download.
+- Einzelne Vorab- oder Tagesfotos können gezielt verworfen und neu angefordert werden, ohne andere gültige Fotos zu löschen.
+- Gezielt neu angeforderte Tagesfotos bleiben bis zur erneuten Einreichung freigeschaltet, auch wenn das ursprüngliche Zeitfenster bereits abgelaufen ist.
+
+### Nachrichten
+- Nachrichtenverlauf pro Auftrag zwischen Verkäuferin und Plattform.
+- Verkäuferinnen sehen ausschließlich die Plattform als Gegenstelle, keine Admin-Identität.
+- Neue Nachrichten erzeugen Benachrichtigungen.
+
+### Wallet & Auszahlungen
+- Admin kann einzelne auszahlbare Wallet-Buchungen auswählen statt immer den gesamten verfügbaren Betrag zu markieren.
+- Jede Auszahlung wird als Batch mit Datum, Methode, Referenz, Notiz und enthaltenen Buchungen dokumentiert.
+- Für jede Auszahlung steht ein PDF-Beleg zur Verfügung.
+- PayPal-/Bankdaten werden verschlüsselt gespeichert und in der Admin-Ansicht standardmäßig maskiert.
+- Der lokale Verschlüsselungsschlüssel liegt unter `storage/private/.app-key` und ist nicht Bestandteil des Git-Repositories. Bei einem Serverumzug muss diese Datei zusammen mit der Datenbank gesichert und übernommen werden.
+
+### Admin-Dashboard „Heute“
+- Heutige Nachweise und Zeitfenster.
+- Prüfbereite Vorabkontrollen und Durchführungstage.
+- Verpasste Nachweise und offene Nachreichungen.
+- Offene Duftproben.
+- Versand heute bzw. überfällig – erst wenn das gesamte Angebot tatsächlich versandbereit ist.
+- Ungelesene Nachrichten.
+- Auszahlbare Beträge je Verkäuferin.
