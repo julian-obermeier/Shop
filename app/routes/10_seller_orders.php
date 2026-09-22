@@ -46,7 +46,7 @@ if (preg_match('#^/seller/order/(\d+)$#',$path,$m) && $method==='GET') {
                 </form>
             <?php else:?><div class="notice success">Vorabkontrolle vollständig eingereicht. Sie wartet auf Freigabe.</div><?php endif;?>
         <?php endif;?>
-        <?php if(!empty($o['is_final_day_position'])):?><div class="notice"><strong>Ein-Tages-Position:</strong> Der Durchführungstermin wird automatisch auf den letzten Tag der längsten Position gelegt und verschiebt sich bei Verlängerungen mit.</div><?php endif;?>
+        <?php if(!empty($o['align_to_offer_end'])):?><div class="notice"><strong>Ans Angebotsende gekoppelt:</strong> Diese Position läuft auf den letzten <?=e($o['required_success_days'])?> Gesamttag(en) und verschiebt sich automatisch mit, wenn sich eine längere Basisposition verlängert.</div><?php endif;?>
     </section>
     <?php endif;?>
 
@@ -55,7 +55,7 @@ if (preg_match('#^/seller/order/(\d+)$#',$path,$m) && $method==='GET') {
         <h2>2. Durchführung</h2>
         <p><strong>Je Nachweisvorgang:</strong><br><?=nl2br(e($o['daily_instructions']))?></p>
         <p class="muted"><?=e($o['daily_photo_count'])?> getrennte Nachweisvorgänge pro Tag · jeweils genau 1 Foto · nur im jeweiligen Zeitfenster</p>
-        <?php if($o['started_at']):?><div class="notice"><strong><?=!empty($o['is_final_day_position'])?'Synchronisierter letzter Gesamttag':'Geplanter Start'?>:</strong> <?=e(date_de(scheduled_order_day_date($o,1)))?><?php if(!empty($o['is_final_day_position'])):?><br><span>Dieser Termin verschiebt sich automatisch mit dem spätesten Ende der mehrtägigen Positionen.</span><?php endif;?></div><?php endif;?>
+        <?php if($o['started_at']):?><div class="notice"><strong><?=!empty($o['align_to_offer_end'])?'Synchronisierter Zeitraum ab':'Geplanter Start'?>:</strong> <?=e(date_de(scheduled_order_day_date($o,1)))?><?php if(!empty($o['align_to_offer_end'])):?><br><span>Diese Position endet gemeinsam mit den längsten Basispositionen und verschiebt sich bei deren Verlängerung automatisch mit.</span><?php endif;?></div><?php endif;?>
 
         <?php if($o['status']==='running' && $current):?>
             <div class="current-day">
@@ -191,7 +191,7 @@ if (preg_match('#^/seller/order/(\d+)/precheck$#',$path,$m) && $method==='POST')
 if (preg_match('#^/seller/event/(\d+)/submit$#',$path,$m) && $method==='POST') {
     $s=require_seller();$eventId=(int)$m[1];
     $q=db()->prepare("SELECT e.*,d.order_id,d.day_no,d.status day_status,d.required_photo_count,
-        o.offer_id,o.seller_id,o.status order_status,o.started_at,o.is_final_day_position
+        o.offer_id,o.seller_id,o.status order_status,o.started_at,o.required_success_days,o.is_final_day_position,o.align_to_offer_end
         FROM order_day_events e
         JOIN order_days d ON d.id=e.day_id
         JOIN orders o ON o.id=d.order_id
