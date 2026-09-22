@@ -56,7 +56,7 @@ if ($path==='/admin/reviews' && $method==='GET') {
         <article class="panel review-card">
             <div class="card-top"><div><span class="eyebrow"><?=e($o['order_no'])?></span><h3><?=e($o['title_snapshot'])?></h3><p class="muted"><?=e($o['first_name'].' '.$o['last_name'])?></p></div><span class="status status-precheck">Vorabkontrolle</span></div>
             <?php if((int)$o['precheck_photo_count']>0):?><p><?=nl2br(e($o['precheck_instructions']))?></p><?php else:?><div class="notice success">Für diese Position sind keine Vorabfotos erforderlich.</div><?php endif;?>
-            <div class="photo-grid"><?php foreach($ups as $u):?><a href="<?=e(url('/file/precheck/'.$u['id']))?>" target="_blank"><img src="<?=e(url('/file/precheck/'.$u['id']))?>" alt="Vorabnachweis"></a><?php endforeach;?></div>
+            <div class="photo-grid"><?php foreach($ups as $u):?><a href="<?=e(url('/admin/evidence/precheck/'.$u['id']))?>"><img src="<?=e(url('/file/precheck/'.$u['id']))?>" alt="Vorabnachweis"></a><?php endforeach;?></div>
             <div class="review-split">
                 <form method="post" action="<?=e(url('/admin/order/'.$o['id'].'/approve-precheck'))?>">
                     <input type="hidden" name="return_to" value="reviews">
@@ -109,7 +109,7 @@ if ($path==='/admin/reviews' && $method==='GET') {
                         <div><strong><?=e($ev['label'])?></strong><span><?=e(event_window_text($ev))?></span></div>
                         <?php if($u):?>
                             <div class="evidence-admin-tools">
-                                <a href="<?=e(url('/file/day/'.$u['id']))?>" target="_blank"><img src="<?=e(url('/file/day/'.$u['id']))?>" alt="<?=e($ev['label'])?>"></a>
+                                <a href="<?=e(url('/admin/evidence/day/'.$u['id']))?>"><img src="<?=e(url('/file/day/'.$u['id']))?>" alt="<?=e($ev['label'])?>"></a>
                                 <a class="text-link compact" href="<?=e(url('/file/day/'.$u['id']).'?download=1')?>">Herunterladen</a>
                                 <details>
                                     <summary>Foto neu anfordern</summary>
@@ -190,7 +190,7 @@ if (preg_match('#^/admin/order/(\d+)$#',$path,$m) && $method==='GET') {
         <div class="section-head"><h2>Vorabkontrolle</h2><span class="muted"><?=count($pre)?>/<?=e($o['precheck_photo_count'])?> Fotos vorhanden</span></div>
         <p><?=nl2br(e($o['precheck_instructions']))?></p>
         <?php if($rejection && $o['status']==='precheck'):?><div class="notice warning"><strong>Letzte Rückmeldung:</strong> <?=e($rejection)?></div><?php endif;?>
-        <?php if($pre):?><div class="photo-grid"><?php foreach($pre as $p):?><a href="<?=e(url('/file/precheck/'.$p['id']))?>" target="_blank"><img src="<?=e(url('/file/precheck/'.$p['id']))?>" alt="Vorabnachweis"></a><?php endforeach;?></div><?php endif;?>
+        <?php if($pre):?><div class="photo-grid"><?php foreach($pre as $p):?><a href="<?=e(url('/admin/evidence/precheck/'.$p['id']))?>"><img src="<?=e(url('/file/precheck/'.$p['id']))?>" alt="Vorabnachweis"></a><?php endforeach;?></div><?php endif;?>
         <?php if($o['status']==='precheck'):?>
             <?php
                 $autoAligned=!empty($o['align_to_offer_end']);
@@ -241,7 +241,7 @@ if (preg_match('#^/admin/order/(\d+)$#',$path,$m) && $method==='GET') {
                     $state=event_window_state($ev,$scheduled);
                     $hasUpload=false;foreach($ups as $u){if((int)($u['event_id']??0)===(int)$ev['id']){$hasUpload=true;break;}}
                 ?><div><span><strong><?=e($ev['label'])?></strong> · <?=e(event_window_text($ev))?></span><span class="status <?=e($hasUpload?'status-fulfilled':($state==='closed'?'status-not_fulfilled':'status-planned'))?>"><?=e($hasUpload?'Eingereicht':($state==='closed'?'Verpasst':'Offen'))?></span></div><?php endforeach;?></div><?php endif;?>
-                <div class="photo-grid small"><?php foreach($ups as $u):?><figure class="evidence-photo"><figcaption><?=e($u['label']??'Nachweis')?></figcaption><a href="<?=e(url('/file/day/'.$u['id']))?>" target="_blank"><img src="<?=e(url('/file/day/'.$u['id']))?>" alt="<?=e($u['label']??'Tagesnachweis')?>"></a><a class="text-link compact" href="<?=e(url('/file/day/'.$u['id']).'?download=1')?>">Download</a><?php if(!empty($u['event_id'])&&in_array($d['status'],['planned','submitted'],true)):?><details class="photo-action"><summary>Neu anfordern</summary><form method="post" action="<?=e(url('/admin/event/'.$u['event_id'].'/request-resubmission'))?>"><label>Grund<textarea name="reason" rows="2" required></textarea></label><button class="btn ghost danger full">Foto verwerfen</button></form></details><?php endif;?></figure><?php endforeach;?></div>
+                <div class="photo-grid small"><?php foreach($ups as $u):?><figure class="evidence-photo"><figcaption><?=e($u['label']??'Nachweis')?></figcaption><a href="<?=e(url('/admin/evidence/day/'.$u['id']))?>"><img src="<?=e(url('/file/day/'.$u['id']))?>" alt="<?=e($u['label']??'Tagesnachweis')?>"></a><a class="text-link compact" href="<?=e(url('/file/day/'.$u['id']).'?download=1')?>">Download</a><?php if(!empty($u['event_id'])&&in_array($d['status'],['planned','submitted'],true)):?><details class="photo-action"><summary>Neu anfordern</summary><form method="post" action="<?=e(url('/admin/event/'.$u['event_id'].'/request-resubmission'))?>"><label>Grund<textarea name="reason" rows="2" required></textarea></label><button class="btn ghost danger full">Foto verwerfen</button></form></details><?php endif;?></figure><?php endforeach;?></div>
             </div>
 
             <?php if($d['status']==='submitted' || $missed):
