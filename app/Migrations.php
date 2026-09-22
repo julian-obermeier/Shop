@@ -392,4 +392,12 @@ function run_migrations(): void {
         mark_migration($pdo,$key);
     }
 
+    $key='20260922_11_manual_extension_marker';
+    if(!migration_applied($pdo,$key)){
+        if(!column_exists($pdo,'order_days','manual_extension')){
+            $pdo->exec("ALTER TABLE order_days ADD COLUMN manual_extension TINYINT(1) NOT NULL DEFAULT 0 AFTER is_extension");
+        }
+        mark_migration($pdo,$key);
+    }
+
 }
