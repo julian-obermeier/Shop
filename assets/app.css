@@ -20,3 +20,8 @@
 .review-card .photo-grid{grid-template-columns:repeat(auto-fill,minmax(120px,1fr))}
 @media(max-width:900px){.review-grid,.review-split{grid-template-columns:1fr}}
 @media(max-width:640px){.editor-panel summary{align-items:flex-start;flex-direction:column}.day-title,.timeline-row>div>div:first-child{align-items:flex-start;flex-direction:column;gap:3px}}
+
+.head-actions{display:flex;gap:8px;flex-wrap:wrap}
+.stat-link{text-decoration:none;color:inherit;transition:.18s transform,.18s box-shadow}
+.stat-link:hover{transform:translateY(-2px);box-shadow:0 20px 55px rgba(17,24,39,.11)}
+@media(max-width:640px){.head-actions{width:100%}.head-actions .btn{flex:1}}
