@@ -96,7 +96,7 @@ if (preg_match('#^/admin/offer/(\d+)$#',$path,$m) && $method==='GET') {
     <?php if(!$positions):?><div class="empty">Noch keine Position hinzugefügt.</div><?php endif;?>
     </div>
 
-    <?php if($o['status']==='draft'):
+    <?php if($editable):
         $newTemplates=default_event_templates(3);
     ?>
     <section class="panel" style="margin-top:20px">
