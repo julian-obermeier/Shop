@@ -217,22 +217,26 @@ function refresh_due_notifications(array $user): void {
     if($user['role']==='seller'){
         $sellerId=(int)$user['id'];
         $q=db()->prepare("SELECT id,subject FROM scent_requests WHERE seller_id=? AND status='pending' AND requested_at<DATE_SUB(NOW(),INTERVAL 24 HOUR)");
-        $q->execute([$sellerId]);foreach($q->fetchAll() as $r)notify_seller($sellerId,'reminder','Duftprobe noch offen','Bitte beantworte die Duftbewertung „'.$r['subject'].'“ mit 1 bis 10.','/seller/scent-requests','scent-reminder:'.$r['id']);
+        $q->execute([$sellerId]);foreach($q->fetchAll() as $r)notify_seller($sellerId,'reminder','Duftprobe noch offen','Bitte beantworte die Duftbewertung „'.$r['subject'].'“ mit 1 bis 10.','/seller/scent-requests','scent-reminder:'.$r['id'].':'.$today);
 
         $q=db()->prepare("SELECT d.id,d.day_no,o.id order_id,o.order_no FROM order_days d JOIN orders o ON o.id=d.order_id
             WHERE o.seller_id=? AND o.status='running' AND d.status='planned' AND d.late_submission_allowed=1
               AND d.late_submission_requested_at<DATE_SUB(NOW(),INTERVAL 24 HOUR)");
-        $q->execute([$sellerId]);foreach($q->fetchAll() as $r)notify_seller($sellerId,'reminder','Nachweise noch nachzureichen','Für '.$r['order_no'].' · Tag '.$r['day_no'].' fehlen weiterhin angeforderte Nachweise.','/seller/order/'.$r['order_id'],'late-reminder:'.$r['id']);
+        $q->execute([$sellerId]);foreach($q->fetchAll() as $r)notify_seller($sellerId,'reminder','Nachweise noch nachzureichen','Für '.$r['order_no'].' · Tag '.$r['day_no'].' fehlen weiterhin angeforderte Nachweise.','/seller/order/'.$r['order_id'],'late-reminder:'.$r['id'].':'.$today);
 
         $q=db()->prepare("SELECT o.id,o.order_no,o.precheck_photo_count,(SELECT COUNT(*) FROM precheck_uploads p WHERE p.order_id=o.id) cnt
             FROM orders o WHERE o.seller_id=? AND o.status='precheck' AND o.precheck_photo_count>0 AND o.created_at<DATE_SUB(NOW(),INTERVAL 24 HOUR)");
-        $q->execute([$sellerId]);foreach($q->fetchAll() as $r)if((int)$r['cnt']<(int)$r['precheck_photo_count'])notify_seller($sellerId,'reminder','Vorabfotos fehlen noch','Für '.$r['order_no'].' fehlen noch Vorabfotos.','/seller/order/'.$r['id'],'precheck-reminder:'.$r['id']);
+        $q->execute([$sellerId]);foreach($q->fetchAll() as $r)if((int)$r['cnt']<(int)$r['precheck_photo_count'])notify_seller($sellerId,'reminder','Vorabfotos fehlen noch','Für '.$r['order_no'].' fehlen noch Vorabfotos.','/seller/order/'.$r['id'],'precheck-reminder:'.$r['id'].':'.$today);
 
         $q=db()->prepare("SELECT sh.id,sh.due_date,o.id order_id,o.order_no FROM order_shipments sh JOIN orders o ON o.id=sh.order_id
-            WHERE o.seller_id=? AND sh.status='pending' AND sh.due_date<CURDATE()");
-        $q->execute([$sellerId]);foreach($q->fetchAll() as $r)notify_seller($sellerId,'overdue','Versand überfällig',$r['order_no'].' war am '.date('d.m.Y',strtotime($r['due_date'])).' zum Versand vorgesehen.','/seller/order/'.$r['order_id'],'shipping-overdue:'.$r['id']);
+            WHERE o.seller_id=? AND sh.status='pending' AND sh.due_date<CURDATE()
+              AND NOT EXISTS (
+                  SELECT 1 FROM orders x
+                  WHERE x.offer_id=o.offer_id AND x.status NOT IN('shipping','completed','cancelled')
+              )");
+        $q->execute([$sellerId]);foreach($q->fetchAll() as $r)notify_seller($sellerId,'overdue','Versand überfällig',$r['order_no'].' war am '.date('d.m.Y',strtotime($r['due_date'])).' zum Versand vorgesehen.','/seller/order/'.$r['order_id'],'shipping-overdue:'.$r['id'].':'.$today);
 
-        $q=db()->prepare("SELECT e.*,d.day_no,d.id day_id,d.status day_status,o.id order_id,o.offer_id,o.started_at,o.required_success_days,o.align_to_offer_end
+        $q=db()->prepare("SELECT e.*,d.day_no,d.id day_id,d.status day_status,o.id order_id,o.order_no,o.offer_id,o.started_at,o.required_success_days,o.align_to_offer_end
             FROM order_day_events e JOIN order_days d ON d.id=e.day_id JOIN orders o ON o.id=d.order_id
             WHERE o.seller_id=? AND o.status='running' AND d.status='planned' AND e.status='planned' ORDER BY d.day_no,e.event_no LIMIT 40");
         $q->execute([$sellerId]);
@@ -240,22 +244,26 @@ function refresh_due_notifications(array $user): void {
             $date=scheduled_order_day_date($ev,(int)$ev['day_no']);if(!$date)continue;
             $start=!empty($ev['all_day'])?new DateTimeImmutable($date->format('Y-m-d').' 00:00:00'):new DateTimeImmutable($date->format('Y-m-d').' '.substr((string)$ev['window_start'],0,5).':00');
             $seconds=$start->getTimestamp()-$now->getTimestamp();
-            if($seconds>=0&&$seconds<=3600)notify_seller($sellerId,'upcoming','Nachweis beginnt bald',$ev['label'].' für Auftrag '.($ev['order_id']??'').' beginnt um '.$start->format('H:i').' Uhr.','/seller/order/'.$ev['order_id'],'event-upcoming:'.$ev['id']);
+            if($seconds>=0&&$seconds<=3600)notify_seller($sellerId,'upcoming','Nachweis beginnt bald',$ev['label'].' für '.$ev['order_no'].' beginnt um '.$start->format('H:i').' Uhr.','/seller/order/'.$ev['order_id'],'event-upcoming:'.$ev['id']);
         }
     }elseif($user['role']==='admin'){
         $q=db()->query("SELECT sh.id,sh.due_date,o.id order_id,o.order_no,s.first_name,s.last_name
             FROM order_shipments sh JOIN orders o ON o.id=sh.order_id JOIN sellers s ON s.id=o.seller_id
-            WHERE sh.status='pending' AND sh.due_date<CURDATE()");
-        foreach($q->fetchAll() as $r)notify_admins('overdue','Versand überfällig',$r['order_no'].' · '.$r['first_name'].' '.$r['last_name'],'/admin/order/'.$r['order_id'],'admin-shipping-overdue:'.$r['id']);
+            WHERE sh.status='pending' AND sh.due_date<CURDATE()
+              AND NOT EXISTS (
+                  SELECT 1 FROM orders x
+                  WHERE x.offer_id=o.offer_id AND x.status NOT IN('shipping','completed','cancelled')
+              )");
+        foreach($q->fetchAll() as $r)notify_admins('overdue','Versand überfällig',$r['order_no'].' · '.$r['first_name'].' '.$r['last_name'],'/admin/order/'.$r['order_id'],'admin-shipping-overdue:'.$r['id'].':'.$today);
 
         $q=db()->query("SELECT d.id,d.day_no,o.id order_id,o.order_no,s.first_name,s.last_name FROM order_days d
             JOIN orders o ON o.id=d.order_id JOIN sellers s ON s.id=o.seller_id
             WHERE d.status='planned' AND d.late_submission_allowed=1 AND d.late_submission_requested_at<DATE_SUB(NOW(),INTERVAL 24 HOUR)");
-        foreach($q->fetchAll() as $r)notify_admins('reminder','Nachforderung seit 24 Stunden offen',$r['order_no'].' · Tag '.$r['day_no'].' · '.$r['first_name'].' '.$r['last_name'],'/admin/order/'.$r['order_id'],'admin-late-reminder:'.$r['id']);
+        foreach($q->fetchAll() as $r)notify_admins('reminder','Nachforderung seit 24 Stunden offen',$r['order_no'].' · Tag '.$r['day_no'].' · '.$r['first_name'].' '.$r['last_name'],'/admin/order/'.$r['order_id'],'admin-late-reminder:'.$r['id'].':'.$today);
 
         $q=db()->query("SELECT r.id,r.subject,s.first_name,s.last_name FROM scent_requests r JOIN sellers s ON s.id=r.seller_id
             WHERE r.status='pending' AND r.requested_at<DATE_SUB(NOW(),INTERVAL 24 HOUR)");
-        foreach($q->fetchAll() as $r)notify_admins('reminder','Duftprobe noch unbeantwortet',$r['subject'].' · '.$r['first_name'].' '.$r['last_name'],'/admin/scent-requests','admin-scent-reminder:'.$r['id']);
+        foreach($q->fetchAll() as $r)notify_admins('reminder','Duftprobe noch unbeantwortet',$r['subject'].' · '.$r['first_name'].' '.$r['last_name'],'/admin/scent-requests','admin-scent-reminder:'.$r['id'].':'.$today);
     }
 }
 
@@ -769,8 +777,16 @@ function event_window_state(array $event, ?DateTimeImmutable $date, ?DateTimeImm
     return 'open';
 }
 function event_late_submission_allowed(array $event,array $day,?DateTimeImmutable $date): bool {
-    if(empty($day['late_submission_allowed'])||empty($day['late_submission_requested_at'])||!$date)return false;
+    if(empty($day['late_submission_allowed'])||!$date)return false;
     if(($event['status']??'')==='submitted')return false;
+
+    // A specifically rejected photo is a direct platform request. It remains
+    // uploadable until the replacement is supplied, independent of the old window.
+    if(!empty($event['resubmission_requested_at']))return true;
+
+    // A generic day-level late submission only reopens windows that had already
+    // expired when the platform requested the missing evidence.
+    if(empty($day['late_submission_requested_at']))return false;
     try{$requestedAt=new DateTimeImmutable((string)$day['late_submission_requested_at']);}
     catch(Throwable){return false;}
     return event_window_state($event,$date,$requestedAt)==='closed';
