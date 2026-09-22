@@ -153,6 +153,30 @@ function day_status_label(string $s): string {
     };
 }
 
+function order_day_date(?string $startedAt, int $dayNo): ?DateTimeImmutable {
+    if (!$startedAt || $dayNo < 1) return null;
+    try {
+        $start = new DateTimeImmutable($startedAt);
+        return $start->setTime(0, 0)->modify('+' . ($dayNo - 1) . ' days');
+    } catch (Throwable) {
+        return null;
+    }
+}
+function date_de(?DateTimeInterface $date): string {
+    if (!$date) return '–';
+    static $days = ['So','Mo','Di','Mi','Do','Fr','Sa'];
+    return $days[(int)$date->format('w')] . ', ' . $date->format('d.m.Y');
+}
+function latest_precheck_rejection(int $orderId): ?string {
+    $q = db()->prepare("SELECT payload_json FROM activity_log WHERE order_id=? AND event_type='precheck.rejected' ORDER BY id DESC LIMIT 1");
+    $q->execute([$orderId]);
+    $raw = $q->fetchColumn();
+    if (!$raw) return null;
+    $payload = json_decode((string)$raw, true);
+    $reason = is_array($payload) ? trim((string)($payload['reason'] ?? '')) : '';
+    return $reason !== '' ? $reason : null;
+}
+
 function save_image_upload(array $file, string $folder): array {
     if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) throw new RuntimeException('Foto-Upload fehlgeschlagen.');
     $tmp = (string)($file['tmp_name'] ?? '');
