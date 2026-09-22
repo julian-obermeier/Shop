@@ -224,7 +224,7 @@ if (preg_match('#^/admin/order/(\d+)$#',$path,$m) && $method==='GET') {
     <section class="panel">
         <div class="section-head"><h2>Versand</h2><span class="status <?=e($shipment['status']==='confirmed'?'status-fulfilled':'status-shipping')?>"><?=e($shipment['status']==='confirmed'?'Bestätigt':'Offen')?></span></div>
         <p><strong>Fällig:</strong> <?=e(date_de(new DateTimeImmutable($shipment['due_date'])))?></p>
-        <address class="shipping-address"><?=e($shipment['address_name']??'')?><?php if($shipment['street']):?><br><?=e($shipment['street'])?><?php endif;?><?php if($shipment['postal_code']||$shipment['city']):?><br><?=e(trim(($shipment['postal_code']??'').' '.($shipment['city']??'')))?><?php endif;?><?php if($shipment['country']):?><br><?=e($shipment['country'])?><?php endif;?></address>
+        <address class="shipping-address"><?php if($shipment['address_keyword']):?><strong>Kennwort: <?=e($shipment['address_keyword'])?></strong><br><?php endif;?><?=e($shipment['address_name']??'')?><?php if($shipment['extra']):?><br><?=nl2br(e($shipment['extra']))?><?php endif;?><?php if($shipment['street']):?><br><?=e($shipment['street'])?><?php endif;?><?php if($shipment['postal_code']||$shipment['city']):?><br><?=e(trim(($shipment['postal_code']??'').' '.($shipment['city']??'')))?><?php endif;?><?php if($shipment['country']&&$shipment['country']!=='Deutschland'):?><br><?=e($shipment['country'])?><?php endif;?></address>
         <?php if($shipment['confirmed_at']):?><p>Bestätigt: <?=e(date('d.m.Y H:i',strtotime($shipment['confirmed_at'])))?> Uhr<?php if($shipment['tracking_number']):?> · Sendungsnummer <?=e($shipment['tracking_number'])?><?php endif;?></p><?php endif;?>
     </section>
     <?php endif;?>
