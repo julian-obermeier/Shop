@@ -1,52 +1,140 @@
 <?php
 declare(strict_types=1);
 
+function migration_applied(PDO $pdo, string $key): bool {
+    $q=$pdo->prepare('SELECT COUNT(*) FROM schema_migrations WHERE migration_key=?');
+    $q->execute([$key]);
+    return (int)$q->fetchColumn()>0;
+}
+function mark_migration(PDO $pdo, string $key): void {
+    $pdo->prepare('INSERT INTO schema_migrations(migration_key) VALUES(?)')->execute([$key]);
+}
+function column_exists(PDO $pdo,string $table,string $column): bool {
+    $q=$pdo->prepare("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=?");
+    $q->execute([$table,$column]);
+    return (int)$q->fetchColumn()>0;
+}
+function index_exists(PDO $pdo,string $table,string $index): bool {
+    $q=$pdo->prepare("SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND INDEX_NAME=?");
+    $q->execute([$table,$index]);
+    return (int)$q->fetchColumn()>0;
+}
+function fk_exists(PDO $pdo,string $table,string $constraint): bool {
+    $q=$pdo->prepare("SELECT COUNT(*) FROM information_schema.REFERENTIAL_CONSTRAINTS WHERE CONSTRAINT_SCHEMA=DATABASE() AND TABLE_NAME=? AND CONSTRAINT_NAME=?");
+    $q->execute([$table,$constraint]);
+    return (int)$q->fetchColumn()>0;
+}
+
 function run_migrations(): void {
-    $pdo = db();
+    $pdo=db();
     $pdo->exec("CREATE TABLE IF NOT EXISTS schema_migrations (
         migration_key VARCHAR(120) PRIMARY KEY,
         applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
-    $key = '20260922_01_day_events';
-    $q = $pdo->prepare('SELECT COUNT(*) FROM schema_migrations WHERE migration_key=?');
-    $q->execute([$key]);
-    if ((int)$q->fetchColumn() > 0) return;
+    $key='20260922_01_day_events';
+    if(!migration_applied($pdo,$key)){
+        $pdo->exec("CREATE TABLE IF NOT EXISTS order_day_events (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            day_id BIGINT UNSIGNED NOT NULL,
+            event_no INT NOT NULL,
+            label VARCHAR(80) NOT NULL,
+            status ENUM('planned','submitted') NOT NULL DEFAULT 'planned',
+            seller_note TEXT NULL,
+            submitted_at DATETIME NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NULL,
+            FOREIGN KEY(day_id) REFERENCES order_days(id) ON DELETE CASCADE,
+            UNIQUE(day_id,event_no),
+            INDEX(day_id,status,event_no)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
-    $pdo->exec("CREATE TABLE IF NOT EXISTS order_day_events (
-        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-        day_id BIGINT UNSIGNED NOT NULL,
-        event_no INT NOT NULL,
-        label VARCHAR(80) NOT NULL,
-        status ENUM('planned','submitted') NOT NULL DEFAULT 'planned',
-        seller_note TEXT NULL,
-        submitted_at DATETIME NULL,
-        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME NULL,
-        FOREIGN KEY(day_id) REFERENCES order_days(id) ON DELETE CASCADE,
-        UNIQUE(day_id,event_no),
-        INDEX(day_id,status,event_no)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-
-    $q = $pdo->query("SELECT COUNT(*) FROM information_schema.COLUMNS
-        WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='day_uploads' AND COLUMN_NAME='event_id'");
-    if ((int)$q->fetchColumn() === 0) {
-        $pdo->exec("ALTER TABLE day_uploads ADD COLUMN event_id BIGINT UNSIGNED NULL AFTER day_id");
+        if(!column_exists($pdo,'day_uploads','event_id')){
+            $pdo->exec("ALTER TABLE day_uploads ADD COLUMN event_id BIGINT UNSIGNED NULL AFTER day_id");
+        }
+        if(!index_exists($pdo,'day_uploads','idx_day_uploads_event')){
+            $pdo->exec("ALTER TABLE day_uploads ADD INDEX idx_day_uploads_event(event_id)");
+        }
+        if(!fk_exists($pdo,'day_uploads','fk_day_uploads_event')){
+            $pdo->exec("ALTER TABLE day_uploads ADD CONSTRAINT fk_day_uploads_event FOREIGN KEY(event_id) REFERENCES order_day_events(id) ON DELETE CASCADE");
+        }
+        mark_migration($pdo,$key);
     }
 
-    $q = $pdo->query("SELECT COUNT(*) FROM information_schema.STATISTICS
-        WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='day_uploads' AND INDEX_NAME='idx_day_uploads_event'");
-    if ((int)$q->fetchColumn() === 0) {
-        $pdo->exec("ALTER TABLE day_uploads ADD INDEX idx_day_uploads_event(event_id)");
-    }
+    $key='20260922_02_wallet_shipping_windows';
+    if(!migration_applied($pdo,$key)){
+        if(!column_exists($pdo,'offer_positions','daily_event_windows_json')){
+            $pdo->exec("ALTER TABLE offer_positions ADD COLUMN daily_event_windows_json LONGTEXT NULL AFTER daily_instructions");
+        }
+        if(!column_exists($pdo,'orders','daily_event_windows_json')){
+            $pdo->exec("ALTER TABLE orders ADD COLUMN daily_event_windows_json LONGTEXT NULL AFTER daily_instructions");
+        }
+        if(!column_exists($pdo,'order_day_events','window_start')){
+            $pdo->exec("ALTER TABLE order_day_events ADD COLUMN window_start TIME NULL AFTER label");
+        }
+        if(!column_exists($pdo,'order_day_events','window_end')){
+            $pdo->exec("ALTER TABLE order_day_events ADD COLUMN window_end TIME NULL AFTER window_start");
+        }
+        if(!column_exists($pdo,'order_day_events','all_day')){
+            $pdo->exec("ALTER TABLE order_day_events ADD COLUMN all_day TINYINT(1) NOT NULL DEFAULT 0 AFTER window_end");
+        }
 
-    $q = $pdo->query("SELECT COUNT(*) FROM information_schema.REFERENTIAL_CONSTRAINTS
-        WHERE CONSTRAINT_SCHEMA=DATABASE() AND TABLE_NAME='day_uploads' AND CONSTRAINT_NAME='fk_day_uploads_event'");
-    if ((int)$q->fetchColumn() === 0) {
-        $pdo->exec("ALTER TABLE day_uploads
-            ADD CONSTRAINT fk_day_uploads_event
-            FOREIGN KEY(event_id) REFERENCES order_day_events(id) ON DELETE CASCADE");
-    }
+        $pdo->exec("ALTER TABLE orders MODIFY status ENUM('precheck','running','shipping','completed','cancelled') NOT NULL DEFAULT 'precheck'");
 
-    $pdo->prepare('INSERT INTO schema_migrations(migration_key) VALUES(?)')->execute([$key]);
+        $pdo->exec("CREATE TABLE IF NOT EXISTS app_settings (
+            setting_key VARCHAR(120) PRIMARY KEY,
+            setting_value LONGTEXT NULL,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+        $pdo->exec("CREATE TABLE IF NOT EXISTS seller_payout_profiles (
+            seller_id BIGINT UNSIGNED PRIMARY KEY,
+            payout_method ENUM('paypal','bank') NULL,
+            paypal_email VARCHAR(190) NULL,
+            bank_holder VARCHAR(190) NULL,
+            bank_iban VARCHAR(80) NULL,
+            bank_bic VARCHAR(40) NULL,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            FOREIGN KEY(seller_id) REFERENCES sellers(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+        $pdo->exec("CREATE TABLE IF NOT EXISTS seller_wallet_entries (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            seller_id BIGINT UNSIGNED NOT NULL,
+            order_id BIGINT UNSIGNED NOT NULL UNIQUE,
+            amount DECIMAL(10,2) NOT NULL,
+            status ENUM('reserved','available','paid','cancelled') NOT NULL DEFAULT 'reserved',
+            payout_method ENUM('paypal','bank') NULL,
+            payout_reference VARCHAR(190) NULL,
+            available_at DATETIME NULL,
+            paid_at DATETIME NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NULL,
+            FOREIGN KEY(seller_id) REFERENCES sellers(id) ON DELETE CASCADE,
+            FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE,
+            INDEX(seller_id,status)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+        $pdo->exec("CREATE TABLE IF NOT EXISTS order_shipments (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            order_id BIGINT UNSIGNED NOT NULL UNIQUE,
+            due_date DATE NOT NULL,
+            address_name VARCHAR(190) NULL,
+            street VARCHAR(190) NULL,
+            postal_code VARCHAR(30) NULL,
+            city VARCHAR(120) NULL,
+            country VARCHAR(120) NULL,
+            extra TEXT NULL,
+            status ENUM('pending','confirmed') NOT NULL DEFAULT 'pending',
+            confirmed_at DATETIME NULL,
+            tracking_number VARCHAR(190) NULL,
+            seller_note TEXT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NULL,
+            FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE,
+            INDEX(status,due_date)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+        mark_migration($pdo,$key);
+    }
 }
