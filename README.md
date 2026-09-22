@@ -134,3 +134,41 @@ Das Portal enthält jetzt zusätzlich eine operative Arbeitszentrale für die t�
 - Versand heute bzw. überfällig – erst wenn das gesamte Angebot tatsächlich versandbereit ist.
 - Ungelesene Nachrichten.
 - Auszahlbare Beträge je Verkäuferin.
+
+
+## Reminder Engine / Cronjob
+Zeitabhängige Erinnerungen werden nicht mehr erst beim Öffnen einer Portal-Seite berechnet. Dafür gibt es einen eigenständigen Cron-Runner.
+
+### Einrichtung
+1. Nach dem Deployment als Plattformverwaltung **Heute → Reminder Engine** öffnen.
+2. Dort wird automatisch eine geschützte Cron-URL erzeugt.
+3. Diese URL bei ALL-INKL als Cronjob hinterlegen.
+4. Empfohlenes Intervall: **alle 10 Minuten**.
+5. Anschließend auf der Reminder-Engine-Seite prüfen, ob **Letzter Erfolg** aktuell ist.
+
+Der HTTP-Cron wird durch einen zufälligen 64-stelligen Token geschützt. Dieser liegt ausschließlich unter:
+`storage/private/.cron-token`
+
+Alternativ kann `cron.php` über PHP-CLI ausgeführt werden; bei einem CLI-Aufruf ist kein Token erforderlich.
+
+Die Engine prüft unter anderem:
+- Nachweisfenster, die innerhalb der nächsten Stunde beginnen,
+- tatsächlich verpasste Nachweisfenster,
+- seit 24 Stunden offene Nachforderungen,
+- fehlende Vorabfotos,
+- seit 24 Stunden offene Duftproben,
+- überfälligen Versand, sobald das gesamte Angebot versandbereit ist.
+
+Parallelstarts werden über eine lokale Lock-Datei verhindert. Im Admin-Bereich werden letzter Start, letzter erfolgreicher Lauf, Status, Fehler und die zuletzt erzeugte Anzahl an Erinnerungen angezeigt.
+
+## Verkäuferinnen-Dashboard als Aufgaben-App
+Die Startseite der Verkäuferin priorisiert jetzt nach Handlungsbedarf:
+- **Jetzt erledigen** als dominante Hauptkarte, wenn ein Nachweisfenster gerade offen ist.
+- Live-Countdown bis zum Ende des aktuell offenen Fensters.
+- Wenn gerade nichts offen ist: Live-Countdown bis zum nächsten Nachweisfenster.
+- Freigegebene Nachreichungen erscheinen sofort als **Jetzt erledigen**, ohne künstliches altes Zeitlimit.
+- **Heute** als Timeline mit erledigten, aktuell offenen, späteren und verpassten Nachweisvorgängen.
+- **Morgen** mit den bereits geplanten Nachweisvorgängen des Folgetages.
+- Nachweise ohne unmittelbaren Handlungsbedarf, Duftproben, Versand und weitere Schritte bleiben darunter unter **Als Nächstes** sichtbar.
+
+Beim Erreichen eines Countdown-Zeitpunkts aktualisiert sich die Dashboard-Seite automatisch, damit der Status von „später“ auf „jetzt fällig“ beziehungsweise anschließend auf „verpasst“ wechselt.
