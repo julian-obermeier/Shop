@@ -98,6 +98,36 @@ function require_login(): array { $u = current_user(); if (!$u) redirect('/login
 function require_admin(): array { $u = require_login(); if ($u['role'] !== 'admin') { http_response_code(403); exit('Zugriff verweigert.'); } return $u; }
 function require_seller(): array { $u = require_login(); if ($u['role'] !== 'seller') { http_response_code(403); exit('Zugriff verweigert.'); } return $u; }
 
+function impersonating_admin(): ?array {
+    $id=(int)($_SESSION['_impersonator_admin_id']??0);
+    if(!$id)return null;
+    $q=db()->prepare('SELECT id,email,name FROM admins WHERE id=? LIMIT 1');
+    $q->execute([$id]);$a=$q->fetch();
+    return $a?:null;
+}
+function is_seller_impersonation(): bool {
+    return ($_SESSION['role']??null)==='seller' && impersonating_admin()!==null;
+}
+function start_seller_impersonation(int $adminId,int $sellerId): void {
+    $q=db()->prepare('SELECT id,active FROM sellers WHERE id=? LIMIT 1');$q->execute([$sellerId]);$s=$q->fetch();
+    if(!$s||(int)$s['active']!==1)throw new RuntimeException('Diese Verkäuferin ist nicht aktiv.');
+    session_regenerate_id(true);
+    $_SESSION['_impersonator_admin_id']=$adminId;
+    $_SESSION['_impersonated_seller_id']=$sellerId;
+    $_SESSION['_impersonation_started_at']=date('Y-m-d H:i:s');
+    $_SESSION['role']='seller';
+    $_SESSION['user_id']=$sellerId;
+}
+function stop_seller_impersonation(): ?int {
+    $adminId=(int)($_SESSION['_impersonator_admin_id']??0);
+    if(!$adminId)return null;
+    unset($_SESSION['_impersonator_admin_id'],$_SESSION['_impersonated_seller_id'],$_SESSION['_impersonation_started_at']);
+    session_regenerate_id(true);
+    $_SESSION['role']='admin';
+    $_SESSION['user_id']=$adminId;
+    return $adminId;
+}
+
 function render(string $title, string $content): void {
     // Every rendered POST form gets a CSRF token automatically. This keeps route views concise
     // while ensuring all state-changing form submissions pass the global CSRF check.
@@ -107,6 +137,7 @@ function render(string $title, string $content): void {
         $content
     ) ?? $content;
     $user = current_user();
+    $impersonator = impersonating_admin();
     $flashes = pull_flashes();
     require APP_ROOT . '/app/View.php';
 }
@@ -712,8 +743,17 @@ function normalized_uploads(string $key): array {
 
 function log_event(?int $offerId, ?int $orderId, string $event, array $payload = []): void {
     $u = current_user();
+    $impersonator=impersonating_admin();
+    if($impersonator){
+        $payload=['impersonated_seller_id'=>(int)($_SESSION['_impersonated_seller_id']??0)]+$payload;
+        $actorRole='admin_impersonation';
+        $actorId=(int)$impersonator['id'];
+    }else{
+        $actorRole=$u['role']??'system';
+        $actorId=$u['id']??null;
+    }
     db()->prepare('INSERT INTO activity_log(actor_role,actor_id,offer_id,order_id,event_type,payload_json) VALUES(?,?,?,?,?,?)')
-      ->execute([$u['role'] ?? 'system', $u['id'] ?? null, $offerId, $orderId, $event, $payload ? json_encode($payload, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES) : null]);
+      ->execute([$actorRole,$actorId,$offerId,$orderId,$event,$payload ? json_encode($payload, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES) : null]);
 }
 
 function sync_order_progress(int $orderId): void {
