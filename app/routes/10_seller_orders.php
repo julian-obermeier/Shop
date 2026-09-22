@@ -19,7 +19,7 @@ if (preg_match('#^/seller/order/(\d+)$#',$path,$m) && $method==='GET') {
     $offerShippingReady=$shipment?offer_ready_for_shipping((int)$o['offer_id']):false;
     $offerShipDue=$shipment?offer_shipping_due_date((int)$o['offer_id']):null;
     $q=db()->prepare('SELECT * FROM seller_wallet_entries WHERE order_id=?');$q->execute([$id]);$wallet=$q->fetch();
-    mark_order_messages_read($id,'seller');$messages=order_messages($id);
+    if(!is_seller_impersonation())mark_order_messages_read($id,'seller');$messages=order_messages($id);
 
     ob_start();?>
     <div class="page-head">
