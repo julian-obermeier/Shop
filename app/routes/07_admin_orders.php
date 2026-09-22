@@ -13,7 +13,7 @@ if ($path==='/admin/reviews' && $method==='GET') {
           AND (SELECT COUNT(*) FROM precheck_uploads p2 WHERE p2.order_id=o.id)>=o.precheck_photo_count
         ORDER BY o.created_at")->fetchAll();
 
-    $submitted=db()->query("SELECT d.*,o.order_no,o.title_snapshot,o.started_at,o.offer_id,o.daily_photo_count,s.first_name,s.last_name
+    $submitted=db()->query("SELECT d.*,o.order_no,o.title_snapshot,o.started_at,o.offer_id,o.daily_photo_count,o.is_final_day_position,s.first_name,s.last_name
         FROM order_days d
         JOIN orders o ON o.id=d.order_id
         JOIN sellers s ON s.id=o.seller_id
@@ -21,7 +21,7 @@ if ($path==='/admin/reviews' && $method==='GET') {
         ORDER BY d.submitted_at,d.id")->fetchAll();
     foreach($submitted as &$x)$x['_missed']=false;unset($x);
 
-    $candidates=db()->query("SELECT d.*,o.order_no,o.title_snapshot,o.started_at,o.offer_id,o.daily_photo_count,s.first_name,s.last_name
+    $candidates=db()->query("SELECT d.*,o.order_no,o.title_snapshot,o.started_at,o.offer_id,o.daily_photo_count,o.is_final_day_position,s.first_name,s.last_name
         FROM order_days d
         JOIN orders o ON o.id=d.order_id
         JOIN sellers s ON s.id=o.seller_id
@@ -74,7 +74,7 @@ if ($path==='/admin/reviews' && $method==='GET') {
     <?php foreach($days as $d):
         $uq=db()->prepare('SELECT u.*,e.label,e.event_no,e.window_start,e.window_end,e.all_day FROM day_uploads u LEFT JOIN order_day_events e ON e.id=u.event_id WHERE u.day_id=? ORDER BY COALESCE(e.event_no,999),u.id');$uq->execute([$d['id']]);$ups=$uq->fetchAll();
         $events=day_events((int)$d['id']);if(!$events)$events=ensure_day_events((int)$d['id'],(int)$d['daily_photo_count']);
-        $scheduled=order_day_date($d['started_at'],$d['day_no']);
+        $scheduled=scheduled_order_day_date($d,(int)$d['day_no']);
     ?>
         <article class="panel review-card">
             <div class="card-top">
@@ -98,6 +98,10 @@ if ($path==='/admin/reviews' && $method==='GET') {
                 <?php endforeach;?>
             </div>
 
+            <?php $finalLocked=!empty($d['is_final_day_position'])&&!final_day_positions_ready_for_review((int)$d['offer_id']);?>
+            <?php if($finalLocked):?>
+                <div class="notice"><strong>Noch nicht final bewertbar.</strong><br>Diese Ein-Tages-Position liegt auf dem gemeinsamen letzten Tag. Zuerst müssen die mehrtägigen Positionen endgültig abgeschlossen sein.</div>
+            <?php else:?>
             <form class="review-actions" method="post" action="<?=e(url('/admin/day/'.$d['id'].'/review'))?>">
                 <input type="hidden" name="return_to" value="reviews">
                 <textarea name="admin_note" rows="3" placeholder="Notiz / Begründung optional"></textarea>
@@ -106,6 +110,7 @@ if ($path==='/admin/reviews' && $method==='GET') {
                     <button class="btn danger" name="decision" value="not_fulfilled">✕ Nicht erfüllt · +1 Tag</button>
                 </div>
             </form>
+            <?php endif;?>
             <a class="text-link" href="<?=e(url('/admin/order/'.$d['order_id']))?>">Auftrag vollständig öffnen →</a>
         </article>
     <?php endforeach;?></div>
@@ -120,7 +125,7 @@ if ($path==='/admin/orders' && $method==='GET') {
     $orders=db()->query("SELECT o.*,s.first_name,s.last_name FROM orders o JOIN sellers s ON s.id=o.seller_id ORDER BY FIELD(o.status,'running','shipping','precheck','completed','cancelled'),o.created_at DESC")->fetchAll();
     ob_start();?>
     <div class="page-head"><div><span class="eyebrow">Aufträge</span><h1>Alle Aufträge</h1></div><a class="btn ghost" href="<?=e(url('/admin/reviews'))?>">Prüfcenter öffnen</a></div>
-    <div class="list"><?php foreach($orders as $o):?><a class="list-row" href="<?=e(url('/admin/order/'.$o['id']))?>"><div><strong><?=e($o['order_no'].' · '.$o['title_snapshot'])?></strong><span><?=e($o['first_name'].' '.$o['last_name'])?> · <?=e($o['successful_days'])?>/<?=e($o['required_success_days'])?> erfolgreich · +<?=e($o['extension_days'])?> Tag(e)<?php if($o['started_at']):?> · Start <?=e(date_de(order_day_date($o['started_at'],1)))?><?php endif;?></span></div><span class="status status-<?=e($o['status'])?>"><?=e(order_status_label($o['status']))?></span></a><?php endforeach;?><?php if(!$orders):?><div class="empty">Noch keine Aufträge vorhanden.</div><?php endif;?></div>
+    <div class="list"><?php foreach($orders as $o):?><a class="list-row" href="<?=e(url('/admin/order/'.$o['id']))?>"><div><strong><?=e($o['order_no'].' · '.$o['title_snapshot'])?></strong><span><?=e($o['first_name'].' '.$o['last_name'])?> · <?=e($o['successful_days'])?>/<?=e($o['required_success_days'])?> erfolgreich · +<?=e($o['extension_days'])?> Tag(e)<?php if($o['started_at']):?> · Start <?=e(date_de(scheduled_order_day_date($o,1)))?><?php endif;?></span></div><span class="status status-<?=e($o['status'])?>"><?=e(order_status_label($o['status']))?></span></a><?php endforeach;?><?php if(!$orders):?><div class="empty">Noch keine Aufträge vorhanden.</div><?php endif;?></div>
     <?php render('Aufträge',ob_get_clean());exit;
 }
 
@@ -138,7 +143,7 @@ if (preg_match('#^/admin/order/(\d+)$#',$path,$m) && $method==='GET') {
     <div class="stats">
         <div class="stat"><span>Erfolgreich</span><strong><?=e($o['successful_days'])?>/<?=e($o['required_success_days'])?></strong></div>
         <div class="stat"><span>Verlängerung</span><strong>+<?=e($o['extension_days'])?></strong></div>
-        <div class="stat"><span>Start</span><strong class="stat-date"><?=e($o['started_at']?date_de(order_day_date($o['started_at'],1)):'–')?></strong></div>
+        <div class="stat"><span>Start</span><strong class="stat-date"><?=e($o['started_at']?date_de(scheduled_order_day_date($o,1)):'–')?></strong></div>
         <div class="stat"><span>Wallet</span><strong class="stat-date"><?=e($wallet?wallet_status_label($wallet['status']):'–')?></strong></div>
     </div>
 
@@ -181,14 +186,20 @@ if (preg_match('#^/admin/order/(\d+)$#',$path,$m) && $method==='GET') {
                 <div class="photo-grid small"><?php foreach($ups as $u):?><figure class="evidence-photo"><figcaption><?=e($u['label']??'Nachweis')?></figcaption><a href="<?=e(url('/file/day/'.$u['id']))?>" target="_blank"><img src="<?=e(url('/file/day/'.$u['id']))?>" alt="<?=e($u['label']??'Tagesnachweis')?>"></a></figure><?php endforeach;?></div>
             </div>
 
-            <?php if($d['status']==='submitted' || $missed):?>
-            <form class="review-actions" method="post" action="<?=e(url('/admin/day/'.$d['id'].'/review'))?>">
-                <textarea name="admin_note" rows="2" placeholder="Notiz optional"></textarea>
-                <div>
-                    <?php if(!$missed):?><button class="btn" name="decision" value="fulfilled">✓ Erfüllt</button><?php endif;?>
-                    <button class="btn danger" name="decision" value="not_fulfilled">✕ Nicht erfüllt · +1 Tag</button>
-                </div>
-            </form>
+            <?php if($d['status']==='submitted' || $missed):
+                $finalLocked=!empty($o['is_final_day_position'])&&!final_day_positions_ready_for_review((int)$o['offer_id']);
+            ?>
+                <?php if($finalLocked):?>
+                    <div class="notice"><strong>Synchronisierte Ein-Tages-Position:</strong><br>Die Bewertung wird freigeschaltet, sobald alle mehrtägigen Positionen dieses Angebots endgültig abgeschlossen sind.</div>
+                <?php else:?>
+                <form class="review-actions" method="post" action="<?=e(url('/admin/day/'.$d['id'].'/review'))?>">
+                    <textarea name="admin_note" rows="2" placeholder="Notiz optional"></textarea>
+                    <div>
+                        <?php if(!$missed):?><button class="btn" name="decision" value="fulfilled">✓ Erfüllt</button><?php endif;?>
+                        <button class="btn danger" name="decision" value="not_fulfilled">✕ Nicht erfüllt · +1 Tag</button>
+                    </div>
+                </form>
+                <?php endif;?>
             <?php endif;?>
         </div>
     <?php endforeach;?></div></section>
