@@ -7,6 +7,7 @@ if (preg_match('#^/admin/offer/(\d+)$#',$path,$m) && $method==='GET') {
     $q=db()->prepare('SELECT * FROM offer_positions WHERE offer_id=? ORDER BY position_no');$q->execute([$id]);$positions=$q->fetchAll();
     $q=db()->prepare('SELECT * FROM orders WHERE offer_id=? ORDER BY id');$q->execute([$id]);$orders=$q->fetchAll();
     $totalComp=array_sum(array_map(static fn(array $p)=>(float)$p['compensation'],$positions));
+    $maxDays=0;foreach($positions as $x)$maxDays=max($maxDays,(int)$x['required_success_days']);
     ob_start(); ?>
     <div class="page-head"><div><span class="eyebrow">Angebot <?=e($o['offer_no'])?></span><h1><?=e($o['title'])?></h1><p><?=e($o['first_name'].' '.$o['last_name'].' · '.$o['email'])?></p></div><span class="status status-<?=e($o['status'])?>"><?=e(offer_status_label($o['status']))?></span></div>
 
@@ -43,7 +44,12 @@ if (preg_match('#^/admin/offer/(\d+)$#',$path,$m) && $method==='GET') {
                 <span><b><?=e($p['precheck_photo_count'])?></b> Vorabfotos</span>
                 <span><b><?=e($p['daily_photo_count'])?></b> Vorgänge / Tag</span>
             </div>
-            <p class="muted"><strong>Vorab:</strong> <?=e($p['precheck_instructions'])?></p>
+            <?php if((int)$p['precheck_photo_count']>0):?>
+                <p class="muted"><strong>Vorab:</strong> <?=e($p['precheck_instructions']?:'Vorabkontrolle erforderlich')?></p>
+            <?php else:?><p class="muted"><strong>Vorab:</strong> Keine Vorabfotos erforderlich.</p><?php endif;?>
+            <?php if($maxDays>1 && (int)$p['required_success_days']===1):?>
+                <div class="notice"><strong>Letzter Gesamttag:</strong> Diese Ein-Tages-Position wird automatisch auf den letzten Tag der längsten Position gelegt und bei Verlängerungen mitverschoben.</div>
+            <?php endif;?>
             <p class="muted"><strong>Je Vorgang:</strong> <?=e($p['daily_instructions'])?></p>
             <div class="window-list">
                 <?php foreach($templates as $t):?><div><strong><?=e($t['label'])?></strong><span><?=e(!empty($t['all_day'])?'Ganztags · 00:00–24:00':$t['start'].'–'.$t['end'].' Uhr')?></span></div><?php endforeach;?>
@@ -57,11 +63,11 @@ if (preg_match('#^/admin/offer/(\d+)$#',$path,$m) && $method==='GET') {
                         <div class="form-grid">
                             <label>Vergütung (€)<input type="number" step="0.01" min="0" name="compensation" value="<?=e($p['compensation'])?>" required></label>
                             <label>Erfolgreiche Tage<input type="number" min="1" max="365" name="required_success_days" value="<?=e($p['required_success_days'])?>" required></label>
-                            <label>Vorabfotos<input type="number" min="1" max="20" name="precheck_photo_count" value="<?=e($p['precheck_photo_count'])?>" required></label>
+                            <label>Vorabfotos<input type="number" min="0" max="20" name="precheck_photo_count" value="<?=e($p['precheck_photo_count'])?>" required></label>
                             <label>Nachweisvorgänge je Tag<input type="number" min="1" max="20" name="daily_photo_count" value="<?=e($p['daily_photo_count'])?>" required><span class="field-hint">Wenn du die Anzahl änderst, werden beim Speichern passende Standardfenster erzeugt.</span></label>
                         </div>
                         <label>Beschreibung<textarea name="description" rows="3"><?=e($p['description']??'')?></textarea></label>
-                        <label>Anforderung Vorabkontrolle<textarea name="precheck_instructions" rows="3" required><?=e($p['precheck_instructions'])?></textarea></label>
+                        <label>Anforderung Vorabkontrolle<textarea name="precheck_instructions" rows="3"><?=e($p['precheck_instructions'])?></textarea><span class="field-hint">Nur nötig, wenn Vorabfotos größer als 0 sind.</span></label>
                         <label>Anforderung je Nachweisvorgang<textarea name="daily_instructions" rows="3" required><?=e($p['daily_instructions'])?></textarea></label>
 
                         <div class="event-config"><h4>Zeitfenster</h4>
@@ -95,11 +101,11 @@ if (preg_match('#^/admin/offer/(\d+)$#',$path,$m) && $method==='GET') {
                 <label>Titel<input name="title" required></label>
                 <label>Vergütung (€)<input type="number" step="0.01" min="0" name="compensation" value="0.00" required></label>
                 <label>Erfolgreiche Durchführungstage<input type="number" min="1" max="365" name="required_success_days" value="1" required></label>
-                <label>Vorabfotos<input type="number" min="1" max="20" name="precheck_photo_count" value="1" required></label>
+                <label>Vorabfotos<input type="number" min="0" max="20" name="precheck_photo_count" value="1" required></label>
                 <label>Nachweisvorgänge je Tag<input type="number" min="1" max="20" name="daily_photo_count" value="3" required><span class="field-hint">Standard bei 3: Morgens, Mittags, Abends.</span></label>
             </div>
             <label>Beschreibung<textarea name="description" rows="3"></textarea></label>
-            <label>Anforderung Vorabkontrolle<textarea name="precheck_instructions" rows="3" required></textarea></label>
+            <label>Anforderung Vorabkontrolle<textarea name="precheck_instructions" rows="3"></textarea><span class="field-hint">Optional. Bei 0 Vorabfotos bleibt dieses Feld leer.</span></label>
             <label>Anforderung je Nachweisvorgang<textarea name="daily_instructions" rows="3" required></textarea></label>
 
             <div class="event-config"><h4>Zeitfenster für die 3 Standardvorgänge</h4>
@@ -125,7 +131,7 @@ if (preg_match('#^/admin/offer/(\d+)$#',$path,$m) && $method==='GET') {
 
     <?php if($orders):?>
     <div class="section-head"><h2>Aufträge aus diesem Angebot</h2></div>
-    <div class="list"><?php foreach($orders as $ord):?><a class="list-row" href="<?=e(url('/admin/order/'.$ord['id']))?>"><div><strong><?=e($ord['order_no'].' · '.$ord['title_snapshot'])?></strong><span><?=e($ord['successful_days'])?>/<?=e($ord['required_success_days'])?> erfolgreiche Tage · +<?=e($ord['extension_days'])?> Verlängerung<?php if($ord['started_at']):?> · Start <?=e(date_de(order_day_date($ord['started_at'],1)))?><?php endif;?></span></div><span class="status status-<?=e($ord['status'])?>"><?=e(order_status_label($ord['status']))?></span></a><?php endforeach;?></div>
+    <div class="list"><?php foreach($orders as $ord):?><a class="list-row" href="<?=e(url('/admin/order/'.$ord['id']))?>"><div><strong><?=e($ord['order_no'].' · '.$ord['title_snapshot'])?></strong><span><?=e($ord['successful_days'])?>/<?=e($ord['required_success_days'])?> erfolgreiche Tage · +<?=e($ord['extension_days'])?> Verlängerung<?php if($ord['started_at']):?> · Termin <?=e(date_de(scheduled_order_day_date($ord,1)))?><?php endif;?></span></div><span class="status status-<?=e($ord['status'])?>"><?=e(order_status_label($ord['status']))?></span></a><?php endforeach;?></div>
     <?php endif;?>
 
     <?php render('Angebot '.$o['offer_no'],ob_get_clean());exit;
@@ -145,9 +151,10 @@ if (preg_match('#^/admin/offer/(\d+)/position$#',$path,$m) && $method==='POST') 
     $q=db()->prepare('SELECT status FROM offers WHERE id=?');$q->execute([$id]);
     if($q->fetchColumn()!=='draft'){flash('error','Positionen können nur im Entwurf geändert werden.');redirect('/admin/offer/'.$id);}
     $days=max(1,min(365,(int)post('required_success_days','1')));
-    $pre=max(1,min(20,(int)post('precheck_photo_count','1')));
+    $pre=max(0,min(20,(int)post('precheck_photo_count','1')));
     $daily=max(1,min(20,(int)post('daily_photo_count','1')));
-    if(!post('title')||!post('precheck_instructions')||!post('daily_instructions')){flash('error','Titel und Nachweisanforderungen sind Pflicht.');redirect('/admin/offer/'.$id);}
+    if(!post('title')||!post('daily_instructions')){flash('error','Titel und tägliche Nachweisanforderung sind Pflicht.');redirect('/admin/offer/'.$id);}
+    if($pre>0 && post('precheck_instructions')===''){flash('error','Wenn Vorabfotos verlangt werden, bitte auch die Vorab-Anforderung angeben.');redirect('/admin/offer/'.$id);}
     try{$templates=posted_event_templates($daily);}catch(Throwable $e){flash('error',$e->getMessage());redirect('/admin/offer/'.$id);}
     $q=db()->prepare('SELECT COALESCE(MAX(position_no),0)+1 FROM offer_positions WHERE offer_id=?');$q->execute([$id]);$pos=(int)$q->fetchColumn();
     db()->prepare('INSERT INTO offer_positions(offer_id,position_no,title,description,compensation,required_success_days,precheck_photo_count,precheck_instructions,daily_photo_count,daily_instructions,daily_event_windows_json) VALUES(?,?,?,?,?,?,?,?,?,?,?)')
@@ -160,9 +167,10 @@ if (preg_match('#^/admin/offer/(\d+)/position/(\d+)/update$#',$path,$m) && $meth
     $q=db()->prepare('SELECT status FROM offers WHERE id=?');$q->execute([$id]);
     if($q->fetchColumn()!=='draft'){flash('error','Nur Entwürfe können geändert werden.');redirect('/admin/offer/'.$id);}
     $days=max(1,min(365,(int)post('required_success_days','1')));
-    $pre=max(1,min(20,(int)post('precheck_photo_count','1')));
+    $pre=max(0,min(20,(int)post('precheck_photo_count','1')));
     $daily=max(1,min(20,(int)post('daily_photo_count','1')));
-    if(!post('title')||!post('precheck_instructions')||!post('daily_instructions')){flash('error','Titel und Nachweisanforderungen sind Pflicht.');redirect('/admin/offer/'.$id);}
+    if(!post('title')||!post('daily_instructions')){flash('error','Titel und tägliche Nachweisanforderung sind Pflicht.');redirect('/admin/offer/'.$id);}
+    if($pre>0 && post('precheck_instructions')===''){flash('error','Wenn Vorabfotos verlangt werden, bitte auch die Vorab-Anforderung angeben.');redirect('/admin/offer/'.$id);}
     try{$templates=posted_event_templates($daily);}catch(Throwable $e){flash('error',$e->getMessage());redirect('/admin/offer/'.$id);}
     db()->prepare('UPDATE offer_positions SET title=?,description=?,compensation=?,required_success_days=?,precheck_photo_count=?,precheck_instructions=?,daily_photo_count=?,daily_instructions=?,daily_event_windows_json=? WHERE id=? AND offer_id=?')
         ->execute([post('title'),post('description')?:null,max(0,(float)post('compensation','0')),$days,$pre,post('precheck_instructions'),$daily,post('daily_instructions'),event_templates_json($templates),$pid,$id]);
