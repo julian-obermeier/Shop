@@ -276,11 +276,26 @@ CREATE TABLE IF NOT EXISTS notifications (
  body TEXT NULL,
  target_url VARCHAR(500) NULL,
  dedupe_key VARCHAR(190) NULL,
+ email_category VARCHAR(40) NULL,
  read_at DATETIME NULL,
+ email_attempted_at DATETIME NULL,
+ email_sent_at DATETIME NULL,
+ email_error VARCHAR(500) NULL,
  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
  UNIQUE KEY uq_notification_dedupe(user_role,user_id,dedupe_key),
  INDEX(user_role,user_id,read_at,created_at),
  INDEX(type,created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS seller_notification_preferences (
+ seller_id BIGINT UNSIGNED PRIMARY KEY,
+ email_offers TINYINT(1) NOT NULL DEFAULT 0,
+ email_evidence TINYINT(1) NOT NULL DEFAULT 0,
+ email_messages TINYINT(1) NOT NULL DEFAULT 0,
+ email_upcoming TINYINT(1) NOT NULL DEFAULT 0,
+ email_payouts TINYINT(1) NOT NULL DEFAULT 0,
+ updated_at DATETIME NULL,
+ FOREIGN KEY(seller_id) REFERENCES sellers(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS order_messages (
