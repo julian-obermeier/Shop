@@ -18,6 +18,7 @@ $icon=static function(string $name): string {
         'logout'=>'<path d="M10 17l5-5-5-5"/><path d="M15 12H3"/><path d="M14 3h5a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-5"/>',
         'more'=>'<circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none"/>',
         'info'=>'<circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><path d="M12 7h.01"/>',
+        'sparkles'=>'<path d="m12 3 1.2 3.3L16.5 7.5l-3.3 1.2L12 12l-1.2-3.3L7.5 7.5l3.3-1.2z"/><path d="m18 13 .8 2.2L21 16l-2.2.8L18 19l-.8-2.2L15 16l2.2-.8z"/><path d="m5 14 .7 1.8 1.8.7-1.8.7L5 19l-.7-1.8-1.8-.7 1.8-.7z"/>',
         'close'=>'<path d="m6 6 12 12M18 6 6 18"/>',
     ];
     return '<svg class="app-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">'.($paths[$name]??$paths['more']).'</svg>';
@@ -51,6 +52,7 @@ if($user){
             ['href'=>'/admin/wallets','label'=>'Wallets','icon'=>'wallet','group'=>'Verwaltung'],
             ['href'=>'/admin/sellers','label'=>'Verkäuferinnen','icon'=>'users','group'=>'Verwaltung'],
             ['href'=>'/admin/notifications','label'=>'Mitteilungen','icon'=>'bell','badge'=>$notificationUnread,'group'=>'System'],
+            ['href'=>'/admin/updates','label'=>'Was ist neu?','icon'=>'sparkles','group'=>'System'],
             ['href'=>'/admin/settings','label'=>'Versandadresse','icon'=>'shipping','group'=>'System'],
             ['href'=>'/admin/cron','label'=>'Reminder Engine','icon'=>'clock','group'=>'System'],
         ];
@@ -68,6 +70,7 @@ if($user){
             ['href'=>'/seller/scent-requests','label'=>'Duftproben','icon'=>'scent','group'=>'Portal'],
             ['href'=>'/seller/wallet','label'=>'Wallet','icon'=>'wallet','group'=>'Portal'],
             ['href'=>'/seller/notifications','label'=>'Mitteilungen','icon'=>'bell','badge'=>$notificationUnread,'group'=>'Portal'],
+            ['href'=>'/seller/whats-new','label'=>'Was ist neu?','icon'=>'sparkles','badge'=>$whatsNewUnread,'group'=>'Portal'],
         ];
         $bottomItems=[
             ['/seller','Übersicht','home',true],
