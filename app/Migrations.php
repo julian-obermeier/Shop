@@ -428,4 +428,37 @@ function run_migrations(): void {
         mark_migration($pdo,$key);
     }
 
+    $key='20260923_13_email_defaults_and_receipt_review';
+    if(!migration_applied($pdo,$key)){
+        $pdo->exec("ALTER TABLE seller_notification_preferences
+            MODIFY email_offers TINYINT(1) NOT NULL DEFAULT 1,
+            MODIFY email_evidence TINYINT(1) NOT NULL DEFAULT 1,
+            MODIFY email_messages TINYINT(1) NOT NULL DEFAULT 1,
+            MODIFY email_upcoming TINYINT(1) NOT NULL DEFAULT 1,
+            MODIFY email_payouts TINYINT(1) NOT NULL DEFAULT 1");
+
+        $pdo->exec("CREATE TABLE IF NOT EXISTS offer_receipt_reviews (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            offer_id BIGINT UNSIGNED NOT NULL UNIQUE,
+            received_at DATETIME NOT NULL,
+            rating TINYINT UNSIGNED NOT NULL,
+            review_text TEXT NULL,
+            recorded_by_admin_id BIGINT UNSIGNED NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NULL,
+            FOREIGN KEY(offer_id) REFERENCES offers(id) ON DELETE CASCADE,
+            FOREIGN KEY(recorded_by_admin_id) REFERENCES admins(id) ON DELETE SET NULL,
+            INDEX(received_at),
+            INDEX(rating)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+        $pdo->exec("UPDATE seller_wallet_entries w
+            JOIN orders o ON o.id=w.order_id
+            LEFT JOIN offer_receipt_reviews rr ON rr.offer_id=o.offer_id
+            SET w.status='reserved',w.available_at=NULL,w.updated_at=NOW()
+            WHERE w.status='available' AND rr.id IS NULL");
+
+        mark_migration($pdo,$key);
+    }
+
 }
