@@ -179,11 +179,11 @@ function stop_seller_impersonation(): ?int {
 
 function seller_notification_preferences(int $sellerId): array {
     $defaults=[
-        'email_offers'=>0,
-        'email_evidence'=>0,
-        'email_messages'=>0,
-        'email_upcoming'=>0,
-        'email_payouts'=>0,
+        'email_offers'=>1,
+        'email_evidence'=>1,
+        'email_messages'=>1,
+        'email_upcoming'=>1,
+        'email_payouts'=>1,
     ];
     $q=db()->prepare('SELECT * FROM seller_notification_preferences WHERE seller_id=?');
     $q->execute([$sellerId]);$row=$q->fetch();
@@ -1027,6 +1027,38 @@ function create_wallet_entry(int $sellerId,int $orderId,float $amount): void {
 }
 function shipment_for_order(int $orderId): ?array {
     $q=db()->prepare('SELECT * FROM order_shipments WHERE order_id=?');$q->execute([$orderId]);$x=$q->fetch();return $x?:null;
+}
+
+function offer_receipt_review(int $offerId): ?array {
+    $q=db()->prepare('SELECT * FROM offer_receipt_reviews WHERE offer_id=? LIMIT 1');
+    $q->execute([$offerId]);$x=$q->fetch();return $x?:null;
+}
+function offer_all_shipments_confirmed(int $offerId): bool {
+    $q=db()->prepare("SELECT COUNT(*) total,
+        SUM(sh.status='confirmed') confirmed_count
+        FROM orders o
+        JOIN order_shipments sh ON sh.order_id=o.id
+        WHERE o.offer_id=? AND o.status<>'cancelled'");
+    $q->execute([$offerId]);$x=$q->fetch()?:[];
+    $total=(int)($x['total']??0);$confirmed=(int)($x['confirmed_count']??0);
+    return $total>0&&$confirmed===$total;
+}
+function release_offer_wallet_after_review(int $offerId): float {
+    if(!offer_receipt_review($offerId))throw new RuntimeException('Empfang und Bewertung wurden noch nicht dokumentiert.');
+    if(!offer_all_shipments_confirmed($offerId))throw new RuntimeException('Der gemeinsame Versand ist noch nicht vollständig bestätigt.');
+
+    $q=db()->prepare("SELECT COALESCE(SUM(w.amount),0)
+        FROM seller_wallet_entries w
+        JOIN orders o ON o.id=w.order_id
+        WHERE o.offer_id=? AND w.status='reserved'");
+    $q->execute([$offerId]);$amount=(float)$q->fetchColumn();
+
+    db()->prepare("UPDATE seller_wallet_entries w
+        JOIN orders o ON o.id=w.order_id
+        SET w.status='available',w.available_at=NOW(),w.updated_at=NOW()
+        WHERE o.offer_id=? AND w.status='reserved'")->execute([$offerId]);
+
+    return $amount;
 }
 
 function offer_ready_for_shipping(int $offerId): bool {
