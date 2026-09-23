@@ -179,7 +179,7 @@ if ($path==='/seller' && $method==='GET') {
     <section class="seller-update-banner">
         <div class="seller-update-icon">✦</div>
         <div class="seller-update-copy">
-            <div class="seller-update-meta"><span>Neu</span><?=e(date('d.m.Y',strtotime($latestUpdate['published_at'])))?></div>
+            <div class="seller-update-meta"><span><?=empty($latestUpdate['seen_at'])?'Neu':'Update'?></span><?=e(date('d.m.Y',strtotime($latestUpdate['published_at'])))?></div>
             <h2><?=e($latestUpdate['title'])?></h2>
             <?php if($latestUpdate['summary']):?><p><?=e($latestUpdate['summary'])?></p><?php endif;?>
         </div>
