@@ -211,3 +211,8 @@
 .notification-email-meta{margin-top:8px;font-size:12px;color:var(--muted)}
 .notification-email-meta .mail-error{color:#b91c1c;font-weight:750}
 @media(max-width:700px){.notification-pref-grid{grid-template-columns:1fr}}
+
+.receipt-review-panel{border-color:#dbeafe}
+.rating-display{display:flex;align-items:center;gap:10px;font-size:26px;letter-spacing:.06em;color:#b7791f;font-weight:900}
+.rating-display span{font-size:13px;letter-spacing:0;color:var(--muted);font-weight:800}
+.seller-receipt-review .rating-display{margin-top:4px}
