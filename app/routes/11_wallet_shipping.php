@@ -167,9 +167,14 @@ if (preg_match('#^/admin/wallets/(\d+)/pay$#',$path,$m) && $method==='POST') {
     db()->beginTransaction();
     try{
         $params=array_merge([$sellerId],$ids);
-        $q=db()->prepare("SELECT * FROM seller_wallet_entries WHERE seller_id=? AND status='available' AND id IN ($marks) FOR UPDATE");
+        $q=db()->prepare("SELECT w.* FROM seller_wallet_entries w
+            JOIN orders o ON o.id=w.order_id
+            JOIN offer_receipt_reviews rr ON rr.offer_id=o.offer_id
+            WHERE w.seller_id=? AND w.status='available' AND w.id IN ($marks)
+              AND rr.received_at IS NOT NULL AND rr.rating BETWEEN 1 AND 5
+            FOR UPDATE");
         $q->execute($params);$entries=$q->fetchAll();
-        if(count($entries)!==count($ids))throw new RuntimeException('Mindestens eine ausgewählte Buchung ist nicht mehr auszahlbar.');
+        if(count($entries)!==count($ids))throw new RuntimeException('Mindestens eine ausgewählte Buchung ist nicht mehr auszahlbar oder wartet noch auf Empfangsbestätigung und Bewertung.');
         $amount=array_sum(array_map(static fn($w)=>(float)$w['amount'],$entries));
         db()->prepare("INSERT INTO payout_batches(seller_id,admin_id,payout_method,amount,reference,note,paid_at) VALUES(?,?,?,?,?,?,?)")
             ->execute([$sellerId,$a['id'],$profile['payout_method'],$amount,$reference,$note,$paidAt]);
@@ -304,7 +309,7 @@ if (preg_match('#^/seller/order/(\d+)/confirm-shipment$#',$path,$m) && $method==
 
     log_event((int)$o['offer_id'],$orderId,'shipment.confirmed_group',['tracking_number'=>$reference]);
     log_event((int)$o['offer_id'],$orderId,'wallet.awaiting_receipt_review',['amount'=>$amount]);
-    notify_admins('shipping','Gemeinsamer Versand bestätigt','Angebot #'.$o['offer_id'].' wurde als versendet bestätigt. '.money($amount).' bleiben vorgemerkt, bis Empfang und Bewertung dokumentiert wurden.','/admin/order/'.$orderId,'shipment-confirmed:'.$o['offer_id']);
+    notify_admins('shipping','Gemeinsamer Versand bestätigt','Angebot #'.$o['offer_id'].' wurde als versendet bestätigt. '.money($amount).' bleiben vorgemerkt, bis Empfang und Bewertung dokumentiert wurden.','/admin/offer/'.$o['offer_id'],'shipment-confirmed:'.$o['offer_id']);
     sync_offer_status((int)$o['offer_id']);
     flash('success','Gemeinsamer Versand bestätigt. Die Vergütung bleibt vorgemerkt, bis Empfang und Bewertung bestätigt wurden.');
     redirect('/seller/order/'.$orderId);
