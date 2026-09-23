@@ -215,7 +215,7 @@ function send_seller_notification_email(int $sellerId,int $notificationId,string
     $host=(string)(parse_url((string)app_config('app.url',''),PHP_URL_HOST)?:'localhost');
     $configuredFrom=trim((string)app_config('mail.from',''));
     $from=filter_var($configuredFrom,FILTER_VALIDATE_EMAIL)?$configuredFrom:'noreply@'.$host;
-    $fromName=str_replace(["\r","\n"],'',trim((string)app_config('mail.from_name','Vermittlungsplattform'))?:'Vermittlungsplattform');
+    $fromName='Vermittlungsplattform';
     $rawSubject='['.$fromName.'] '.$title;
     $subject=function_exists('mb_encode_mimeheader')?mb_encode_mimeheader($rawSubject,'UTF-8','B',"\r\n"):$rawSubject;
     $encodedFromName=function_exists('mb_encode_mimeheader')?mb_encode_mimeheader($fromName,'UTF-8','B',"\r\n"):$fromName;
