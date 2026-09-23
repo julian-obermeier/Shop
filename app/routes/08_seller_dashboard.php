@@ -122,6 +122,7 @@ if ($path==='/seller' && $method==='GET') {
     $q->execute([$s['id']]);$scentRequests=$q->fetchAll();
 
     $wallet=wallet_summary((int)$s['id']);
+    $latestUpdate=seller_latest_undismissed_update((int)$s['id']);
 
     $heroMode='clear';$heroTask=null;$heroTarget=null;
     if($dueNow){
@@ -173,6 +174,21 @@ if ($path==='/seller' && $method==='GET') {
             <span class="task-done-mark">✓</span>
         <?php endif;?>
     </section>
+
+    <?php if($latestUpdate):?>
+    <section class="seller-update-banner">
+        <div class="seller-update-icon">✦</div>
+        <div class="seller-update-copy">
+            <div class="seller-update-meta"><span>Neu</span><?=e(date('d.m.Y',strtotime($latestUpdate['published_at'])))?></div>
+            <h2><?=e($latestUpdate['title'])?></h2>
+            <?php if($latestUpdate['summary']):?><p><?=e($latestUpdate['summary'])?></p><?php endif;?>
+        </div>
+        <div class="seller-update-actions">
+            <form method="post" action="<?=e(url('/seller/update/'.$latestUpdate['id'].'/open'))?>"><button class="btn">Ansehen</button></form>
+            <?php if(!is_seller_impersonation()):?><form method="post" action="<?=e(url('/seller/update/'.$latestUpdate['id'].'/dismiss'))?>"><button class="btn ghost">Schließen</button></form><?php endif;?>
+        </div>
+    </section>
+    <?php endif;?>
 
     <div class="stats">
         <div class="stat"><span>Neue Angebote</span><strong><?=$new?></strong></div>
