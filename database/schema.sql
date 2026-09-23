@@ -289,11 +289,11 @@ CREATE TABLE IF NOT EXISTS notifications (
 
 CREATE TABLE IF NOT EXISTS seller_notification_preferences (
  seller_id BIGINT UNSIGNED PRIMARY KEY,
- email_offers TINYINT(1) NOT NULL DEFAULT 0,
- email_evidence TINYINT(1) NOT NULL DEFAULT 0,
- email_messages TINYINT(1) NOT NULL DEFAULT 0,
- email_upcoming TINYINT(1) NOT NULL DEFAULT 0,
- email_payouts TINYINT(1) NOT NULL DEFAULT 0,
+ email_offers TINYINT(1) NOT NULL DEFAULT 1,
+ email_evidence TINYINT(1) NOT NULL DEFAULT 1,
+ email_messages TINYINT(1) NOT NULL DEFAULT 1,
+ email_upcoming TINYINT(1) NOT NULL DEFAULT 1,
+ email_payouts TINYINT(1) NOT NULL DEFAULT 1,
  updated_at DATETIME NULL,
  FOREIGN KEY(seller_id) REFERENCES sellers(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -310,6 +310,21 @@ CREATE TABLE IF NOT EXISTS order_messages (
  FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE,
  INDEX(order_id,created_at),
  INDEX(sender_role,created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS offer_receipt_reviews (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ offer_id BIGINT UNSIGNED NOT NULL UNIQUE,
+ received_at DATETIME NOT NULL,
+ rating TINYINT UNSIGNED NOT NULL,
+ review_text TEXT NULL,
+ recorded_by_admin_id BIGINT UNSIGNED NULL,
+ created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ updated_at DATETIME NULL,
+ FOREIGN KEY(offer_id) REFERENCES offers(id) ON DELETE CASCADE,
+ FOREIGN KEY(recorded_by_admin_id) REFERENCES admins(id) ON DELETE SET NULL,
+ INDEX(received_at),
+ INDEX(rating)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS payout_batches (
