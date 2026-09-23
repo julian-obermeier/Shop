@@ -192,7 +192,7 @@ Nach der Annahme eines Angebots bleiben die Nachweis-Zeitfenster bewusst adminis
 ## Optionale E-Mail-Benachrichtigungen
 Verkäuferinnen können unter **Mitteilungen → E-Mail-Benachrichtigungen** selbst festlegen, welche Portalereignisse zusätzlich per E-Mail gesendet werden.
 
-Alle Kategorien sind standardmäßig deaktiviert:
+Alle Kategorien sind standardmäßig aktiviert und können von der Verkäuferin einzeln abgewählt werden:
 - **Angebote:** neue, geänderte oder zurückgezogene Angebote.
 - **Foto-/Nachweis-Nachforderungen:** vollständige oder einzelne erneut angeforderte Nachweise.
 - **Nachrichten der Plattform:** neue Auftragsnachrichten.
@@ -214,3 +214,32 @@ Für den technischen Absender wird weiterhin `mail.from` aus `config/app.php` ve
 `'mail'=>['from'=>'noreply@deine-domain.de','from_name'=>'Vermittlungsplattform']`
 
 Hinweis: `mail()` bestätigt nur die Übergabe an das Mail-System des Hostings; eine tatsächliche Zustellung beim Empfänger kann dadurch nicht garantiert werden.
+
+
+## Wallet-Freigabe nach Empfang und Bewertung
+Die Vergütung wird nach der Annahme weiterhin zunächst im Wallet **vorgemerkt**.
+
+Der vollständige Ablauf lautet:
+1. Angebot wird angenommen → Vergütung wird reserviert.
+2. Durchführung wird abgeschlossen.
+3. Gemeinsamer Versand wird durch die Verkäuferin bestätigt.
+4. Die Vergütung bleibt weiterhin **vorgemerkt**.
+5. Der Empfang wird bestätigt und die Inhalte werden mit **1 bis 5 Sternen** bewertet.
+6. Erst danach werden die zugehörigen Wallet-Buchungen **auszahlbar**.
+7. Die Plattform kann anschließend einzelne oder mehrere auszahlbare Buchungen als ausgezahlt dokumentieren.
+
+Die Empfangsbestätigung und Bewertung gelten auf Ebene des gesamten Angebots, damit kombinierte Positionen gemeinsam abgeschlossen werden.
+
+Die Plattformverwaltung erfasst:
+- Empfangsdatum,
+- Bewertung von 1 bis 5 Sternen,
+- optionalen Bewertungstext.
+
+Verkäuferinnen sehen nach dem Versand, dass die Vergütung bis zur Empfangsbestätigung und Bewertung vorgemerkt bleibt. Nach Abschluss sehen sie Empfangsdatum, Sternebewertung und optionalen Bewertungstext.
+
+Die Verkäuferinnenansicht zeigt keine Admin-Identität und stellt keine Verbindung zwischen Plattformverwaltung und Käufer her.
+
+Als zusätzliche Sicherung prüft auch der Auszahlungsvorgang selbst, ob für das jeweilige Angebot eine Empfangsbestätigung und gültige Bewertung vorliegt. Ein bloßer Wallet-Status `available` reicht serverseitig nicht aus.
+
+### Bestehende auszahlbare Beträge bei Einführung
+Beim Einspielen der Migration werden noch nicht ausgezahlte Wallet-Buchungen mit Status `available` wieder auf `reserved` gesetzt, sofern keine Empfangs-/Bewertungsfreigabe existiert. Bereits mit Status `paid` dokumentierte Auszahlungen bleiben unverändert.
