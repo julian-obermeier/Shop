@@ -24,7 +24,18 @@ $icon=static function(string $name): string {
 };
 $isActive=static function(string $href,bool $exact=false) use($currentPath): bool {
     if($exact)return $currentPath===$href;
-    return $currentPath===$href||str_starts_with($currentPath,rtrim($href,'/').'/');
+    if($currentPath===$href||str_starts_with($currentPath,rtrim($href,'/').'/'))return true;
+    $aliases=[
+        '/admin/offers'=>['/admin/offer/'],
+        '/admin/orders'=>['/admin/order/','/admin/evidence/'],
+        '/admin/sellers'=>['/admin/seller/'],
+        '/admin/wallets'=>['/admin/payout/'],
+        '/seller/offers'=>['/seller/offer/'],
+        '/seller/orders'=>['/seller/order/'],
+        '/seller/wallet'=>['/seller/payout/'],
+    ];
+    foreach($aliases[$href]??[] as $prefix)if(str_starts_with($currentPath,$prefix))return true;
+    return false;
 };
 
 $navItems=[];
