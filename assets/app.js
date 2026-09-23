@@ -58,3 +58,40 @@ function updateTaskCountdowns(){
 }
 updateTaskCountdowns();
 setInterval(updateTaskCountdowns,1000);
+
+
+// Mobile app navigation.
+const mobileMenu=document.querySelector('.mobile-more-menu');
+const mobileBackdrop=document.querySelector('.mobile-menu-backdrop');
+const mobileMenuButton=document.querySelector('[data-mobile-menu-open]');
+function setMobileMenu(open){
+  if(!mobileMenu||!mobileBackdrop||!mobileMenuButton)return;
+  mobileMenu.classList.toggle('open',open);
+  mobileMenu.setAttribute('aria-hidden',open?'false':'true');
+  mobileMenuButton.setAttribute('aria-expanded',open?'true':'false');
+  mobileBackdrop.hidden=!open;
+  mobileBackdrop.classList.toggle('open',open);
+  document.body.classList.toggle('mobile-menu-open',open);
+}
+document.addEventListener('click',e=>{
+  if(e.target.closest('[data-mobile-menu-open]')){
+    const open=mobileMenuButton?.getAttribute('aria-expanded')!=='true';
+    setMobileMenu(open);
+    return;
+  }
+  if(e.target.closest('[data-mobile-menu-close]'))setMobileMenu(false);
+});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')setMobileMenu(false);});
+
+// Long page-header explanations stay available, but no longer dominate every screen.
+document.querySelectorAll('.page-head > div > p').forEach(p=>{
+  const text=(p.textContent||'').trim();
+  if(text.length<72||p.closest('.compact-page-help'))return;
+  const details=document.createElement('details');
+  details.className='compact-page-help';
+  const summary=document.createElement('summary');
+  summary.textContent='Hinweise';
+  p.parentNode.insertBefore(details,p);
+  details.append(summary,p);
+  details.closest('.page-head')?.classList.add('help-compacted');
+});
