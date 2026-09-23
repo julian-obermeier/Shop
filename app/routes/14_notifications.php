@@ -20,7 +20,7 @@ if (($path==='/admin/notifications' || $path==='/seller/notifications') && $meth
             <div><h2>E-Mail-Benachrichtigungen</h2><span class="muted">Optional zusätzlich zu den Mitteilungen im Portal</span></div>
             <span class="badge"><?=e($u['email'])?></span>
         </div>
-        <p class="muted">E-Mails werden neutral von der Vermittlungsplattform versendet. Standardmäßig sind alle Kategorien deaktiviert.</p>
+        <p class="muted">E-Mails werden neutral von der Vermittlungsplattform versendet. Standardmäßig sind alle Kategorien aktiviert; du kannst jede Kategorie einzeln abwählen.</p>
         <?php if(is_seller_impersonation()):?>
             <div class="notice">In der Verkäuferinnen-Vorschau können E-Mail-Einstellungen nicht geändert werden.</div>
         <?php else:?>
