@@ -400,4 +400,32 @@ function run_migrations(): void {
         mark_migration($pdo,$key);
     }
 
+    $key='20260923_12_seller_email_preferences';
+    if(!migration_applied($pdo,$key)){
+        $pdo->exec("CREATE TABLE IF NOT EXISTS seller_notification_preferences (
+            seller_id BIGINT UNSIGNED PRIMARY KEY,
+            email_offers TINYINT(1) NOT NULL DEFAULT 0,
+            email_evidence TINYINT(1) NOT NULL DEFAULT 0,
+            email_messages TINYINT(1) NOT NULL DEFAULT 0,
+            email_upcoming TINYINT(1) NOT NULL DEFAULT 0,
+            email_payouts TINYINT(1) NOT NULL DEFAULT 0,
+            updated_at DATETIME NULL,
+            FOREIGN KEY(seller_id) REFERENCES sellers(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+        if(!column_exists($pdo,'notifications','email_category')){
+            $pdo->exec("ALTER TABLE notifications ADD COLUMN email_category VARCHAR(40) NULL AFTER dedupe_key");
+        }
+        if(!column_exists($pdo,'notifications','email_attempted_at')){
+            $pdo->exec("ALTER TABLE notifications ADD COLUMN email_attempted_at DATETIME NULL AFTER read_at");
+        }
+        if(!column_exists($pdo,'notifications','email_sent_at')){
+            $pdo->exec("ALTER TABLE notifications ADD COLUMN email_sent_at DATETIME NULL AFTER email_attempted_at");
+        }
+        if(!column_exists($pdo,'notifications','email_error')){
+            $pdo->exec("ALTER TABLE notifications ADD COLUMN email_error VARCHAR(500) NULL AFTER email_sent_at");
+        }
+        mark_migration($pdo,$key);
+    }
+
 }
