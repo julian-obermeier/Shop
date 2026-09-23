@@ -7,7 +7,7 @@ if (preg_match('#^/admin/order/(\d+)/message$#',$path,$m) && $method==='POST') {
     $q=db()->prepare("SELECT o.id,o.order_no,o.seller_id FROM orders o WHERE o.id=?");$q->execute([$orderId]);$o=$q->fetch();if(!$o)not_found();
     db()->prepare("INSERT INTO order_messages(order_id,sender_role,sender_id,body,read_by_admin_at) VALUES(?,'admin',?,?,NOW())")
         ->execute([$orderId,$a['id'],$body]);
-    notify_seller((int)$o['seller_id'],'message','Neue Nachricht zum Auftrag '.$o['order_no'],$body,'/seller/order/'.$orderId,'message:'.db()->lastInsertId());
+    notify_seller((int)$o['seller_id'],'message','Neue Nachricht zum Auftrag '.$o['order_no'],$body,'/seller/order/'.$orderId,'message:'.db()->lastInsertId(),'messages');
     log_event(null,$orderId,'message.sent',['direction'=>'platform_to_seller']);
     flash('success','Nachricht wurde an die Verkäuferin gesendet.');
     redirect('/admin/order/'.$orderId);
