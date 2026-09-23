@@ -427,6 +427,33 @@ function refresh_due_notifications(array $user): void {
     }
 }
 
+function seller_update_unread_count(int $sellerId): int {
+    $q=db()->prepare("SELECT COUNT(*)
+        FROM platform_updates u
+        LEFT JOIN seller_update_states s ON s.update_id=u.id AND s.seller_id=?
+        WHERE u.active=1 AND u.published_at<=NOW() AND s.seen_at IS NULL");
+    $q->execute([$sellerId]);
+    return (int)$q->fetchColumn();
+}
+function seller_latest_undismissed_update(int $sellerId): ?array {
+    $q=db()->prepare("SELECT u.*,s.seen_at,s.dismissed_at
+        FROM platform_updates u
+        LEFT JOIN seller_update_states s ON s.update_id=u.id AND s.seller_id=?
+        WHERE u.active=1 AND u.published_at<=NOW() AND s.dismissed_at IS NULL
+        ORDER BY u.published_at DESC,u.id DESC LIMIT 1");
+    $q->execute([$sellerId]);
+    $row=$q->fetch();
+    return $row?:null;
+}
+function seller_mark_update_seen(int $sellerId,int $updateId,bool $dismiss=false): void {
+    db()->prepare("INSERT INTO seller_update_states(seller_id,update_id,seen_at,dismissed_at)
+        VALUES(?,?,NOW(),?)
+        ON DUPLICATE KEY UPDATE
+            seen_at=COALESCE(seen_at,NOW()),
+            dismissed_at=IF(VALUES(dismissed_at) IS NULL,dismissed_at,VALUES(dismissed_at))")
+        ->execute([$sellerId,$updateId,$dismiss?date('Y-m-d H:i:s'):null]);
+}
+
 function render(string $title, string $content): void {
     // Every rendered POST form gets a CSRF token automatically. This keeps route views concise
     // while ensuring all state-changing form submissions pass the global CSRF check.
@@ -437,6 +464,7 @@ function render(string $title, string $content): void {
     ) ?? $content;
     $user = current_user();
     $notificationUnread=$user?notification_unread_count($user):0;
+    $whatsNewUnread=($user&&$user['role']==='seller')?seller_update_unread_count((int)$user['id']):0;
     $impersonator = impersonating_admin();
     $flashes = pull_flashes();
     require APP_ROOT . '/app/View.php';
