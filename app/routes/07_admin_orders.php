@@ -439,7 +439,7 @@ if (preg_match('#^/admin/order/(\d+)/reject-precheck$#',$path,$m) && $method==='
     }
     log_event((int)$o['offer_id'],$id,'precheck.rejected',['reason'=>$reason]);
     notify_seller((int)$o['seller_id'],'evidence','Vorabkontrolle erneut erforderlich',$o['order_no'].":
-".$reason,'/seller/order/'.$id,'precheck-rejected:'.$id.':'.time());
+".$reason,'/seller/order/'.$id,'precheck-rejected:'.$id.':'.time(),'evidence');
     flash('success','Vorabkontrolle zurückgewiesen. Die Verkäuferin kann die Fotos neu einreichen.');
     redirect(post('return_to')==='reviews'?'/admin/reviews':'/admin/order/'.$id);
 }
@@ -482,7 +482,7 @@ if (preg_match('#^/admin/day/(\d+)/request-evidence$#',$path,$m) && $method==='P
     notify_seller((int)$d['seller_id'],'evidence','Fehlende Nachweise nachreichen',
         $d['order_no'].' · Tag '.$d['day_no'].($note!==''?":
 ".$note:' wurde zur Nachreichung freigegeben.'),
-        '/seller/order/'.$d['order_id'],'day-evidence-requested:'.$dayId.':'.time());
+        '/seller/order/'.$d['order_id'],'day-evidence-requested:'.$dayId.':'.time(),'evidence');
     flash('success','Die fehlenden Nachweise wurden zur Nachreichung freigegeben.');
     redirect(post('return_to')==='reviews'?'/admin/reviews':'/admin/order/'.$d['order_id']);
 }
