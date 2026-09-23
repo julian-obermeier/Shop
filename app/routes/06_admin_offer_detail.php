@@ -6,6 +6,14 @@ if (preg_match('#^/admin/offer/(\d+)$#',$path,$m) && $method==='GET') {
     $q=db()->prepare("SELECT o.*,s.first_name,s.last_name,s.email FROM offers o JOIN sellers s ON s.id=o.seller_id WHERE o.id=?");$q->execute([$id]);$o=$q->fetch();if(!$o)not_found();
     $q=db()->prepare('SELECT * FROM offer_positions WHERE offer_id=? ORDER BY position_no');$q->execute([$id]);$positions=$q->fetchAll();
     $q=db()->prepare('SELECT * FROM orders WHERE offer_id=? ORDER BY id');$q->execute([$id]);$orders=$q->fetchAll();
+    $receiptReview=offer_receipt_review($id);
+    $allShipmentsConfirmed=$orders?offer_all_shipments_confirmed($id):false;
+    $q=db()->prepare("SELECT
+        COALESCE(SUM(CASE WHEN w.status='reserved' THEN w.amount ELSE 0 END),0) reserved,
+        COALESCE(SUM(CASE WHEN w.status='available' THEN w.amount ELSE 0 END),0) available,
+        COALESCE(SUM(CASE WHEN w.status='paid' THEN w.amount ELSE 0 END),0) paid
+        FROM seller_wallet_entries w JOIN orders x ON x.id=w.order_id WHERE x.offer_id=?");
+    $q->execute([$id]);$offerWallet=$q->fetch()?:['reserved'=>0,'available'=>0,'paid'=>0];
     $editable=in_array($o['status'],['draft','sent'],true);
     $sellers=$editable?db()->query('SELECT id,first_name,last_name,email FROM sellers WHERE active=1 ORDER BY first_name,last_name')->fetchAll():[];
     $totalComp=array_sum(array_map(static fn(array $p)=>(float)$p['compensation'],$positions));
@@ -162,6 +170,56 @@ if (preg_match('#^/admin/offer/(\d+)$#',$path,$m) && $method==='GET') {
     <?php endif;?>
     <div class="section-head"><h2>Aufträge aus diesem Angebot</h2></div>
     <div class="list"><?php foreach($orders as $ord):?><a class="list-row" href="<?=e(url('/admin/order/'.$ord['id']))?>"><div><strong><?=e($ord['order_no'].' · '.$ord['title_snapshot'])?></strong><span><?=e($ord['successful_days'])?>/<?=e($ord['required_success_days'])?> erfolgreiche Tage · +<?=e($ord['extension_days'])?> Verlängerung<?php if($ord['started_at']):?> · Termin <?=e(date_de(scheduled_order_day_date($ord,1)))?><?php endif;?></span></div><span class="status status-<?=e($ord['status'])?>"><?=e(order_status_label($ord['status']))?></span></a><?php endforeach;?></div>
+    <?php endif;?>
+
+    <?php if($orders&&($allShipmentsConfirmed||$receiptReview)):?>
+    <section class="panel receipt-review-panel">
+        <div class="section-head">
+            <div><h2>Empfang & Bewertung</h2><span class="muted">Freigabeschritt für das Wallet des gesamten Angebots</span></div>
+            <?php if($receiptReview):?><span class="status status-fulfilled">Abgeschlossen</span><?php else:?><span class="status status-planned">Ausstehend</span><?php endif;?>
+        </div>
+
+        <?php if($receiptReview):?>
+            <div class="grid two">
+                <div>
+                    <span class="eyebrow">Empfang bestätigt</span>
+                    <h3><?=e(date('d.m.Y',strtotime($receiptReview['received_at'])))?></h3>
+                </div>
+                <div>
+                    <span class="eyebrow">Bewertung</span>
+                    <div class="rating-display"><?=str_repeat('★',(int)$receiptReview['rating'])?><span><?=e($receiptReview['rating'])?>/5</span></div>
+                </div>
+            </div>
+            <?php if($receiptReview['review_text']):?><div class="notice"><strong>Bewertungstext</strong><br><?=nl2br(e($receiptReview['review_text']))?></div><?php endif;?>
+            <div class="notice success"><strong>Wallet-Freigabe erfolgt.</strong><br>Auszahlbar: <?=money($offerWallet['available'])?><?php if((float)$offerWallet['paid']>0):?> · bereits ausgezahlt: <?=money($offerWallet['paid'])?><?php endif;?></div>
+            <details class="inline-editor">
+                <summary>Empfang / Bewertung korrigieren</summary>
+                <form method="post" action="<?=e(url('/admin/offer/'.$id.'/receipt-review'))?>">
+                    <div class="form-grid">
+                        <label>Empfangsdatum<input type="date" name="received_date" max="<?=e(date('Y-m-d'))?>" value="<?=e(substr($receiptReview['received_at'],0,10))?>" required></label>
+                        <label>Bewertung<select name="rating" required><?php for($stars=1;$stars<=5;$stars++):?><option value="<?=$stars?>" <?=(int)$receiptReview['rating']===$stars?'selected':''?>><?=$stars?> von 5 Sternen</option><?php endfor;?></select></label>
+                    </div>
+                    <label>Bewertungstext <span class="muted">(optional)</span><textarea name="review_text" rows="4" maxlength="2000"><?=e($receiptReview['review_text']??'')?></textarea></label>
+                    <button class="btn ghost">Bewertung aktualisieren</button>
+                </form>
+            </details>
+        <?php else:?>
+            <div class="notice warning"><strong>Vergütung noch nicht auszahlbar.</strong><br><?=money($offerWallet['reserved'])?> bleiben vorgemerkt, bis der Empfang bestätigt und die Inhalte bewertet wurden.</div>
+            <form method="post" action="<?=e(url('/admin/offer/'.$id.'/receipt-review'))?>">
+                <div class="form-grid">
+                    <label>Empfangsdatum<input type="date" name="received_date" max="<?=e(date('Y-m-d'))?>" value="<?=e(date('Y-m-d'))?>" required></label>
+                    <label>Bewertung<select name="rating" required><option value="">Bitte wählen</option><?php for($stars=1;$stars<=5;$stars++):?><option value="<?=$stars?>"><?=$stars?> von 5 Sternen</option><?php endfor;?></select></label>
+                </div>
+                <label>Bewertungstext <span class="muted">(optional)</span><textarea name="review_text" rows="4" maxlength="2000" placeholder="Optionaler Inhalt der Bewertung"></textarea></label>
+                <button class="btn">Empfang bestätigen & Bewertung abschließen</button>
+            </form>
+        <?php endif;?>
+    </section>
+    <?php elseif($orders&&!$receiptReview):?>
+        <section class="panel receipt-review-panel">
+            <div class="section-head"><h2>Empfang & Bewertung</h2><span class="status status-planned">Noch nicht möglich</span></div>
+            <p class="muted">Dieser Schritt wird freigeschaltet, sobald der gemeinsame Versand vollständig bestätigt wurde. Bis dahin bleibt die Vergütung vorgemerkt.</p>
+        </section>
     <?php endif;?>
 
     <?php render('Angebot '.$o['offer_no'],ob_get_clean());exit;
