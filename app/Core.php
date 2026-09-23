@@ -213,9 +213,12 @@ function send_seller_notification_email(int $sellerId,int $notificationId,string
     }
 
     $host=(string)(parse_url((string)app_config('app.url',''),PHP_URL_HOST)?:'localhost');
-    $from=(string)app_config('mail.from','noreply@'.$host);
-    $fromName=trim((string)app_config('mail.from_name','Vermittlungsplattform'))?:'Vermittlungsplattform';
-    $subject='['.$fromName.'] '.$title;
+    $configuredFrom=trim((string)app_config('mail.from',''));
+    $from=filter_var($configuredFrom,FILTER_VALIDATE_EMAIL)?$configuredFrom:'noreply@'.$host;
+    $fromName=str_replace(["\r","\n"],'',trim((string)app_config('mail.from_name','Vermittlungsplattform'))?:'Vermittlungsplattform');
+    $rawSubject='['.$fromName.'] '.$title;
+    $subject=function_exists('mb_encode_mimeheader')?mb_encode_mimeheader($rawSubject,'UTF-8','B',"\r\n"):$rawSubject;
+    $encodedFromName=function_exists('mb_encode_mimeheader')?mb_encode_mimeheader($fromName,'UTF-8','B',"\r\n"):$fromName;
     $portalLink=$targetUrl?url($targetUrl):url('/seller/notifications');
 
     $mailBody="Hallo ".$seller['first_name'].",\n\n"
@@ -228,7 +231,7 @@ function send_seller_notification_email(int $sellerId,int $notificationId,string
     $headers=[
         'MIME-Version: 1.0',
         'Content-Type: text/plain; charset=UTF-8',
-        'From: '.$fromName.' <'.$from.'>',
+        'From: '.$encodedFromName.' <'.$from.'>',
     ];
 
     $ok=@mail((string)$seller['email'],$subject,$mailBody,implode("\r\n",$headers));
