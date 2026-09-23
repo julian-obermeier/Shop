@@ -24,7 +24,7 @@ if (preg_match('#^/admin/precheck-upload/(\d+)/request-resubmission$#',$path,$m)
 
     log_event((int)$p['offer_id'],(int)$p['order_id'],'precheck.photo_rejected',['upload_id'=>$uploadId,'reason'=>$reason]);
     notify_seller((int)$p['seller_id'],'evidence','Vorabfoto muss erneut eingereicht werden',
-        $p['order_no'].":\n".$reason,'/seller/order/'.$p['order_id'],'precheck-photo:'.$uploadId.':'.time());
+        $p['order_no'].":\n".$reason,'/seller/order/'.$p['order_id'],'precheck-photo:'.$uploadId.':'.time(),'evidence');
     flash('success','Das einzelne Vorabfoto wurde verworfen und neu angefordert.');
     redirect(post('return_to')==='reviews'?'/admin/reviews':'/admin/order/'.$p['order_id']);
 }
@@ -71,7 +71,7 @@ if (preg_match('#^/admin/event/(\d+)/request-resubmission$#',$path,$m) && $metho
     notify_seller((int)$ev['seller_id'],'evidence','Ein Nachweis muss erneut eingereicht werden',
         $ev['order_no'].' · Tag '.$ev['day_no'].' · '.$ev['label'].":
 ".$reason,
-        '/seller/order/'.$ev['order_id'],'evidence-resubmit:'.$eventId.':'.time());
+        '/seller/order/'.$ev['order_id'],'evidence-resubmit:'.$eventId.':'.time(),'evidence');
     log_event((int)$ev['offer_id'],(int)$ev['order_id'],'evidence_event.resubmission_requested',[
         'event_id'=>$eventId,'day_no'=>(int)$ev['day_no'],'label'=>$ev['label'],'reason'=>$reason
     ]);
