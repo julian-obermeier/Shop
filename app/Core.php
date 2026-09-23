@@ -1034,10 +1034,10 @@ function offer_receipt_review(int $offerId): ?array {
     $q->execute([$offerId]);$x=$q->fetch();return $x?:null;
 }
 function offer_all_shipments_confirmed(int $offerId): bool {
-    $q=db()->prepare("SELECT COUNT(*) total,
-        SUM(sh.status='confirmed') confirmed_count
+    $q=db()->prepare("SELECT COUNT(o.id) total,
+        SUM(CASE WHEN sh.status='confirmed' THEN 1 ELSE 0 END) confirmed_count
         FROM orders o
-        JOIN order_shipments sh ON sh.order_id=o.id
+        LEFT JOIN order_shipments sh ON sh.order_id=o.id
         WHERE o.offer_id=? AND o.status<>'cancelled'");
     $q->execute([$offerId]);$x=$q->fetch()?:[];
     $total=(int)($x['total']??0);$confirmed=(int)($x['confirmed_count']??0);
