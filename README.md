@@ -187,3 +187,30 @@ Nach der Annahme eines Angebots bleiben die Nachweis-Zeitfenster bewusst adminis
 - Die aktuell gültigen Zeitfenster werden zusätzlich im Auftrag und in der zugehörigen Angebotsposition aktualisiert.
 - Jede Änderung erfordert einen Grund, wird im Activity-Log dokumentiert und erzeugt eine Verkäuferinnen-Benachrichtigung.
 - Veraltete ungelesene Frist-/„beginnt bald“-Benachrichtigungen zu den geänderten Fenstern werden entfernt; die Reminder Engine erzeugt anschließend Meldungen passend zu den neuen Zeiten.
+
+
+## Optionale E-Mail-Benachrichtigungen
+Verkäuferinnen können unter **Mitteilungen → E-Mail-Benachrichtigungen** selbst festlegen, welche Portalereignisse zusätzlich per E-Mail gesendet werden.
+
+Alle Kategorien sind standardmäßig deaktiviert:
+- **Angebote:** neue, geänderte oder zurückgezogene Angebote.
+- **Foto-/Nachweis-Nachforderungen:** vollständige oder einzelne erneut angeforderte Nachweise.
+- **Nachrichten der Plattform:** neue Auftragsnachrichten.
+- **Bevorstehende Nachweise:** Erinnerung, wenn das nächste Nachweisfenster innerhalb der nächsten Stunde beginnt.
+- **Auszahlungen:** dokumentierte Auszahlung durch die Plattform.
+
+Die In-App-Mitteilung bleibt immer die primäre Benachrichtigung und wird unabhängig von den E-Mail-Einstellungen angelegt.
+
+Der E-Mail-Versand ist an die jeweilige neue In-App-Mitteilung gekoppelt. Durch den Deduplizierungsschlüssel einer Mitteilung wird bei wiederholten Cronläufen keine identische Erinnerungs-E-Mail mehrfach versendet.
+
+Für Verkäuferinnen-Mails wird der sichtbare Absendername fest als **Vermittlungsplattform** gesetzt. Es wird keine Admin-Identität in Absender, Betreff oder automatischem Nachrichtentext ausgegeben.
+
+Die Zieladresse ist die E-Mail-Adresse des Verkäuferinnenkontos. Versandversuche werden an der Mitteilung protokolliert:
+- Zeitpunkt des Versandversuchs,
+- erfolgreicher Versand über PHP `mail()`,
+- oder ein Versandfehler.
+
+Für den technischen Absender wird weiterhin `mail.from` aus `config/app.php` verwendet. Beispiel:
+`'mail'=>['from'=>'noreply@deine-domain.de','from_name'=>'Vermittlungsplattform']`
+
+Hinweis: `mail()` bestätigt nur die Übergabe an das Mail-System des Hostings; eine tatsächliche Zustellung beim Empfänger kann dadurch nicht garantiert werden.
