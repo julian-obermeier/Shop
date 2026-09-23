@@ -209,7 +209,7 @@ if ($path==='/seller/wallet' && $method==='GET') {
     $q->execute([$s['id']]);$entries=$q->fetchAll();
     $q=db()->prepare("SELECT * FROM payout_batches WHERE seller_id=? ORDER BY paid_at DESC,id DESC");$q->execute([$s['id']]);$batches=$q->fetchAll();
     ob_start();?>
-    <div class="page-head"><div><span class="eyebrow">Wallet</span><h1>Meine Vergütung</h1><p>Vorgemerkt bis zum vollständigen Abschluss inklusive Versand.</p></div></div>
+    <div class="page-head"><div><span class="eyebrow">Wallet</span><h1>Meine Vergütung</h1><p>Vorgemerkt bis Versand, Empfangsbestätigung und Bewertung vollständig abgeschlossen sind.</p></div></div>
     <div class="stats compact">
         <div class="stat"><span>Vorgemerkt</span><strong><?=money($summary['reserved'])?></strong></div>
         <div class="stat"><span>Auszahlbar</span><strong><?=money($summary['available'])?></strong></div>
@@ -228,7 +228,7 @@ if ($path==='/seller/wallet' && $method==='GET') {
                 <p class="field-hint">Die Zahlungsdaten werden verschlüsselt gespeichert und nicht im Klartext in der Datenbank abgelegt.</p>
             </form>
         </section>
-        <section class="panel"><h2>So funktioniert die Wallet</h2><div class="wallet-help"><div><strong>1. Vorgemerkt</strong><span>Bei Annahme eines Angebots wird die Vergütung reserviert.</span></div><div><strong>2. Auszahlbar</strong><span>Nach Durchführung und bestätigtem Versand wird sie freigegeben.</span></div><div><strong>3. Ausgezahlt</strong><span>Die Plattform dokumentiert die externe Zahlung positionsweise oder gesammelt.</span></div></div></section>
+        <section class="panel"><h2>So funktioniert die Wallet</h2><div class="wallet-help"><div><strong>1. Vorgemerkt</strong><span>Bei Annahme eines Angebots wird die Vergütung reserviert.</span></div><div><strong>2. Auszahlbar</strong><span>Nach bestätigtem Versand sowie bestätigtem Empfang und abgeschlossener Bewertung wird sie freigegeben.</span></div><div><strong>3. Ausgezahlt</strong><span>Die Plattform dokumentiert die externe Zahlung positionsweise oder gesammelt.</span></div></div></section>
     </div>
 
     <section class="panel"><div class="section-head"><h2>Auszahlungshistorie</h2><span class="muted"><?=count($batches)?> Auszahlung(en)</span></div><div class="list">
@@ -296,11 +296,6 @@ if (preg_match('#^/seller/order/(\d+)/confirm-shipment$#',$path,$m) && $method==
             ->execute([$reference,$note,$o['offer_id']]);
         db()->prepare("UPDATE orders SET status='completed',completed_at=NOW(),updated_at=NOW()
             WHERE offer_id=? AND status='shipping'")->execute([$o['offer_id']]);
-        db()->prepare("UPDATE seller_wallet_entries w
-            JOIN orders x ON x.id=w.order_id
-            SET w.status='available',w.available_at=NOW(),w.updated_at=NOW()
-            WHERE x.offer_id=? AND w.status='reserved'")
-            ->execute([$o['offer_id']]);
         db()->commit();
     }catch(Throwable $e){
         if(db()->inTransaction())db()->rollBack();
@@ -308,9 +303,9 @@ if (preg_match('#^/seller/order/(\d+)/confirm-shipment$#',$path,$m) && $method==
     }
 
     log_event((int)$o['offer_id'],$orderId,'shipment.confirmed_group',['tracking_number'=>$reference]);
-    log_event((int)$o['offer_id'],$orderId,'wallet.available_group',['amount'=>$amount]);
-    notify_admins('shipping','Gemeinsamer Versand bestätigt','Angebot #'.$o['offer_id'].' wurde von der Verkäuferin als versendet bestätigt. '.money($amount).' sind jetzt auszahlbar.','/admin/order/'.$orderId,'shipment-confirmed:'.$o['offer_id']);
+    log_event((int)$o['offer_id'],$orderId,'wallet.awaiting_receipt_review',['amount'=>$amount]);
+    notify_admins('shipping','Gemeinsamer Versand bestätigt','Angebot #'.$o['offer_id'].' wurde als versendet bestätigt. '.money($amount).' bleiben vorgemerkt, bis Empfang und Bewertung dokumentiert wurden.','/admin/order/'.$orderId,'shipment-confirmed:'.$o['offer_id']);
     sync_offer_status((int)$o['offer_id']);
-    flash('success','Gemeinsamer Versand bestätigt. Das Angebot ist abgeschlossen und die gesamte vorgemerkte Vergütung ist jetzt auszahlbar.');
+    flash('success','Gemeinsamer Versand bestätigt. Die Vergütung bleibt vorgemerkt, bis Empfang und Bewertung bestätigt wurden.');
     redirect('/seller/order/'.$orderId);
 }
