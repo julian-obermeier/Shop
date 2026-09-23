@@ -19,6 +19,7 @@ if (preg_match('#^/seller/order/(\d+)$#',$path,$m) && $method==='GET') {
     $offerShippingReady=$shipment?offer_ready_for_shipping((int)$o['offer_id']):false;
     $offerShipDue=$shipment?offer_shipping_due_date((int)$o['offer_id']):null;
     $q=db()->prepare('SELECT * FROM seller_wallet_entries WHERE order_id=?');$q->execute([$id]);$wallet=$q->fetch();
+    $receiptReview=offer_receipt_review((int)$o['offer_id']);
     if(!is_seller_impersonation())mark_order_messages_read($id,'seller');$messages=order_messages($id);
 
     ob_start();?>
@@ -183,6 +184,25 @@ if (preg_match('#^/seller/order/(\d+)$#',$path,$m) && $method==='GET') {
                 <?php endif;?>
             </div>
         </div>
+        <?php endif;?>
+    </section>
+    <?php endif;?>
+
+    <?php if($shipment&&$shipment['status']==='confirmed'):?>
+    <section class="panel receipt-review-panel seller-receipt-review">
+        <div class="section-head">
+            <div><h2>4. Empfang & Bewertung</h2><span class="muted">Letzter Schritt vor der Wallet-Freigabe</span></div>
+            <?php if($receiptReview):?><span class="status status-fulfilled">Abgeschlossen</span><?php else:?><span class="status status-planned">Ausstehend</span><?php endif;?>
+        </div>
+        <?php if($receiptReview):?>
+            <div class="grid two">
+                <div><span class="eyebrow">Empfang bestätigt</span><h3><?=e(date('d.m.Y',strtotime($receiptReview['received_at'])))?></h3></div>
+                <div><span class="eyebrow">Bewertung</span><div class="rating-display"><?=str_repeat('★',(int)$receiptReview['rating'])?><span><?=e($receiptReview['rating'])?>/5</span></div></div>
+            </div>
+            <?php if($receiptReview['review_text']):?><div class="notice"><strong>Bewertung</strong><br><?=nl2br(e($receiptReview['review_text']))?></div><?php endif;?>
+            <div class="notice success"><strong>Wallet freigegeben.</strong><br>Der Empfang wurde bestätigt und die Bewertung abgeschlossen. Die Vergütung ist jetzt auszahlbar, sofern sie noch nicht ausgezahlt wurde.</div>
+        <?php else:?>
+            <div class="notice warning"><strong>Vergütung bleibt vorgemerkt.</strong><br>Nach dem bestätigten Versand wartet das Angebot noch auf die Empfangsbestätigung des Käufers und die Bewertung der Inhalte. Erst danach wird das Guthaben auszahlbar.</div>
         <?php endif;?>
     </section>
     <?php endif;?>
