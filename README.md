@@ -243,3 +243,31 @@ Als zusätzliche Sicherung prüft auch der Auszahlungsvorgang selbst, ob für da
 
 ### Bestehende auszahlbare Beträge bei Einführung
 Beim Einspielen der Migration werden noch nicht ausgezahlte Wallet-Buchungen mit Status `available` wieder auf `reserved` gesetzt, sofern keine Empfangs-/Bewertungsfreigabe existiert. Bereits mit Status `paid` dokumentierte Auszahlungen bleiben unverändert.
+
+
+## Was ist neu?
+Das Portal besitzt jetzt einen dauerhaften Update-Bereich für Verkäuferinnen.
+
+### Verkäuferinnen
+- Der neueste nicht geschlossene Update-Hinweis erscheint einmalig auf der Startseite direkt unter der aktuellen Aufgabe.
+- Ein Hinweis kann geöffnet oder geschlossen werden.
+- Geschlossene Hinweise bleiben dauerhaft unter **Was ist neu?** im Archiv nachlesbar.
+- Neue ungesehene Hinweise erzeugen einen Zähler an **Was ist neu?** in der Navigation.
+- Beim Öffnen des Archivs gelten veröffentlichte Hinweise als gesehen.
+- In der Admin-Verkäuferinnen-Vorschau werden weder Gelesen- noch Geschlossen-Status verändert.
+
+### Plattformverwaltung
+Unter **System → Was ist neu?** können neue Hinweise veröffentlicht werden.
+Ein Hinweis enthält:
+- Titel,
+- optionale Kurzbeschreibung für die Startseiten-Karte,
+- ausführliche Details.
+
+Veröffentlichte Hinweise können deaktiviert und später wieder aktiviert werden. Deaktivierte Hinweise verschwinden aus dem Verkäuferinnenarchiv, bleiben intern aber erhalten.
+
+Die Verwaltung zeigt pro Hinweis zusätzlich:
+- Veröffentlichungszeitpunkt,
+- Anzahl Verkäuferinnen, die den Hinweis gesehen haben,
+- Anzahl Verkäuferinnen, die die Startseiten-Karte geschlossen haben.
+
+Beim erstmaligen Einspielen der Funktion wird automatisch ein initialer Hinweis **„Neu im Portal“** angelegt, der die zuletzt eingeführten größeren Änderungen zusammenfasst.
