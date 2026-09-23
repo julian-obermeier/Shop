@@ -177,17 +177,82 @@ function stop_seller_impersonation(): ?int {
 }
 
 
-function notify_user(string $role,int $userId,string $type,string $title,?string $body=null,?string $targetUrl=null,?string $dedupeKey=null): void {
-    if(!in_array($role,['admin','seller'],true)||$userId<1)return;
+function seller_notification_preferences(int $sellerId): array {
+    $defaults=[
+        'email_offers'=>0,
+        'email_evidence'=>0,
+        'email_messages'=>0,
+        'email_upcoming'=>0,
+        'email_payouts'=>0,
+    ];
+    $q=db()->prepare('SELECT * FROM seller_notification_preferences WHERE seller_id=?');
+    $q->execute([$sellerId]);$row=$q->fetch();
+    return $row?array_merge($defaults,$row):$defaults;
+}
+function seller_email_preference_enabled(int $sellerId,string $category): bool {
+    $map=[
+        'offers'=>'email_offers',
+        'evidence'=>'email_evidence',
+        'messages'=>'email_messages',
+        'upcoming'=>'email_upcoming',
+        'payouts'=>'email_payouts',
+    ];
+    if(!isset($map[$category]))return false;
+    $prefs=seller_notification_preferences($sellerId);
+    return !empty($prefs[$map[$category]]);
+}
+function send_seller_notification_email(int $sellerId,int $notificationId,string $category,string $title,?string $body,?string $targetUrl): bool {
+    if(!seller_email_preference_enabled($sellerId,$category))return false;
+
+    $q=db()->prepare('SELECT first_name,email,active FROM sellers WHERE id=? LIMIT 1');
+    $q->execute([$sellerId]);$seller=$q->fetch();
+    if(!$seller||(int)$seller['active']!==1||!filter_var((string)$seller['email'],FILTER_VALIDATE_EMAIL)){
+        db()->prepare("UPDATE notifications SET email_attempted_at=NOW(),email_error=? WHERE id=?")
+            ->execute(['Keine gültige aktive Verkäuferinnen-E-Mail-Adresse vorhanden.',$notificationId]);
+        return false;
+    }
+
+    $host=(string)(parse_url((string)app_config('app.url',''),PHP_URL_HOST)?:'localhost');
+    $from=(string)app_config('mail.from','noreply@'.$host);
+    $fromName=trim((string)app_config('mail.from_name','Vermittlungsplattform'))?:'Vermittlungsplattform';
+    $subject='['.$fromName.'] '.$title;
+    $portalLink=$targetUrl?url($targetUrl):url('/seller/notifications');
+
+    $mailBody="Hallo ".$seller['first_name'].",\n\n"
+        .$title."\n\n"
+        .($body?trim($body)."\n\n":'')
+        ."Im Portal öffnen:\n".$portalLink."\n\n"
+        ."Diese Mitteilung wurde automatisch von der Vermittlungsplattform versendet. "
+        ."Deine E-Mail-Einstellungen kannst du jederzeit im Portal unter Mitteilungen ändern.";
+
+    $headers=[
+        'MIME-Version: 1.0',
+        'Content-Type: text/plain; charset=UTF-8',
+        'From: '.$fromName.' <'.$from.'>',
+    ];
+
+    $ok=@mail((string)$seller['email'],$subject,$mailBody,implode("\r\n",$headers));
+    db()->prepare("UPDATE notifications SET email_attempted_at=NOW(),email_sent_at=?,email_error=? WHERE id=?")
+        ->execute([$ok?date('Y-m-d H:i:s'):null,$ok?null:'PHP mail() hat den Versand nicht bestätigt.',$notificationId]);
+    return $ok;
+}
+function notify_user(string $role,int $userId,string $type,string $title,?string $body=null,?string $targetUrl=null,?string $dedupeKey=null,?string $emailCategory=null): ?int {
+    if(!in_array($role,['admin','seller'],true)||$userId<1)return null;
     try{
-        db()->prepare("INSERT INTO notifications(user_role,user_id,type,title,body,target_url,dedupe_key)
-            VALUES(?,?,?,?,?,?,?)")->execute([$role,$userId,$type,$title,$body,$targetUrl,$dedupeKey]);
+        db()->prepare("INSERT INTO notifications(user_role,user_id,type,title,body,target_url,dedupe_key,email_category)
+            VALUES(?,?,?,?,?,?,?,?)")->execute([$role,$userId,$type,$title,$body,$targetUrl,$dedupeKey,$emailCategory]);
+        return (int)db()->lastInsertId();
     }catch(PDOException $e){
         if((string)$e->getCode()!=='23000')throw $e;
+        return null;
     }
 }
-function notify_seller(int $sellerId,string $type,string $title,?string $body=null,?string $targetUrl=null,?string $dedupeKey=null): void {
-    notify_user('seller',$sellerId,$type,$title,$body,$targetUrl,$dedupeKey);
+function notify_seller(int $sellerId,string $type,string $title,?string $body=null,?string $targetUrl=null,?string $dedupeKey=null,?string $emailCategory=null): ?int {
+    $notificationId=notify_user('seller',$sellerId,$type,$title,$body,$targetUrl,$dedupeKey,$emailCategory);
+    if($notificationId&&$emailCategory){
+        send_seller_notification_email($sellerId,$notificationId,$emailCategory,$title,$body,$targetUrl);
+    }
+    return $notificationId;
 }
 function notify_admins(string $type,string $title,?string $body=null,?string $targetUrl=null,?string $dedupeKey=null): void {
     $ids=db()->query('SELECT id FROM admins')->fetchAll(PDO::FETCH_COLUMN);
@@ -198,7 +263,7 @@ function notify_sent_offer_change(int $offerId,string $detail): void {
     if(!$o||$o['status']!=='sent')return;
     notify_seller((int)$o['seller_id'],'offer','Angebot wurde aktualisiert',
         'Das Angebot „'.$o['title'].'“ wurde geändert. '.$detail.' Bitte prüfe vor der Annahme den aktuellen Stand.',
-        '/seller/offer/'.$offerId,'offer-position-change:'.$offerId.':'.microtime(true));
+        '/seller/offer/'.$offerId,'offer-position-change:'.$offerId.':'.microtime(true),'offers');
 }
 function notification_unread_count(array $user): int {
     $q=db()->prepare('SELECT COUNT(*) FROM notifications WHERE user_role=? AND user_id=? AND read_at IS NULL');
