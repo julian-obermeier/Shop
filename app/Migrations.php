@@ -461,4 +461,46 @@ function run_migrations(): void {
         mark_migration($pdo,$key);
     }
 
+    $key='20260923_14_platform_updates';
+    if(!migration_applied($pdo,$key)){
+        $pdo->exec("CREATE TABLE IF NOT EXISTS platform_updates (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            title VARCHAR(190) NOT NULL,
+            summary VARCHAR(500) NULL,
+            body TEXT NOT NULL,
+            active TINYINT(1) NOT NULL DEFAULT 1,
+            published_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            created_by_admin_id BIGINT UNSIGNED NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NULL,
+            FOREIGN KEY(created_by_admin_id) REFERENCES admins(id) ON DELETE SET NULL,
+            INDEX(active,published_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+        $pdo->exec("CREATE TABLE IF NOT EXISTS seller_update_states (
+            seller_id BIGINT UNSIGNED NOT NULL,
+            update_id BIGINT UNSIGNED NOT NULL,
+            seen_at DATETIME NULL,
+            dismissed_at DATETIME NULL,
+            PRIMARY KEY(seller_id,update_id),
+            FOREIGN KEY(seller_id) REFERENCES sellers(id) ON DELETE CASCADE,
+            FOREIGN KEY(update_id) REFERENCES platform_updates(id) ON DELETE CASCADE,
+            INDEX(update_id,dismissed_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+        $count=(int)$pdo->query("SELECT COUNT(*) FROM platform_updates")->fetchColumn();
+        if($count===0){
+            $q=$pdo->prepare("INSERT INTO platform_updates(title,summary,body,active,published_at)
+                VALUES(?,?,?,?,NOW())");
+            $q->execute([
+                'Neu im Portal',
+                'Aufgabenübersicht, E-Mail-Benachrichtigungen, modernes App-Design und neue Wallet-Freigabe.',
+                "Neu hinzugekommen:\n\n• Aufgabenübersicht mit „Jetzt erledigen“, Heute-Timeline und Morgen-Vorschau\n• E-Mail-Benachrichtigungen mit individuellen Einstellungen\n• Neue Sidebar und mobile Bottom-Navigation\n• Weniger Erklärungstext durch kompakte Hinweise\n• Wallet-Freigabe erst nach bestätigtem Empfang und Bewertung\n\nWeitere Änderungen erscheinen künftig gesammelt in diesem Bereich.",
+                1
+            ]);
+        }
+
+        mark_migration($pdo,$key);
+    }
+
 }
