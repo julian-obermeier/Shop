@@ -186,7 +186,7 @@ if (preg_match('#^/admin/wallets/(\d+)/pay$#',$path,$m) && $method==='POST') {
         flash('error',$e->getMessage());redirect('/admin/wallets/'.$sellerId);
     }
     foreach($entries as $w)log_event(null,(int)$w['order_id'],'wallet.paid',['batch_id'=>$batchId,'method'=>$profile['payout_method'],'reference'=>$reference]);
-    notify_seller($sellerId,'payout','Auszahlung dokumentiert',payout_batch_number($batchId,$paidAt).' · '.money($amount).' wurden als ausgezahlt bestätigt.','/seller/wallet','payout:'.$batchId);
+    notify_seller($sellerId,'payout','Auszahlung dokumentiert',payout_batch_number($batchId,$paidAt).' · '.money($amount).' wurden als ausgezahlt bestätigt.','/seller/wallet','payout:'.$batchId,'payouts');
     flash('success',money($amount).' wurden als Auszahlung '.payout_batch_number($batchId,$paidAt).' dokumentiert.');
     redirect('/admin/wallets/'.$sellerId);
 }
