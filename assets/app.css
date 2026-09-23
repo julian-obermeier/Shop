@@ -299,3 +299,38 @@
   .mobile-more-menu nav{grid-template-columns:1fr 1fr}
   .page-head h1{font-size:32px}
 }
+
+
+/* What's new */
+.seller-update-banner{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:16px;margin:0 0 20px;padding:18px 20px;border:1px solid #ddd6fe;border-radius:18px;background:linear-gradient(135deg,#f5f3ff 0%,#fff 68%);box-shadow:0 12px 36px rgba(109,40,217,.07)}
+.seller-update-icon,.update-card-icon{display:grid;place-items:center;width:44px;height:44px;border-radius:14px;background:#ede9fe;color:#6d28d9;font-size:23px;font-weight:900}
+.seller-update-copy h2{margin:2px 0 4px;font-size:19px}
+.seller-update-copy p{margin:0;color:var(--muted);font-size:13px}
+.seller-update-meta,.update-meta{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:11px;font-weight:750}
+.seller-update-meta span,.update-meta span{display:inline-flex;padding:3px 7px;border-radius:999px;background:#7c3aed;color:#fff;font-size:10px;text-transform:uppercase;letter-spacing:.06em}
+.seller-update-actions{display:flex;align-items:center;gap:7px}
+.seller-update-actions form{margin:0}
+.update-archive{display:grid;gap:16px}
+.update-archive-card{margin:0;border-color:#e9d5ff}
+.update-card-head{display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:start}
+.update-card-head h2{margin:2px 0 5px}
+.update-summary{margin:0;color:#475569;font-weight:650}
+.update-body{margin-top:18px;padding-top:17px;border-top:1px solid var(--line);color:#374151;line-height:1.7}
+.update-editor{border-color:#ddd6fe}
+.update-preview{display:flex;align-items:flex-start;gap:11px;padding:13px 0;border-bottom:1px solid var(--line)}
+.update-preview:last-child{border-bottom:0}
+.update-preview-icon{display:grid;place-items:center;width:30px;height:30px;border-radius:9px;background:#f5f3ff;color:#7c3aed;font-weight:900;flex:0 0 auto}
+.update-preview div{display:flex;flex-direction:column}
+.update-preview p{margin:2px 0 0;color:var(--muted);font-size:12px}
+.update-admin-row small{margin-top:4px;color:#64748b}
+.update-admin-actions{display:flex!important;align-items:center;gap:8px;flex-direction:row!important}
+.update-admin-actions form{margin:0}
+@media(max-width:700px){
+  .seller-update-banner{grid-template-columns:auto 1fr;padding:16px}
+  .seller-update-actions{grid-column:1/-1}
+  .seller-update-actions .btn{flex:1}
+  .seller-update-actions form{flex:1}
+  .seller-update-actions button{width:100%}
+  .update-admin-row{align-items:flex-start;flex-direction:column}
+  .update-admin-actions{width:100%}
+}
