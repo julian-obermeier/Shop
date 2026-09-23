@@ -182,8 +182,8 @@ if (preg_match('#^/admin/offer/(\d+)/update$#',$path,$m) && $method==='POST') {
         db()->commit();
         log_event($id,null,'offer.updated',['seller_changed'=>(int)$offer['seller_id']!==$sellerId]);
         if($offer['status']==='sent'){
-            notify_seller($sellerId,'offer','Angebot wurde aktualisiert','Ein bereits übermitteltes Angebot wurde von der Plattform geändert. Bitte prüfe vor der Annahme den aktuellen Stand.','/seller/offer/'.$id,'offer-updated:'.$id.':'.time());
-            if((int)$offer['seller_id']!==$sellerId)notify_seller((int)$offer['seller_id'],'offer','Angebot nicht mehr verfügbar','Das zuvor sichtbare Angebot wurde von der Plattform neu zugeordnet.','/seller/offers','offer-reassigned:'.$id.':'.time());
+            notify_seller($sellerId,'offer','Angebot wurde aktualisiert','Ein bereits übermitteltes Angebot wurde von der Plattform geändert. Bitte prüfe vor der Annahme den aktuellen Stand.','/seller/offer/'.$id,'offer-updated:'.$id.':'.time(),'offers');
+            if((int)$offer['seller_id']!==$sellerId)notify_seller((int)$offer['seller_id'],'offer','Angebot nicht mehr verfügbar','Das zuvor sichtbare Angebot wurde von der Plattform neu zugeordnet.','/seller/offers','offer-reassigned:'.$id.':'.time(),'offers');
         }
         flash('success','Angebot wurde gespeichert. Die Änderungen gelten bis zur Annahme sofort.');
     }catch(Throwable $e){
@@ -317,7 +317,7 @@ if (preg_match('#^/admin/offer/(\d+)/withdraw$#',$path,$m) && $method==='POST') 
 
         db()->commit();
         log_event($id,null,'offer.withdrawn');
-        notify_seller((int)$offer['seller_id'],'offer','Angebot wurde zurückgezogen','Das Angebot „'.$offer['title'].'“ wurde von der Plattform zurückgezogen.','/seller/offers','offer-withdrawn:'.$id.':'.time());
+        notify_seller((int)$offer['seller_id'],'offer','Angebot wurde zurückgezogen','Das Angebot „'.$offer['title'].'“ wurde von der Plattform zurückgezogen.','/seller/offers','offer-withdrawn:'.$id.':'.time(),'offers');
         flash('success','Angebot wurde zurückgezogen. Es ist für die Verkäuferin nicht mehr sichtbar und liegt wieder als Entwurf vor.');
     }catch(Throwable $e){
         if(db()->inTransaction())db()->rollBack();
@@ -334,6 +334,6 @@ if (preg_match('#^/admin/offer/(\d+)/send$#',$path,$m) && $method==='POST') {
     if($status!=='draft'||(int)$c->fetchColumn()<1){flash('error','Das Angebot kann so nicht gesendet werden.');redirect('/admin/offer/'.$id);}
     db()->prepare("UPDATE offers SET status='sent',sent_at=NOW(),updated_at=NOW() WHERE id=?")->execute([$id]);
     log_event($id,null,'offer.sent');
-    notify_seller((int)$offer['seller_id'],'offer','Neues Angebot verfügbar','Die Plattform hat dir das Angebot „'.$offer['title'].'“ übermittelt.','/seller/offer/'.$id,'offer-sent:'.$id.':'.time());
+    notify_seller((int)$offer['seller_id'],'offer','Neues Angebot verfügbar','Die Plattform hat dir das Angebot „'.$offer['title'].'“ übermittelt.','/seller/offer/'.$id,'offer-sent:'.$id.':'.time(),'offers');
     flash('success','Angebot wurde gesendet.');redirect('/admin/offer/'.$id);
 }
