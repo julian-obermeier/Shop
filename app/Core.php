@@ -388,7 +388,7 @@ function refresh_due_notifications(array $user): void {
             $start=!empty($ev['all_day'])?new DateTimeImmutable($date->format('Y-m-d').' 00:00:00'):new DateTimeImmutable($date->format('Y-m-d').' '.substr((string)$ev['window_start'],0,5).':00');
             $seconds=$start->getTimestamp()-$now->getTimestamp();
             if($seconds>=0&&$seconds<=3600){
-                notify_seller($sellerId,'upcoming','Nachweis beginnt bald',$ev['label'].' für '.$ev['order_no'].' beginnt um '.$start->format('H:i').' Uhr.','/seller/order/'.$ev['order_id'],'event-upcoming:'.$ev['id'].':'.$start->format('YmdHi'));
+                notify_seller($sellerId,'upcoming','Nachweis beginnt bald',$ev['label'].' für '.$ev['order_no'].' beginnt um '.$start->format('H:i').' Uhr.','/seller/order/'.$ev['order_id'],'event-upcoming:'.$ev['id'].':'.$start->format('YmdHi'),'upcoming');
             }
 
             $state=event_window_state($ev,$date,$now);
