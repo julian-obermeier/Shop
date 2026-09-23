@@ -11,11 +11,13 @@ if($path==='/seller/whats-new' && $method==='GET'){
         ORDER BY u.published_at DESC,u.id DESC");
     $q->execute([$s['id']]);$updates=$q->fetchAll();
 
-    $mark=db()->prepare("INSERT INTO seller_update_states(seller_id,update_id,seen_at)
-        VALUES(?,?,NOW())
-        ON DUPLICATE KEY UPDATE seen_at=COALESCE(seen_at,NOW())");
-    foreach($updates as $update){
-        if(empty($update['seen_at']))$mark->execute([$s['id'],$update['id']]);
+    if(!is_seller_impersonation()){
+        $mark=db()->prepare("INSERT INTO seller_update_states(seller_id,update_id,seen_at)
+            VALUES(?,?,NOW())
+            ON DUPLICATE KEY UPDATE seen_at=COALESCE(seen_at,NOW())");
+        foreach($updates as $update){
+            if(empty($update['seen_at']))$mark->execute([$s['id'],$update['id']]);
+        }
     }
 
     ob_start();?>
