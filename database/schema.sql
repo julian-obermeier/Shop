@@ -351,6 +351,31 @@ CREATE TABLE IF NOT EXISTS payout_batch_entries (
  FOREIGN KEY(wallet_entry_id) REFERENCES seller_wallet_entries(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS platform_updates (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ title VARCHAR(190) NOT NULL,
+ summary VARCHAR(500) NULL,
+ body TEXT NOT NULL,
+ active TINYINT(1) NOT NULL DEFAULT 1,
+ published_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ created_by_admin_id BIGINT UNSIGNED NULL,
+ created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ updated_at DATETIME NULL,
+ FOREIGN KEY(created_by_admin_id) REFERENCES admins(id) ON DELETE SET NULL,
+ INDEX(active,published_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS seller_update_states (
+ seller_id BIGINT UNSIGNED NOT NULL,
+ update_id BIGINT UNSIGNED NOT NULL,
+ seen_at DATETIME NULL,
+ dismissed_at DATETIME NULL,
+ PRIMARY KEY(seller_id,update_id),
+ FOREIGN KEY(seller_id) REFERENCES sellers(id) ON DELETE CASCADE,
+ FOREIGN KEY(update_id) REFERENCES platform_updates(id) ON DELETE CASCADE,
+ INDEX(update_id,dismissed_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS scent_requests (
  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
  seller_id BIGINT UNSIGNED NOT NULL,
